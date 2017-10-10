@@ -2500,7 +2500,7 @@ return {
       no_mkrc=true,
       vi_def=true,
       varname='p_titleold',
-      defaults={if_true={vi=N_("Thanks for flying Vim")}}
+      defaults={if_true={vi=N_("")}}
     },
     {
       full_name='titlestring',
