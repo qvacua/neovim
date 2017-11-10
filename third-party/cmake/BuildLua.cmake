@@ -63,14 +63,14 @@ if(CLANG_ASAN_UBSAN)
 endif()
 
 set(LUA_CONFIGURE_COMMAND
-  sed -e "/^CC/s@gcc@${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1}@"
+  gsed -e "/^CC/s@gcc@${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1}@"
       -e "/^CFLAGS/s@-O2@${LUA_CFLAGS}@"
       -e "/^MYLDFLAGS/s@$@${LUA_LDFLAGS}@"
       -e "s@-lreadline@@g"
       -e "s@-lhistory@@g"
       -e "s@-lncurses@@g"
       -i ${DEPS_BUILD_DIR}/src/lua/src/Makefile &&
-  sed -e "/#define LUA_USE_READLINE/d"
+  gsed -e "/#define LUA_USE_READLINE/d"
       -i ${DEPS_BUILD_DIR}/src/lua/src/luaconf.h)
 set(LUA_INSTALL_TOP_ARG "INSTALL_TOP=${DEPS_INSTALL_DIR}")
 set(LUA_BUILD_COMMAND
