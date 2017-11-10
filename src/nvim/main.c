@@ -284,7 +284,7 @@ int main(int argc, char **argv)
   setbuf(stdout, NULL);
 
   full_screen = true;
-  
+
 #ifndef CUSTOM_UI
   check_tty(&params);
 #endif
@@ -1255,8 +1255,10 @@ static void check_and_set_isatty(mparm_T *paramp)
   paramp->output_isatty = false;
   paramp->err_isatty = false;
 #else
-  paramp->input_isatty = os_isatty(fileno(stdin));
-  paramp->output_isatty = os_isatty(fileno(stdout));
+  stdin_isatty
+    = paramp->input_isatty = os_isatty(fileno(stdin));
+  stdout_isatty
+    = paramp->output_isatty = os_isatty(fileno(stdout));
   paramp->err_isatty = os_isatty(fileno(stderr));
 #endif
   TIME_MSG("window checked");
