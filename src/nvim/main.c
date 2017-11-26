@@ -1253,7 +1253,6 @@ static void check_and_set_isatty(mparm_T *paramp)
   paramp->output_isatty = false;
   paramp->err_isatty = false;
 #else
-
   stdin_isatty
     = paramp->input_isatty = os_isatty(fileno(stdin));
   stdout_isatty
@@ -1268,6 +1267,7 @@ static void check_and_set_isatty(mparm_T *paramp)
   pty_process_save_termios(tty_fd);
 #endif
   TIME_MSG("window checked");
+#endif
 }
 
 // Sets v:progname and v:progpath. Also modifies $PATH on Windows.
