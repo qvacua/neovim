@@ -570,7 +570,12 @@ static int qf_get_next_file_line(qfstate_T *state)
 {
   size_t growbuflen;
 
+retry:
+  errno = 0;
   if (fgets((char *)IObuff, IOSIZE, state->fd) == NULL) {
+    if (errno == EINTR) {
+        goto retry;
+    }
     return QF_END_OF_INPUT;
   }
 
@@ -590,8 +595,12 @@ static int qf_get_next_file_line(qfstate_T *state)
     growbuflen = state->linelen;
 
     for (;;) {
+      errno = 0;
       if (fgets((char *)state->growbuf + growbuflen,
                 (int)(state->growbufsiz - growbuflen), state->fd) == NULL) {
+        if (errno == EINTR) {
+          continue;
+        }
         break;
       }
       state->linelen = STRLEN(state->growbuf + growbuflen);
@@ -612,9 +621,14 @@ static int qf_get_next_file_line(qfstate_T *state)
     while (discard) {
       // The current line is longer than LINE_MAXLEN, continue reading but
       // discard everything until EOL or EOF is reached.
-      if (fgets((char *)IObuff, IOSIZE, state->fd) == NULL
-          || STRLEN(IObuff) < IOSIZE - 1
-          || IObuff[IOSIZE - 1] == '\n') {
+      errno = 0;
+      if (fgets((char *)IObuff, IOSIZE, state->fd) == NULL) {
+        if (errno == EINTR) {
+          continue;
+        }
+        break;
+      }
+      if (STRLEN(IObuff) < IOSIZE - 1 || IObuff[IOSIZE - 1] == '\n') {
         break;
       }
     }
@@ -2379,7 +2393,8 @@ static void qf_free(qf_info_T *qi, int idx)
 /*
  * qf_mark_adjust: adjust marks
  */
-void qf_mark_adjust(win_T *wp, linenr_T line1, linenr_T line2, long amount, long amount_after)
+bool qf_mark_adjust(win_T *wp, linenr_T line1, linenr_T line2, long amount,
+                    long amount_after)
 {
   int i;
   qfline_T    *qfp;
@@ -2389,11 +2404,12 @@ void qf_mark_adjust(win_T *wp, linenr_T line1, linenr_T line2, long amount, long
   int buf_has_flag = wp == NULL ? BUF_HAS_QF_ENTRY : BUF_HAS_LL_ENTRY;
 
   if (!(curbuf->b_has_qf_entry & buf_has_flag)) {
-    return;
+    return false;
   }
   if (wp != NULL) {
-    if (wp->w_llist == NULL)
-      return;
+    if (wp->w_llist == NULL) {
+      return false;
+    }
     qi = wp->w_llist;
   }
 
@@ -2414,9 +2430,7 @@ void qf_mark_adjust(win_T *wp, linenr_T line1, linenr_T line2, long amount, long
         }
       }
 
-  if (!found_one) {
-    curbuf->b_has_qf_entry &= ~buf_has_flag;
-  }
+  return found_one;
 }
 
 /*

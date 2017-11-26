@@ -73,6 +73,9 @@
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/handle.h"
 #include "nvim/api/private/dispatch.h"
+#ifndef WIN32
+# include "nvim/os/pty_process_unix.h"
+#endif
 
 /* Maximum number of commands from + or -c arguments. */
 #define MAX_ARG_CMDS 10
@@ -103,7 +106,6 @@ typedef struct {
   bool input_isatty;                    // stdin is a terminal
   bool output_isatty;                   // stdout is a terminal
   bool err_isatty;                      // stderr is a terminal
-  bool headless;                        // Do not start the builtin UI.
   int no_swap_file;                     // "-n" argument used
   int use_debug_break_level;
   int window_count;                     /* number of windows to use */
@@ -301,8 +303,8 @@ int main(int argc, char **argv)
   assert(p_ch >= 0 && Rows >= p_ch && Rows - p_ch <= INT_MAX);
   cmdline_row = (int)(Rows - p_ch);
   msg_row = cmdline_row;
-  screenalloc(false);           /* allocate screen buffers */
-  set_init_2(params.headless);
+  screenalloc(false);  // allocate screen buffers
+  set_init_2(headless_mode);
   TIME_MSG("inits 2");
 
   msg_scroll = TRUE;
@@ -314,8 +316,9 @@ int main(int argc, char **argv)
   /* Set the break level after the terminal is initialized. */
   debug_break_level = params.use_debug_break_level;
 
-  bool reading_input = !params.headless && (params.input_isatty
-      || params.output_isatty || params.err_isatty);
+  bool reading_input = !headless_mode
+                       && (params.input_isatty || params.output_isatty
+                           || params.err_isatty);
 
   if (reading_input) {
     // One of the startup commands (arguments, sourced scripts or plugins) may
@@ -441,7 +444,7 @@ int main(int argc, char **argv)
   if (params.edit_type == EDIT_STDIN && !recoverymode)
     read_stdin();
 
-  
+
   if (reading_input && (need_wait_return || msg_didany)) {
     // Since at this point there's no UI instance running yet, error messages
     // would have been printed to stdout. Before starting (which can result in
@@ -450,20 +453,13 @@ int main(int argc, char **argv)
     TIME_MSG("waiting for return");
     wait_return(TRUE);
   }
-  
-  if (!params.headless) {
-    if (msg_didany) {
-      // copied from wait_return()
-      need_wait_return = FALSE;
-      did_wait_return = TRUE;
-      emsg_on_display = FALSE; /* can delete error message now */
-    }
 
+  if (!headless_mode) {
     // Stop reading from input stream, the UI layer will take over now.
     input_stop();
     ui_builtin_start();
   }
-    
+
   setmouse();  // may start using the mouse
   ui_reset_scroll_region();  // In case Rows changed
 
@@ -819,11 +815,14 @@ static void command_line_scan(mparm_T *parmp)
             }
             mch_exit(0);
           } else if (STRICMP(argv[0] + argv_idx, "headless") == 0) {
-            parmp->headless = true;
+            headless_mode = true;
           } else if (STRICMP(argv[0] + argv_idx, "embed") == 0) {
             embedded_mode = true;
-            parmp->headless = true;
-            channel_from_stdio();
+            headless_mode = true;
+            const char *err;
+            if (!channel_from_stdio(true, CALLBACK_READER_INIT, &err)) {
+              abort();
+            }
           } else if (STRNICMP(argv[0] + argv_idx, "literal", 7) == 0) {
 #if !defined(UNIX)
             parmp->literal = TRUE;
@@ -1226,7 +1225,6 @@ static void init_params(mparm_T *paramp, int argc, char **argv)
   memset(paramp, 0, sizeof(*paramp));
   paramp->argc = argc;
   paramp->argv = argv;
-  paramp->headless = false;
   paramp->want_full_screen = true;
   paramp->use_debug_break_level = -1;
   paramp->window_count = -1;
@@ -1255,11 +1253,19 @@ static void check_and_set_isatty(mparm_T *paramp)
   paramp->output_isatty = false;
   paramp->err_isatty = false;
 #else
+
   stdin_isatty
     = paramp->input_isatty = os_isatty(fileno(stdin));
   stdout_isatty
     = paramp->output_isatty = os_isatty(fileno(stdout));
   paramp->err_isatty = os_isatty(fileno(stderr));
+  int tty_fd = paramp->input_isatty
+    ? OS_STDIN_FILENO
+    : (paramp->output_isatty
+       ? OS_STDOUT_FILENO
+       : (paramp->err_isatty ? OS_STDERR_FILENO : -1));
+#ifndef WIN32
+  pty_process_save_termios(tty_fd);
 #endif
   TIME_MSG("window checked");
 }
@@ -1404,7 +1410,7 @@ static void handle_tag(char_u *tagname)
 // When starting in Ex mode and commands come from a file, set Silent mode.
 static void check_tty(mparm_T *parmp)
 {
-  if (parmp->headless) {
+  if (headless_mode) {
     return;
   }
 
