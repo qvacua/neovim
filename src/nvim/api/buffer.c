@@ -884,3 +884,19 @@ static int64_t convert_index(int64_t index)
 {
   return index < 0 ? index - 1 : index;
 }
+
+// CUSTOM_UI
+// buflisted or buftype causes nvim to call set title UI event...
+Dictionary nvim_buf_get_info(Buffer buffer, Error *err)
+  FUNC_API_SINCE(1)
+{
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+  Dictionary rv = ARRAY_DICT_INIT;
+
+  PUT(rv, "filename", STRING_OBJ(nvim_buf_get_name(buffer, err)));
+  PUT(rv, "modified", BOOLEAN_OBJ(buf->b_changed));
+  PUT(rv, "buftype", STRING_OBJ(cstr_to_string((const char *) buf->b_p_bt)));
+  PUT(rv, "buflisted", BOOLEAN_OBJ(buf->b_p_bl));
+
+  return rv;
+}
