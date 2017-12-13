@@ -151,6 +151,7 @@ UI *tui_start(void)
   ui->suspend = tui_suspend;
   ui->set_title = tui_set_title;
   ui->set_icon = tui_set_icon;
+  ui->option_set= tui_option_set;
   ui->event = tui_event;
 
   memset(ui->ui_ext, 0, sizeof(ui->ui_ext));
@@ -1136,6 +1137,14 @@ static void tui_set_icon(UI *ui, String icon)
 {
 }
 
+static void tui_option_set(UI *ui, String name, Object value)
+{
+  if (strequal(name.data, "termguicolors")) {
+    // NB: value for bridge is set in ui_bridge.c
+    ui->rgb = value.data.boolean;
+  }
+}
+
 // NB: if we start to use this, the ui_bridge must be updated
 // to make a copy for the tui thread
 static void tui_event(UI *ui, char *name, Array args, bool *args_consumed)
@@ -1529,7 +1538,7 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
         || iterm || iterm_pretending_xterm
         || teraterm    // per TeraTerm "Supported Control Functions" doco
         // Some linux-type terminals (such as console-terminal-emulator
-        // from the nosh toolset) implement implement the xterm extension.
+        // from the nosh toolset) implement the xterm extension.
         || (linuxvt && (xterm_version || (vte_version > 0) || colorterm)))) {
       data->unibi_ext.set_cursor_style =
         (int)unibi_add_ext_str(ut, "Ss", "\x1b[%p1%d q");
