@@ -6630,6 +6630,7 @@ bool has_event(int event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
     case EVENT_BUFWINENTER:
     case EVENT_BUFWINLEAVE:
     case EVENT_TABENTER:
+    case EVENT_COLORSCHEME:
     case EVENT_BUFREADPOST:
       return true;
   }
@@ -6677,15 +6678,11 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   proftime_T wait_time;
   bool did_save_redobuff = false;
   
-#ifdef CUSTOM_UI
-  custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
-#endif
-  
   /*
    * Quickly return if there are no autocommands for this event or
    * autocommands are blocked.
    */
-  if (first_autopat[(int)event] == NULL || autocmd_blocked > 0)
+  if (!has_event(event) || autocmd_blocked > 0)
     goto BYPASS_AU;
 
   /*
@@ -6733,6 +6730,10 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
              || (autocmd_no_leave
                  && (event == EVENT_WINLEAVE || event == EVENT_BUFLEAVE)))
     goto BYPASS_AU;
+
+#ifdef CUSTOM_UI
+  custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
+#endif
 
   /*
    * Save the autocmd_* variables and info about the current buffer.
