@@ -63,6 +63,7 @@
 
 #ifndef UNIT_TESTING
 #cmakedefine HAVE_JEMALLOC
+#cmakedefine LOG_LIST_ACTIONS
 #endif
 
 #cmakedefine HAVE_BE64TOH
