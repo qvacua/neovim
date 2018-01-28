@@ -147,6 +147,12 @@ void ui_builtin_stop(void)
   UI_CALL(stop);
 }
 
+/// Returns true if UI `ui` is stopped.
+bool ui_is_stopped(UI *ui)
+{
+  return ui->data == NULL;
+}
+
 bool ui_rgb_attached(void)
 {
   for (size_t i = 0; i < ui_count; i++) {
@@ -408,7 +414,7 @@ void ui_start_highlight(int attr_code)
 {
   current_attr_code = attr_code;
 
-  if (!ui_count) {
+  if (!ui_active()) {
     return;
   }
 
@@ -419,7 +425,7 @@ void ui_stop_highlight(void)
 {
   current_attr_code = HL_NORMAL;
 
-  if (!ui_count) {
+  if (!ui_active()) {
     return;
   }
 
