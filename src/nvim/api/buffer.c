@@ -894,8 +894,12 @@ static int64_t convert_index(int64_t index)
 Dictionary nvim_buf_get_info(Buffer buffer, Error *err)
   FUNC_API_SINCE(1)
 {
-  buf_T *buf = find_buffer_by_handle(buffer, err);
   Dictionary rv = ARRAY_DICT_INIT;
+
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+  if (buf == NULL) {
+    return rv;
+  }
 
   PUT(rv, "filename", STRING_OBJ(nvim_buf_get_name(buffer, err)));
   PUT(rv, "modified", BOOLEAN_OBJ(buf->b_changed));
