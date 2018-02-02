@@ -11,7 +11,7 @@ SCRIPTSOURCE := ../../../runtime
 
 export SHELL := sh
 export NVIM_PRG := $(NVIM_PRG)
-export TMPDIR := Xtest-tmpdir
+export TMPDIR := $(abspath ../../../Xtest-tmpdir)
 
 SCRIPTS_DEFAULT = \
            test14.out             \
@@ -52,6 +52,7 @@ NEW_TESTS ?= \
 	    test_diffmode.res \
 	    test_farsi.res \
 	    test_filter_map.res \
+	    test_findfile.res \
 	    test_fnameescape.res \
 	    test_fold.res \
 	    test_ga.res \
@@ -76,6 +77,7 @@ NEW_TESTS ?= \
 	    test_mksession_utf8.res \
 	    test_nested_function.res \
 	    test_normal.res \
+	    test_number.res \
 	    test_options.res \
 	    test_profile.res \
 	    test_quickfix.res \
