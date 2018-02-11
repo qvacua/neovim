@@ -2187,7 +2187,7 @@ return {
       type='number', scope={'global'},
       vi_def=true,
       varname='p_ss',
-      defaults={if_true={vi=0}}
+      defaults={if_true={vi=1}}
     },
     {
       full_name='sidescrolloff', abbreviation='siso',
@@ -2449,7 +2449,7 @@ return {
       full_name='termguicolors', abbreviation='tgc',
       type='bool', scope={'global'},
       vi_def=false,
-      redraw={'everything', 'ui_option'},
+      redraw={'ui_option'},
       varname='p_tgc',
       defaults={if_true={vi=false}}
     },

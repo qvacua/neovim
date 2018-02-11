@@ -61,7 +61,6 @@
 #include "nvim/edit.h"
 #include "nvim/mouse.h"
 #include "nvim/memline.h"
-#include "nvim/mark.h"
 #include "nvim/map.h"
 #include "nvim/misc1.h"
 #include "nvim/move.h"
@@ -376,8 +375,6 @@ void terminal_enter(void)
   // Ensure the terminal is properly sized.
   terminal_resize(s->term, 0, 0);
 
-  checkpcmark();
-  setpcmark();
   int save_state = State;
   s->save_rd = RedrawingDisabled;
   State = TERM_FOCUS;
@@ -592,7 +589,7 @@ void terminal_get_line_attributes(Terminal *term, win_T *wp, int linenr,
     int attr_id = 0;
 
     if (hl_attrs || vt_fg != -1 || vt_bg != -1) {
-      attr_id = get_attr_entry(&(attrentry_T) {
+      attr_id = get_attr_entry(&(HlAttrs) {
         .cterm_ae_attr = (int16_t)hl_attrs,
         .cterm_fg_color = vt_fg_idx,
         .cterm_bg_color = vt_bg_idx,
