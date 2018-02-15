@@ -59,8 +59,8 @@ cp ./.deps/usr/lib/libuv.a ${build_folder_path}/lib
 cp ./.deps/usr/lib/libvterm.a ${build_folder_path}/lib
 
 echo "### Copying libintl"
-cp ./CUSTOM_UI/libintl/include/* ${build_folder_path}/include
-cp ./CUSTOM_UI/libintl/lib/* ${build_folder_path}/lib
+cp ./custom_ui/libintl/include/* ${build_folder_path}/include
+cp ./custom_ui/libintl/lib/* ${build_folder_path}/lib
 pushd ${build_folder_path}/lib
 rm -f libintl.dylib
 ln -f -s libintl.8.dylib libintl.dylib
