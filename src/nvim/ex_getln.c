@@ -194,7 +194,8 @@ static int cmd_showtail;                /* Only show path tail in lists ? */
 
 static int new_cmdpos;          /* position set by set_cmdline_pos() */
 
-static Array cmdline_block;  ///< currently displayed block of context
+/// currently displayed block of context
+static Array cmdline_block = ARRAY_DICT_INIT;
 
 /*
  * Type used by call_user_expand_func
@@ -443,14 +444,8 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
       }
     }
 
-    if (s->gotesc) {           // abandon command line
-      xfree(ccline.cmdbuff);
-      ccline.cmdbuff = NULL;
-      if (msg_scrolled == 0) {
-        compute_cmdrow();
-      }
-      MSG("");
-      redraw_cmdline = true;
+    if (s->gotesc) {
+      abandon_cmdline();
     }
   }
 
@@ -1062,6 +1057,12 @@ static void command_line_next_incsearch(CommandLineState *s, bool next_match)
       // put back on the match
       s->search_start = t;
       (void)decl(&s->search_start);
+    } else if (next_match && s->firstc == '?') {
+      // move just after the current match, so that
+      // when nv_search finishes the cursor will be
+      // put back on the match
+      s->search_start = t;
+      (void)incl(&s->search_start);
     }
     if (lt(t, s->search_start) && next_match) {
       // wrap around
@@ -1549,7 +1550,7 @@ static int command_line_handle_key(CommandLineState *s)
           }
           if (s->c != NUL) {
             if (s->c == s->firstc
-                || vim_strchr((char_u *)(p_magic ? "\\^$.*[" : "\\^$"), s->c)
+                || vim_strchr((char_u *)(p_magic ? "\\~^$.*[" : "\\^$"), s->c)
                 != NULL) {
               // put a backslash before special characters
               stuffcharReadbuff(s->c);
@@ -1673,9 +1674,6 @@ static int command_line_handle_key(CommandLineState *s)
   case Ctrl_G:  // next match
   case Ctrl_T:  // previous match
     if (p_is && !cmd_silent && (s->firstc == '/' || s->firstc == '?')) {
-      if (char_avail()) {
-        return 1;
-      }
       if (ccline.cmdlen != 0) {
         command_line_next_incsearch(s, s->c == Ctrl_G);
       }
@@ -1939,6 +1937,18 @@ static int command_line_changed(CommandLineState *s)
   }
 
   return 1;
+}
+
+/// Abandon the command line.
+static void abandon_cmdline(void)
+{
+  xfree(ccline.cmdbuff);
+  ccline.cmdbuff = NULL;
+  if (msg_scrolled == 0) {
+    compute_cmdrow();
+  }
+  MSG("");
+  redraw_cmdline = true;
 }
 
 /*
@@ -2981,6 +2991,7 @@ void ui_ext_cmdline_block_append(int indent, const char *line)
 void ui_ext_cmdline_block_leave(void)
 {
   api_free_array(cmdline_block);
+  cmdline_block = (Array)ARRAY_DICT_INIT;
   ui_call_cmdline_block_hide();
 }
 
