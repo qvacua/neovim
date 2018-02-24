@@ -2455,6 +2455,7 @@ did_set_string_option (
   int did_chartab = FALSE;
   char_u      **gvarp;
   bool free_oldval = (options[opt_idx].flags & P_ALLOCED);
+  int ft_changed = false;
 
   /* Get the global option to compare with, otherwise we would have to check
    * two values for all local options. */
@@ -3174,6 +3175,8 @@ did_set_string_option (
   } else if (gvarp == &p_ft) {
     if (!valid_filetype(*varp)) {
       errmsg = e_invarg;
+    } else {
+      ft_changed = STRCMP(oldval, *varp) != 0;
     }
   } else if (gvarp == &p_syn) {
     if (!valid_filetype(*varp)) {
@@ -3256,10 +3259,12 @@ did_set_string_option (
       apply_autocmds(EVENT_SYNTAX, curbuf->b_p_syn,
           curbuf->b_fname, TRUE, curbuf);
     } else if (varp == &(curbuf->b_p_ft)) {
-      /* 'filetype' is set, trigger the FileType autocommand */
-      did_filetype = TRUE;
-      apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft,
-          curbuf->b_fname, TRUE, curbuf);
+      // 'filetype' is set, trigger the FileType autocommand
+      if (!(opt_flags & OPT_MODELINE) || ft_changed) {
+        did_filetype = true;
+        apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft,
+                       curbuf->b_fname, true, curbuf);
+      }
     }
     if (varp == &(curwin->w_s->b_p_spl)) {
       char_u fname[200];
@@ -3376,37 +3381,38 @@ skip:
   return NULL;    /* no error */
 }
 
-/*
- * Handle setting 'listchars' or 'fillchars'.
- * Returns error message, NULL if it's OK.
- */
+
+/// Handle setting 'listchars' or 'fillchars'.
+/// Assume monocell characters
+///
+/// @param varp either &p_lcs ('listchars') or &p_fcs ('fillchar')
+/// @return error message, NULL if it's OK.
 static char_u *set_chars_option(char_u **varp)
 {
   int round, i, len, entries;
   char_u      *p, *s;
   int c1, c2 = 0;
   struct charstab {
-    int     *cp;
-    char    *name;
+    int     *cp;    ///< char value
+    char    *name;  ///< char id
+    int     def;    ///< default value
   };
-  static struct charstab filltab[] =
-  {
-    {&fill_stl,     "stl"},
-    {&fill_stlnc,   "stlnc"},
-    {&fill_vert,    "vert"},
-    {&fill_fold,    "fold"},
-    {&fill_diff,    "diff"},
+  static struct charstab filltab[] = {
+    { &fill_stl,     "stl"  , ' '  },
+    { &fill_stlnc,   "stlnc", ' '  },
+    { &fill_vert,    "vert" , 9474 },  // │
+    { &fill_fold,    "fold" , 183  },  // ·
+    { &fill_diff,    "diff" , '-'  },
   };
-  static struct charstab lcstab[] =
-  {
-    {&lcs_eol,      "eol"},
-    {&lcs_ext,      "extends"},
-    {&lcs_nbsp,     "nbsp"},
-    {&lcs_prec,     "precedes"},
-    {&lcs_space,    "space"},
-    {&lcs_tab2,     "tab"},
-    {&lcs_trail,    "trail"},
-    {&lcs_conceal,  "conceal"},
+  static struct charstab lcstab[] = {
+    { &lcs_eol,      "eol",      NUL },
+    { &lcs_ext,      "extends",  NUL },
+    { &lcs_nbsp,     "nbsp",     NUL },
+    { &lcs_prec,     "precedes", NUL },
+    { &lcs_space,    "space",    NUL },
+    { &lcs_tab2,     "tab",      NUL },
+    { &lcs_trail,    "trail",    NUL },
+    { &lcs_conceal,  "conceal",  NUL },
   };
   struct charstab *tab;
 
@@ -3416,20 +3422,29 @@ static char_u *set_chars_option(char_u **varp)
   } else {
     tab = filltab;
     entries = ARRAY_SIZE(filltab);
+    if (*p_ambw == 'd') {
+      // XXX: If ambiwidth=double then "|" and "·" take 2 columns, which is
+      // forbidden (TUI limitation?). Set old defaults.
+      filltab[2].def = '|';
+      filltab[3].def = '-';
+    } else {
+      filltab[2].def = 9474;  // │
+      filltab[3].def = 183;   // ·
+    }
   }
 
-  /* first round: check for valid value, second round: assign values */
-  for (round = 0; round <= 1; ++round) {
+  // first round: check for valid value, second round: assign values
+  for (round = 0; round <= 1; round++) {
     if (round > 0) {
-      /* After checking that the value is valid: set defaults: space for
-       * 'fillchars', NUL for 'listchars' */
-      for (i = 0; i < entries; ++i)
-        if (tab[i].cp != NULL)
-          *(tab[i].cp) = (varp == &p_lcs ? NUL : ' ');
-      if (varp == &p_lcs)
+      // After checking that the value is valid: set defaults
+      for (i = 0; i < entries; i++) {
+        if (tab[i].cp != NULL) {
+          *(tab[i].cp) = tab[i].def;
+        }
+      }
+      if (varp == &p_lcs) {
         lcs_tab1 = NUL;
-      else
-        fill_diff = '-';
+      }
     }
     p = *varp;
     while (*p) {
