@@ -317,15 +317,9 @@ EXTERN int do_profiling INIT(= PROF_NONE);      /* PROF_ values */
 /*
  * The exception currently being thrown.  Used to pass an exception to
  * a different cstack.  Also used for discarding an exception before it is
- * caught or made pending.  Only valid when did_throw is TRUE.
+ * caught or made pending.
  */
 EXTERN except_T *current_exception;
-
-/*
- * did_throw: An exception is being thrown.  Reset when the exception is caught
- * or as long as it is pending in a finally clause.
- */
-EXTERN int did_throw INIT(= FALSE);
 
 /*
  * need_rethrow: set to TRUE when a throw that cannot be handled in do_cmdline()
@@ -416,7 +410,7 @@ EXTERN struct caller_scope {
   scid_T SID;
   uint8_t *sourcing_name, *autocmd_fname, *autocmd_match; 
   linenr_T sourcing_lnum;
-  int autocmd_fname_full, autocmd_bufnr;
+  int autocmd_bufnr;
   void *funccalp;
 } provider_caller_scope;
 EXTERN int provider_call_nesting INIT(= 0);
@@ -872,7 +866,6 @@ EXTERN char_u *last_cmdline INIT(= NULL);      // last command line (for ":)
 EXTERN char_u *repeat_cmdline INIT(= NULL);    // command line for "."
 EXTERN char_u *new_last_cmdline INIT(= NULL);  // new value for last_cmdline
 EXTERN char_u *autocmd_fname INIT(= NULL);     // fname for <afile> on cmdline
-EXTERN int autocmd_fname_full;                 // autocmd_fname is full path
 EXTERN int autocmd_bufnr INIT(= 0);            // fnum for <abuf> on cmdline
 EXTERN char_u *autocmd_match INIT(= NULL);     // name for <amatch> on cmdline
 EXTERN int did_cursorhold INIT(= false);       // set when CursorHold t'gerd
@@ -1155,6 +1148,12 @@ EXTERN char_u e_fnametoolong[] INIT(= N_("E856: Filename too long"));
 EXTERN char_u e_float_as_string[] INIT(= N_("E806: using Float as a String"));
 EXTERN char_u e_autocmd_err[] INIT(=N_(
     "E5500: autocmd has thrown an exception: %s"));
+EXTERN char_u e_cmdmap_err[] INIT(=N_(
+    "E5520: <Cmd> mapping must end with <CR>"));
+EXTERN char_u e_cmdmap_repeated[] INIT(=N_(
+    "E5521: <Cmd> mapping must end with <CR> before second <Cmd>"));
+EXTERN char_u e_cmdmap_key[] INIT(=N_(
+    "E5522: <Cmd> mapping must not include %s key"));
 
 
 EXTERN char top_bot_msg[] INIT(= N_("search hit TOP, continuing at BOTTOM"));

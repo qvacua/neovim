@@ -976,6 +976,10 @@ static int insert_handle_key(InsertState *s)
     multiqueue_process_events(main_loop.events);
     break;
 
+  case K_COMMAND:       // some command
+    do_cmdline(NULL, getcmdkeycmd, NULL, 0);
+    break;
+
   case K_HOME:        // <Home>
   case K_KHOME:
   case K_S_HOME:
