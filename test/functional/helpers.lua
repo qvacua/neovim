@@ -306,10 +306,7 @@ local function retry(max, max_ms, fn)
     end
     luv.update_time()  -- Update cached value of luv.now() (libuv: uv_now()).
     if (max and tries >= max) or (luv.now() - start_time > timeout) then
-      if type(result) == "string" then
-        result = "\nretry() attempts: "..tostring(tries).."\n"..result
-      end
-      error(result)
+      error("\nretry() attempts: "..tostring(tries).."\n"..tostring(result))
     end
     tries = tries + 1
   end
@@ -427,7 +424,7 @@ end
 local function set_shell_powershell()
   source([[
     set shell=powershell shellquote=( shellpipe=\| shellredir=> shellxquote=
-    set shellcmdflag=-NoLogo\ -NoProfile\ -ExecutionPolicy\ RemoteSigned\ -Command
+    let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command Remove-Item -Force alias:sleep;'
   ]])
 end
 
