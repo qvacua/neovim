@@ -265,7 +265,7 @@ static void process_close_event(void **argv)
   if (proc->type == kProcessTypePty) {
     xfree(((PtyProcess *)proc)->term_name);
   }
-  if (proc->cb) {
+  if (proc->cb) {  // "on_exit" for jobstart(). See channel_job_start().
     proc->cb(proc, proc->status, proc->data);
   }
 }
@@ -356,7 +356,7 @@ static void flush_stream(Process *proc, Stream *stream)
     }
 
     // Stream can be closed if it is empty.
-    if (num_bytes == stream->num_bytes) {
+    if (num_bytes == stream->num_bytes) {  // -V547
       if (stream->read_cb && !stream->did_eof) {
         // Stream callback could miss EOF handling if a child keeps the stream
         // open. But only send EOF if we haven't already.

@@ -1200,7 +1200,7 @@ Dictionary nvim_parse_expression(String expr, String flags, Boolean highlight,
           .node_p = &node->next,
           .ret_node_p = cur_item.ret_node_p + 1,
         }));
-      } else if (node != NULL) {
+      } else {
         kv_drop(ast_conv_stack, 1);
         ret_node->items[ret_node->size++] = (KeyValuePair) {
           .key = STATIC_CSTR_TO_STRING("type"),
@@ -1471,6 +1471,17 @@ Dictionary nvim__id_dictionary(Dictionary dct)
 Float nvim__id_float(Float flt)
 {
   return flt;
+}
+
+/// Gets internal stats.
+///
+/// @return Map of various internal stats.
+Dictionary nvim__stats(void)
+{
+  Dictionary rv = ARRAY_DICT_INIT;
+  PUT(rv, "fsync", INTEGER_OBJ(g_stats.fsync));
+  PUT(rv, "redraw", INTEGER_OBJ(g_stats.redraw));
+  return rv;
 }
 
 /// Gets a list of dictionaries representing attached UIs.
