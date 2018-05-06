@@ -240,8 +240,8 @@ describe('Screen', function()
     end)
   end)
 
-  describe('tabnew', function()
-    it('creates a new buffer', function()
+  describe('tabs', function()
+    it('tabnew creates a new buffer', function()
       command('sp')
       command('vsp')
       command('vsp')
@@ -296,6 +296,62 @@ describe('Screen', function()
         {0:~                                                    }|
         {0:~                                                    }|
         {3:[No Name] [+]                                        }|
+                                                             |
+      ]])
+    end)
+
+    it('tabline is redrawn after messages', function()
+      command('tabnew')
+      screen:expect([[
+        {4: [No Name] }{2: [No Name] }{3:                              }{4:X}|
+        ^                                                     |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]])
+
+      feed(':echo "'..string.rep('x\\n', 11)..'"<cr>')
+      screen:expect([[
+        {1:                                                     }|
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+        x                                                    |
+                                                             |
+        {7:Press ENTER or type command to continue}^              |
+      ]])
+
+      feed('<cr>')
+      screen:expect([[
+        {4: [No Name] }{2: [No Name] }{3:                              }{4:X}|
+        ^                                                     |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
                                                              |
       ]])
     end)
@@ -644,5 +700,44 @@ describe('Screen', function()
         TEST                                                 |
       ]])
     end)
+  end)
+
+  -- Regression test for #8357
+  it('does not have artifacts after temporary chars in insert mode', function()
+    command('inoremap jk <esc>')
+    feed('ifooj')
+    screen:expect([[
+      foo^j                                                 |
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {2:-- INSERT --}                                         |
+    ]])
+    feed('k')
+    screen:expect([[
+      fo^o                                                  |
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+      {0:~                                                    }|
+                                                           |
+    ]])
   end)
 end)

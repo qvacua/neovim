@@ -309,6 +309,9 @@ void update_screen(int type)
         if (wp->w_winrow + wp->w_height + wp->w_status_height > valid) {
           wp->w_redr_status = true;
         }
+        if (valid == 0) {
+          redraw_tabline = true;
+        }
       }
     } else if (msg_scrolled > Rows - 5) {  // clearing is faster
       type = CLEAR;
@@ -5307,7 +5310,9 @@ void screen_getbytes(int row, int col, char_u *bytes, int *attrp)
     bytes[0] = ScreenLines[off];
     bytes[1] = NUL;
 
-    bytes[utfc_char2bytes(off, bytes)] = NUL;
+    if (ScreenLinesUC[off] != 0) {
+      bytes[utfc_char2bytes(off, bytes)] = NUL;
+    }
   }
 }
 
