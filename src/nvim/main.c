@@ -1757,7 +1757,7 @@ static bool do_user_initialization(void)
   FUNC_ATTR_WARN_UNUSED_RESULT
 {
   bool do_exrc = p_exrc;
-  if (process_env("VIMINIT", true) == OK) {
+  if (process_env("VIMINIT") == OK) {
     do_exrc = p_exrc;
     return do_exrc;
   }
@@ -1802,7 +1802,7 @@ static bool do_user_initialization(void)
     } while (iter != NULL);
     xfree(config_dirs);
   }
-  if (process_env("EXINIT", false) == OK) {
+  if (process_env("EXINIT") == OK) {
     do_exrc = p_exrc;
     return do_exrc;
   }
@@ -1866,17 +1866,14 @@ static void source_startup_scripts(const mparm_T *const parmp)
 /// Get an environment variable, and execute it as Ex commands.
 ///
 /// @param env         environment variable to execute
-/// @param is_viminit  when true, called for VIMINIT
 ///
 /// @return FAIL if the environment variable was not executed,
 ///         OK otherwise.
-static int process_env(char *env, bool is_viminit)
+static int process_env(char *env)
+  FUNC_ATTR_NONNULL_ALL
 {
   const char *initstr = os_getenv(env);
   if (initstr != NULL) {
-    if (is_viminit) {
-      vimrc_found(NULL, NULL);
-    }
     char_u *save_sourcing_name = sourcing_name;
     linenr_T save_sourcing_lnum = sourcing_lnum;
     sourcing_name = (char_u *)env;
