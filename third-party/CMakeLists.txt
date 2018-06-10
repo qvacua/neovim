@@ -45,8 +45,10 @@ option(USE_BUNDLED_LUA "Use the bundled version of lua." OFF)
 
 if(USE_BUNDLED AND MSVC)
   option(USE_BUNDLED_GETTEXT "Use the bundled version of gettext." ON)
+  option(USE_BUNDLED_LIBICONV "Use the bundled version of libiconv." ON)
 else()
   option(USE_BUNDLED_GETTEXT "Use the bundled version of gettext." OFF)
+  option(USE_BUNDLED_LIBICONV "Use the bundled version of libiconv." OFF)
 endif()
 
 option(USE_EXISTING_SRC_DIR "Skip download of deps sources in case of existing source directory." OFF)
@@ -127,8 +129,8 @@ set(LUA_URL https://www.lua.org/ftp/lua-5.1.5.tar.gz)
 set(LUA_SHA256 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333)
 
 # NOTE: Version must match LUAROCKS_VERSION in third-party/cmake/BuildLuarocks.cmake
-set(LUAROCKS_URL https://github.com/luarocks/luarocks/archive/v2.4.3.tar.gz)
-set(LUAROCKS_SHA256 ea1881d6954f2a98c34f93674571c8f0cbdbc28dedb3fa3cb56b6a91886d1a99)
+set(LUAROCKS_URL https://github.com/luarocks/luarocks/archive/v2.4.4.tar.gz)
+set(LUAROCKS_SHA256 9eb3d0738fd02ad8bf39bcedccac4e83e9b5fff2bcca247c3584b925b2075d9c)
 
 set(UNIBILIUM_URL https://github.com/mauke/unibilium/archive/v2.0.0.tar.gz)
 set(UNIBILIUM_SHA256 78997d38d4c8177c60d3d0c1aa8c53fd0806eb21825b7b335b1768d7116bc1c1)
@@ -157,7 +159,6 @@ set(WINGUI_SHA256 260efc686423e2529360b6a45c8e241fbbf276c8de6b04d44f45ab5b6fe8df
 
 set(WIN32YANK_X86_URL https://github.com/equalsraf/win32yank/releases/download/v0.0.4/win32yank-x86.zip)
 set(WIN32YANK_X86_SHA256 62f34e5a46c5d4a7b3f3b512e1ff7b77fedd432f42581cbe825233a996eed62c)
-
 set(WIN32YANK_X86_64_URL https://github.com/equalsraf/win32yank/releases/download/v0.0.4/win32yank-x64.zip)
 set(WIN32YANK_X86_64_SHA256 33a747a92da60fb65e668edbf7661d3d902411a2d545fe9dc08623cecd142a20)
 
@@ -166,6 +167,9 @@ set(WINPTY_SHA256 35a48ece2ff4acdcbc8299d4920de53eb86b1fb41e64d2fe5ae7898931bcee
 
 set(GETTEXT_URL https://ftp.gnu.org/pub/gnu/gettext/gettext-0.19.8.1.tar.gz)
 set(GETTEXT_SHA256 ff942af0e438ced4a8b0ea4b0b6e0d6d657157c5e2364de57baa279c1c125c43)
+
+set(LIBICONV_URL https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.15.tar.gz)
+set(LIBICONV_SHA256 ccf536620a45458d26ba83887a983b96827001e92a13847b45e4925cc8913178)
 
 if(USE_BUNDLED_UNIBILIUM)
   include(BuildUnibilium)
@@ -213,6 +217,10 @@ endif()
 
 if(USE_BUNDLED_GETTEXT)
   include(BuildGettext)
+endif()
+
+if(USE_BUNDLED_LIBICONV)
+  include(BuildLibiconv)
 endif()
 
 include(GetBinaryDeps)

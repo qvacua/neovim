@@ -939,11 +939,8 @@ void set_init_2(bool headless)
 {
   int idx;
 
-  /*
-   * 'scroll' defaults to half the window height. Note that this default is
-   * wrong when the window height changes.
-   */
-  set_number_default("scroll", Rows / 2);
+  // 'scroll' defaults to half the window height. The stored default is zero,
+  // which results in the actual value computed from the window height.
   idx = findoption("scroll");
   if (idx >= 0 && !(options[idx].flags & P_WAS_SET)) {
     set_option_default(idx, OPT_LOCAL, p_cp);
@@ -3966,8 +3963,8 @@ static char *set_bool_option(const int opt_idx, char_u *const varp,
         static char *w_arabic = N_(
             "W17: Arabic requires UTF-8, do ':set encoding=utf-8'");
 
-        msg_source(hl_attr(HLF_W));
-        msg_attr(_(w_arabic), hl_attr(HLF_W));
+        msg_source(HL_ATTR(HLF_W));
+        msg_attr(_(w_arabic), HL_ATTR(HLF_W));
         set_vim_var_string(VV_WARNINGMSG, _(w_arabic), -1);
       }
 

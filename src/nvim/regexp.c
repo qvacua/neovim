@@ -479,6 +479,8 @@ static char_u   *regprop(char_u *);
 #endif
 
 static char_u e_missingbracket[] = N_("E769: Missing ] after %s[");
+static char_u e_reverse_range[] = N_("E944: Reverse range in character class");
+static char_u e_large_class[] = N_("E945: Range too large in character class");
 static char_u e_unmatchedpp[] = N_("E53: Unmatched %s%%(");
 static char_u e_unmatchedp[] = N_("E54: Unmatched %s(");
 static char_u e_unmatchedpar[] = N_("E55: Unmatched %s)");
@@ -2232,15 +2234,18 @@ collection:
               if (endc == '\\' && !reg_cpo_lit)
                 endc = coll_get_char();
 
-              if (startc > endc)
-                EMSG_RET_NULL(_(e_invrange));
+              if (startc > endc) {
+                EMSG_RET_NULL(_(e_reverse_range));
+              }
               if (has_mbyte && ((*mb_char2len)(startc) > 1
                                 || (*mb_char2len)(endc) > 1)) {
-                /* Limit to a range of 256 chars */
-                if (endc > startc + 256)
-                  EMSG_RET_NULL(_(e_invrange));
-                while (++startc <= endc)
+                // Limit to a range of 256 chars
+                if (endc > startc + 256) {
+                  EMSG_RET_NULL(_(e_large_class));
+                }
+                while (++startc <= endc) {
                   regmbc(startc);
+                }
               } else {
                 while (++startc <= endc)
                   regc(startc);
@@ -4241,26 +4246,28 @@ regmatch (
             int opndc = 0, inpc;
 
             opnd = OPERAND(scan);
-            /* Safety check (just in case 'encoding' was changed since
-             * compiling the program). */
+            // Safety check (just in case 'encoding' was changed since
+            // compiling the program).
             if ((len = (*mb_ptr2len)(opnd)) < 2) {
               status = RA_NOMATCH;
               break;
             }
-            if (enc_utf8)
-              opndc = mb_ptr2char(opnd);
+            if (enc_utf8) {
+              opndc = utf_ptr2char(opnd);
+            }
             if (enc_utf8 && utf_iscomposing(opndc)) {
               /* When only a composing char is given match at any
                * position where that composing char appears. */
               status = RA_NOMATCH;
               for (i = 0; reginput[i] != NUL; i += utf_ptr2len(reginput + i)) {
-                inpc = mb_ptr2char(reginput + i);
+                inpc = utf_ptr2char(reginput + i);
                 if (!utf_iscomposing(inpc)) {
-                  if (i > 0)
+                  if (i > 0) {
                     break;
+                  }
                 } else if (opndc == inpc) {
-                  /* Include all following composing chars. */
-                  len = i + mb_ptr2len(reginput + i);
+                  // Include all following composing chars.
+                  len = i + utfc_ptr2len(reginput + i);
                   status = RA_MATCH;
                   break;
                 }

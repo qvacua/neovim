@@ -2933,8 +2933,9 @@ void check_visual_highlight(void)
   static bool did_check = false;
 
   if (full_screen) {
-    if (!did_check && hl_attr(HLF_V) == 0)
+    if (!did_check && HL_ATTR(HLF_V) == 0) {
       MSG(_("Warning: terminal cannot highlight"));
+    }
     did_check = true;
   }
 }
@@ -6140,7 +6141,7 @@ static void n_swapchar(cmdarg_T *cap)
   curwin->w_set_curswant = true;
   if (did_change) {
     changed_lines(startpos.lnum, startpos.col, curwin->w_cursor.lnum + 1,
-        0L);
+                  0L, true);
     curbuf->b_op_start = startpos;
     curbuf->b_op_end = curwin->w_cursor;
     if (curbuf->b_op_end.col > 0)
