@@ -188,15 +188,8 @@ static void restore_dbg_stuff(struct dbg_stuff *dsp)
   current_exception = dsp->current_exception;
 }
 
-
-/*
- * do_exmode(): Repeatedly get commands for the "Ex" mode, until the ":vi"
- * command is given.
- */
-void 
-do_exmode (
-    int improved                       /* TRUE for "improved Ex" mode */
-)
+/// Repeatedly get commands for Ex mode, until the ":vi" command is given.
+void do_exmode(int improved)
 {
   int save_msg_scroll;
   int prev_msg_row;
@@ -232,11 +225,8 @@ do_exmode (
     changedtick = curbuf->b_changedtick;
     prev_msg_row = msg_row;
     prev_line = curwin->w_cursor.lnum;
-    if (improved) {
-      cmdline_row = msg_row;
-      do_cmdline(NULL, getexline, NULL, 0);
-    } else
-      do_cmdline(NULL, getexmodeline, NULL, DOCMD_NOWAIT);
+    cmdline_row = msg_row;
+    do_cmdline(NULL, getexline, NULL, 0);
     lines_left = Rows - 1;
 
     if ((prev_line != curwin->w_cursor.lnum
@@ -2872,7 +2862,7 @@ const char * set_one_cmd_context(
           return NULL;              /* It's a comment */
         }
       }
-      mb_ptr_adv(p);
+      MB_PTR_ADV(p);
     }
   }
 
@@ -2890,9 +2880,10 @@ const char * set_one_cmd_context(
       // Argument starts after a space.
       xp->xp_pattern = (char_u *)++p;
     } else {
-      if (*p == '\\' && *(p + 1) != NUL)
-        ++p;         /* skip over escaped character */
-      mb_ptr_adv(p);
+      if (*p == '\\' && *(p + 1) != NUL) {
+        p++;        // skip over escaped character
+      }
+      MB_PTR_ADV(p);
     }
   }
 
@@ -2943,7 +2934,7 @@ const char * set_one_cmd_context(
           } else {
             len = 1;
           }
-          mb_ptr_adv(p);
+          MB_PTR_ADV(p);
         }
         if (in_quote) {
           bow = p;
@@ -2952,7 +2943,7 @@ const char * set_one_cmd_context(
         }
         p -= len;
       }
-      mb_ptr_adv(p);
+      MB_PTR_ADV(p);
     }
 
     /*
@@ -3336,12 +3327,13 @@ const char * set_one_cmd_context(
         // Find start of last argument.
         p = arg;
         while (*p) {
-          if (*p == ' ')
-            /* argument starts after a space */
+          if (*p == ' ') {
+            // argument starts after a space
             arg = p + 1;
-          else if (*p == '\\' && *(p + 1) != NUL)
-            ++p;                 /* skip over escaped character */
-          mb_ptr_adv(p);
+          } else if (*p == '\\' && *(p + 1) != NUL) {
+            p++;                // skip over escaped character
+          }
+          MB_PTR_ADV(p);
         }
         xp->xp_pattern = (char_u *)arg;
       }
@@ -4238,7 +4230,7 @@ void separate_nextcmd(exarg_T *eap)
 
   p = skip_grep_pat(eap);
 
-  for (; *p; mb_ptr_adv(p)) {
+  for (; *p; MB_PTR_ADV(p)) {
     if (*p == Ctrl_V) {
       if (eap->argt & (USECTRLV | XFILE))
         ++p;                    /* skip CTRL-V and next char */
@@ -4322,7 +4314,7 @@ skip_cmd_arg (
       else
         ++p;
     }
-    mb_ptr_adv(p);
+    MB_PTR_ADV(p);
   }
   return p;
 }
@@ -9492,10 +9484,12 @@ static int ses_put_fname(FILE *fd, char_u *name, unsigned *flagp)
   char_u *sname = home_replace_save(NULL, name);
 
   if (*flagp & SSOP_SLASH) {
-    /* change all backslashes to forward slashes */
-    for (p = sname; *p != NUL; mb_ptr_adv(p))
-      if (*p == '\\')
+    // change all backslashes to forward slashes
+    for (p = sname; *p != NUL; MB_PTR_ADV(p)) {
+      if (*p == '\\') {
         *p = '/';
+      }
+    }
   }
 
   // Escape special characters.

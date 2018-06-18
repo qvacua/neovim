@@ -4404,7 +4404,7 @@ char *modname(const char *fname, const char *ext, bool prepend_dot)
   // Search backwards until we hit a '/', '\' or ':'.
   // Then truncate what is after the '/', '\' or ':' to BASENAMELEN characters.
   char *ptr = NULL;
-  for (ptr = retval + fnamelen; ptr > retval; mb_ptr_back(retval, ptr)) {
+  for (ptr = retval + fnamelen; ptr > retval; MB_PTR_BACK(retval, ptr)) {
     if (vim_ispathsep(*ptr)) {
       ptr++;
       break;
@@ -6653,7 +6653,7 @@ bool trigger_cursorhold(void) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 /// Return true if "event" autocommand is defined.
 ///
 /// @param event the autocommand to check
-bool has_event(int event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
+bool has_event(event_T event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
   switch (event) {
     case EVENT_TEXTCHANGED:

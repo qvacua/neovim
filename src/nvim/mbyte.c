@@ -560,7 +560,7 @@ size_t mb_string2cells(const char_u *str)
 /// We make sure that the offset used is less than "max_off".
 int utf_off2cells(unsigned off, unsigned max_off)
 {
-  return (off + 1 < max_off && ScreenLines[off + 1] == 0) ? 2 : 1;
+  return (off + 1 < max_off && ScreenLines[off + 1][0] == 0) ? 2 : 1;
 }
 
 /// Convert a UTF-8 byte sequence to a wide character
@@ -788,27 +788,6 @@ int utfc_ptr2char_len(const char_u *p, int *pcc, int maxlen)
 
   return c;
 #undef ISCOMPOSING
-}
-
-/*
- * Convert the character at screen position "off" to a sequence of bytes.
- * Includes the composing characters.
- * "buf" must at least have the length MB_MAXBYTES + 1.
- * Only to be used when ScreenLinesUC[off] != 0.
- * Returns the produced number of bytes.
- */
-int utfc_char2bytes(int off, char_u *buf)
-{
-  int len;
-  int i;
-
-  len = utf_char2bytes(ScreenLinesUC[off], buf);
-  for (i = 0; i < Screen_mco; ++i) {
-    if (ScreenLinesC[i][off] == 0)
-      break;
-    len += utf_char2bytes(ScreenLinesC[i][off], buf + len);
-  }
-  return len;
 }
 
 /// Get the length of a UTF-8 byte sequence representing a single codepoint
@@ -1349,7 +1328,7 @@ static int utf_strnicmp(const char_u *s1, const char_u *s2, size_t n1,
 #endif
 
 /// Reassigns `strw` to a new, allocated pointer to a UTF16 string.
-int utf8_to_utf16(const char *str, WCHAR **strw)
+int utf8_to_utf16(const char *str, wchar_t **strw)
   FUNC_ATTR_NONNULL_ALL
 {
   ssize_t wchar_len = 0;
@@ -1365,7 +1344,7 @@ int utf8_to_utf16(const char *str, WCHAR **strw)
     return GetLastError();
   }
 
-  ssize_t buf_sz = wchar_len * sizeof(WCHAR);
+  ssize_t buf_sz = wchar_len * sizeof(wchar_t);
 
   if (buf_sz == 0) {
     *strw = NULL;
@@ -1379,19 +1358,19 @@ int utf8_to_utf16(const char *str, WCHAR **strw)
                               0,
                               str,
                               -1,
-                              (WCHAR *)pos,
+                              (wchar_t *)pos,
                               wchar_len);
   assert(r == wchar_len);
   if (r != wchar_len) {
     EMSG2("MultiByteToWideChar failed: %d", r);
   }
-  *strw = (WCHAR *)pos;
+  *strw = (wchar_t *)pos;
 
   return 0;
 }
 
 /// Reassigns `str` to a new, allocated pointer to a UTF8 string.
-int utf16_to_utf8(const WCHAR *strw, char **str)
+int utf16_to_utf8(const wchar_t *strw, char **str)
   FUNC_ATTR_NONNULL_ALL
 {
   // Compute the space required to store the string as UTF-8.
@@ -1743,8 +1722,9 @@ char_u * mb_prevptr(
     char_u *p
     )
 {
-  if (p > line)
-    mb_ptr_back(line, p);
+  if (p > line) {
+    MB_PTR_BACK(line, p);
+  }
   return p;
 }
 
@@ -1853,7 +1833,7 @@ int mb_fix_col(int col, int row)
   col = check_col(col);
   row = check_row(row);
   if (ScreenLines != NULL && col > 0
-      && ScreenLines[LineOffset[row] + col] == 0) {
+      && ScreenLines[LineOffset[row] + col][0] == 0) {
     return col - 1;
   }
   return col;
@@ -2221,7 +2201,7 @@ HINSTANCE vimLoadLib(char *name)
 
   // NOTE: Do not use mch_dirname() and mch_chdir() here, they may call
   //       vimLoadLib() recursively, which causes a stack overflow.
-  WCHAR old_dirw[MAXPATHL];
+  wchar_t old_dirw[MAXPATHL];
 
   // Path to exe dir.
   char *buf = xstrdup((char *)get_vim_var_str(VV_PROGPATH));
