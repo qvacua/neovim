@@ -1388,22 +1388,22 @@ ins_redraw (
     last_cursormoved = curwin->w_cursor;
   }
 
-  // Trigger TextChangedI if b_changedtick differs.
+  // Trigger TextChangedI if changedtick differs.
   if (ready && has_event(EVENT_TEXTCHANGEDI)
-      && curbuf->b_last_changedtick != curbuf->b_changedtick
+      && curbuf->b_last_changedtick != buf_get_changedtick(curbuf)
       && !pum_visible()) {
     apply_autocmds(EVENT_TEXTCHANGEDI, NULL, NULL, false, curbuf);
-    curbuf->b_last_changedtick = curbuf->b_changedtick;
+    curbuf->b_last_changedtick = buf_get_changedtick(curbuf);
   }
 
-  // Trigger TextChangedP if b_changedtick differs. When the popupmenu closes
+  // Trigger TextChangedP if changedtick differs. When the popupmenu closes
   // TextChangedI will need to trigger for backwards compatibility, thus use
   // different b_last_changedtick* variables.
   if (ready && has_event(EVENT_TEXTCHANGEDP)
-      && curbuf->b_last_changedtick_pum != curbuf->b_changedtick
+      && curbuf->b_last_changedtick_pum != buf_get_changedtick(curbuf)
       && pum_visible()) {
       apply_autocmds(EVENT_TEXTCHANGEDP, NULL, NULL, false, curbuf);
-      curbuf->b_last_changedtick_pum = curbuf->b_changedtick;
+      curbuf->b_last_changedtick_pum = buf_get_changedtick(curbuf);
   }
 
   if (must_redraw)
@@ -3710,9 +3710,15 @@ static int ins_compl_get_exp(pos_T *ini)
       if (*e_cpt == '.' && !curbuf->b_scanned) {
         ins_buf = curbuf;
         first_match_pos = *ini;
-        /* So that ^N can match word immediately after cursor */
-        if (l_ctrl_x_mode == 0)
-          dec(&first_match_pos);
+        // Move the cursor back one character so that ^N can match the
+        // word immediately after the cursor.
+        if (ctrl_x_mode == 0 && dec(&first_match_pos) < 0) {
+          // Move the cursor to after the last character in the
+          // buffer, so that word at start of buffer is found
+          // correctly.
+          first_match_pos.lnum = ins_buf->b_ml.ml_line_count;
+          first_match_pos.col = (colnr_T)STRLEN(ml_get(first_match_pos.lnum));
+        }
         last_match_pos = first_match_pos;
         type = 0;
 

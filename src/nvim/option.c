@@ -3243,6 +3243,10 @@ did_set_string_option (
         did_filetype = true;
         apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft,
                        curbuf->b_fname, true, curbuf);
+        // Just in case the old "curbuf" is now invalid
+        if (varp != &(curbuf->b_p_ft)) {
+          varp = NULL;
+        }
       }
     }
     if (varp == &(curwin->w_s->b_p_spl)) {
@@ -4756,18 +4760,21 @@ int get_option_value_strict(char *name,
       // Special case: 'modified' is b_changed, but we also want to
       // consider it set when 'ff' or 'fenc' changed.
       if (p->indir == PV_MOD) {
-        *numval = bufIsChanged((buf_T *) from);
+        *numval = bufIsChanged((buf_T *)from);
         varp = NULL;
       } else {
-        aco_save_T	aco;
-        aucmd_prepbuf(&aco, (buf_T *) from);
+        buf_T *save_curbuf = curbuf;
+
+        // only getting a pointer, no need to use aucmd_prepbuf()
+        curbuf = (buf_T *)from;
+        curwin->w_buffer = curbuf;
         varp = get_varp(p);
-        aucmd_restbuf(&aco);
+        curbuf = save_curbuf;
+        curwin->w_buffer = curbuf;
       }
     } else if (opt_type == SREQ_WIN) {
-      win_T	*save_curwin;
-      save_curwin = curwin;
-      curwin = (win_T *) from;
+      win_T *save_curwin = curwin;
+      curwin = (win_T *)from;
       curbuf = curwin->w_buffer;
       varp = get_varp(p);
       curwin = save_curwin;
@@ -5811,7 +5818,7 @@ void buf_copy_options(buf_T *buf, int flags)
       buf->b_p_ml = p_ml;
       buf->b_p_ml_nobin = p_ml_nobin;
       buf->b_p_inf = p_inf;
-      buf->b_p_swf = p_swf;
+      buf->b_p_swf = cmdmod.noswapfile ? false : p_swf;
       buf->b_p_cpt = vim_strsave(p_cpt);
       buf->b_p_cfu = vim_strsave(p_cfu);
       buf->b_p_ofu = vim_strsave(p_ofu);
@@ -6599,7 +6606,7 @@ void vimrc_found(char_u *fname, char_u *envname)
 /// @param[in]  name  Option name.
 ///
 /// @return True if it was set.
-static bool option_was_set(const char *name)
+bool option_was_set(const char *name)
 {
   int idx;
 
@@ -6610,6 +6617,18 @@ static bool option_was_set(const char *name)
     return true;
   }
   return false;
+}
+
+/// Reset the flag indicating option "name" was set.
+///
+/// @param[in]  name  Option name.
+void reset_option_was_set(const char *name)
+{
+  const int idx = findoption(name);
+
+  if (idx >= 0) {
+    options[idx].flags &= ~P_WAS_SET;
+  }
 }
 
 /*

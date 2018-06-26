@@ -218,11 +218,11 @@ void do_exmode(int improved)
       exmode_active = FALSE;
       break;
     }
-    msg_scroll = TRUE;
-    need_wait_return = FALSE;
-    ex_pressedreturn = FALSE;
-    ex_no_reprint = FALSE;
-    changedtick = curbuf->b_changedtick;
+    msg_scroll = true;
+    need_wait_return = false;
+    ex_pressedreturn = false;
+    ex_no_reprint = false;
+    changedtick = buf_get_changedtick(curbuf);
     prev_msg_row = msg_row;
     prev_line = curwin->w_cursor.lnum;
     cmdline_row = msg_row;
@@ -230,10 +230,10 @@ void do_exmode(int improved)
     lines_left = Rows - 1;
 
     if ((prev_line != curwin->w_cursor.lnum
-         || changedtick != curbuf->b_changedtick) && !ex_no_reprint) {
-      if (curbuf->b_ml.ml_flags & ML_EMPTY)
+         || changedtick != buf_get_changedtick(curbuf)) && !ex_no_reprint) {
+      if (curbuf->b_ml.ml_flags & ML_EMPTY) {
         EMSG(_(e_emptybuf));
-      else {
+      } else {
         if (ex_pressedreturn) {
           /* go up one line, to overwrite the ":<CR>" line, so the
            * output doesn't contain empty lines. */
@@ -2315,11 +2315,11 @@ doend:
  * Check for an Ex command with optional tail.
  * If there is a match advance "pp" to the argument and return TRUE.
  */
-int 
-checkforcmd (
-    char_u **pp,               /* start of command */
-    char *cmd,               /* name of command */
-    int len                        /* required length */
+int
+checkforcmd(
+    char_u **pp,              // start of command
+    char *cmd,                // name of command
+    int len                   // required length
 )
 {
   int i;
@@ -4080,6 +4080,7 @@ int expand_filename(exarg_T *eap, char_u **cmdlinep, char_u **errormsgp)
         && eap->cmdidx != CMD_lgrep
         && eap->cmdidx != CMD_grepadd
         && eap->cmdidx != CMD_lgrepadd
+        && eap->cmdidx != CMD_hardcopy
         && !(eap->argt & NOSPC)
         ) {
       char_u      *l;
@@ -4702,9 +4703,9 @@ char_u *check_nextcmd(char_u *p)
  *    return FAIL and give error message if 'message' TRUE
  * return OK otherwise
  */
-static int 
-check_more (
-    int message,                /* when FALSE check only, no messages */
+static int
+check_more(
+    int message,                // when FALSE check only, no messages
     int forceit
 )
 {
@@ -5371,8 +5372,8 @@ static size_t add_cmd_modifier(char_u *buf, char *mod_str, bool *multi_mods)
  * Returns the length of the replacement, which has been added to "buf".
  * Returns -1 if there was no match, and only the "<" has been copied.
  */
-static size_t 
-uc_check_code (
+static size_t
+uc_check_code(
     char_u *code,
     size_t len,
     char_u *buf,
@@ -6033,10 +6034,11 @@ static void ex_cquit(exarg_T *eap)
 static void ex_quit_all(exarg_T *eap)
 {
   if (cmdwin_type != 0) {
-    if (eap->forceit)
-      cmdwin_result = K_XF1;            /* ex_window() takes care of this */
-    else
+    if (eap->forceit) {
+      cmdwin_result = K_XF1;            // open_cmdwin() takes care of this
+    } else {
       cmdwin_result = K_XF2;
+    }
     return;
   }
 
@@ -6103,8 +6105,8 @@ static void ex_pclose(exarg_T *eap)
  * Close window "win" and take care of handling closing the last window for a
  * modified buffer.
  */
-static void 
-ex_win_close (
+static void
+ex_win_close(
     int forceit,
     win_T *win,
     tabpage_T *tp                /* NULL or the tab page "win" is in */
@@ -6524,8 +6526,8 @@ void alist_set(alist_T *al, int count, char_u **files, int use_curbuf, int *fnum
  * Add file "fname" to argument list "al".
  * "fname" must have been allocated and "al" must have been checked for room.
  */
-void 
-alist_add (
+void
+alist_add(
     alist_T *al,
     char_u *fname,
     int set_fnum                   /* 1: set buffer number; 2: re-use curbuf */
@@ -6872,8 +6874,8 @@ static void ex_edit(exarg_T *eap)
 /*
  * ":edit <file>" command and alikes.
  */
-void 
-do_exedit (
+void
+do_exedit(
     exarg_T *eap,
     win_T *old_curwin            /* curwin before doing a split or NULL */
 )
@@ -8617,7 +8619,8 @@ eval_vars (
     default:
       // should not happen
       *errormsg = (char_u *)"";
-      return NULL;
+      result = (char_u *)"";    // avoid gcc warning
+      break;
     }
 
     resultlen = STRLEN(result);         /* length of new string */
@@ -8764,8 +8767,8 @@ char_u *expand_sfile(char_u *arg)
  * Write openfile commands for the current buffers to an .exrc file.
  * Return FAIL on error, OK otherwise.
  */
-static int 
-makeopens (
+static int
+makeopens(
     FILE *fd,
     char_u *dirnow            /* Current directory name */
 )
@@ -9211,8 +9214,8 @@ static int ses_do_win(win_T *wp)
  * Write commands to "fd" to restore the view of a window.
  * Caller must make sure 'scrolloff' is zero.
  */
-static int 
-put_view (
+static int
+put_view(
     FILE *fd,
     win_T *wp,
     int add_edit,                   /* add ":edit" command to view */
@@ -9406,8 +9409,8 @@ put_view (
  * Write an argument list to the session file.
  * Returns FAIL if writing fails.
  */
-static int 
-ses_arglist (
+static int
+ses_arglist(
     FILE *fd,
     char *cmd,
     garray_T *gap,

@@ -693,8 +693,8 @@ int func_level(void *cookie)
 /* pointer to funccal for currently active function */
 funccall_T *current_funccal = NULL;
 
-/* pointer to list of previously used funccal, still around because some
- * item in it is still being used. */
+// Pointer to list of previously used funccal, still around because some
+// item in it is still being used.
 funccall_T *previous_funccal = NULL;
 
 /*
@@ -7906,7 +7906,7 @@ static void f_diff_hlID(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   if (lnum < 0)         /* ignore type error in {lnum} arg */
     lnum = 0;
   if (lnum != prev_lnum
-      || changedtick != curbuf->b_changedtick
+      || changedtick != buf_get_changedtick(curbuf)
       || fnum != curbuf->b_fnum) {
     /* New line, buffer, change: need to get the values. */
     filler_lines = diff_check(curwin, lnum);
@@ -7923,7 +7923,7 @@ static void f_diff_hlID(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     } else
       hlID = (hlf_T)0;
     prev_lnum = lnum;
-    changedtick = curbuf->b_changedtick;
+    changedtick = buf_get_changedtick(curbuf);
     fnum = curbuf->b_fnum;
   }
 
@@ -9172,7 +9172,7 @@ static dict_T *get_buffer_info(buf_T *buf)
   tv_dict_add_nr(dict, S_LEN("loaded"), buf->b_ml.ml_mfp != NULL);
   tv_dict_add_nr(dict, S_LEN("listed"), buf->b_p_bl);
   tv_dict_add_nr(dict, S_LEN("changed"), bufIsChanged(buf));
-  tv_dict_add_nr(dict, S_LEN("changedtick"), buf->b_changedtick);
+  tv_dict_add_nr(dict, S_LEN("changedtick"), buf_get_changedtick(buf));
   tv_dict_add_nr(dict, S_LEN("hidden"),
                  buf->b_ml.ml_mfp != NULL && buf->b_nwindows == 0);
 
@@ -17678,7 +17678,7 @@ static void f_wordcount(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 /// "writefile()" function
 static void f_writefile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
-  rettv->vval.v_number = 0;  // Assuming success.
+  rettv->vval.v_number = -1;
 
   if (check_restricted() || check_secure()) {
     return;
@@ -17688,6 +17688,12 @@ static void f_writefile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     EMSG2(_(e_listarg), "writefile()");
     return;
   }
+  const list_T *const list = argvars[0].vval.v_list;
+  TV_LIST_ITER_CONST(list, li, {
+    if (!tv_check_str_or_nr(TV_LIST_ITEM_TV(li))) {
+      return;
+    }
+  });
 
   bool binary = false;
   bool append = false;
@@ -17719,7 +17725,6 @@ static void f_writefile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   }
   FileDescriptor fp;
   int error;
-  rettv->vval.v_number = -1;
   if (*fname == NUL) {
     EMSG(_("E482: Can't open file with an empty name"));
   } else if ((error = file_open(&fp, fname,
@@ -17728,7 +17733,7 @@ static void f_writefile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     emsgf(_("E482: Can't open file %s for writing: %s"),
           fname, os_strerror(error));
   } else {
-    if (write_list(&fp, argvars[0].vval.v_list, binary)) {
+    if (write_list(&fp, list, binary)) {
       rettv->vval.v_number = 0;
     }
     if ((error = file_close(&fp, do_fsync)) != 0) {
@@ -17841,11 +17846,14 @@ pos_T *var2fpos(const typval_T *const tv, const int dollar_lnum,
     pos.col = 0;
     if (name[1] == '0') {               /* "w0": first visible line */
       update_topline();
-      pos.lnum = curwin->w_topline;
+      // In silent Ex mode topline is zero, but that's not a valid line
+      // number; use one instead.
+      pos.lnum = curwin->w_topline > 0 ? curwin->w_topline : 1;
       return &pos;
     } else if (name[1] == '$') {      /* "w$": last visible line */
       validate_botline();
-      pos.lnum = curwin->w_botline - 1;
+      // In silent Ex mode botline is zero, return zero then.
+      pos.lnum = curwin->w_botline > 0 ? curwin->w_botline - 1 : 0;
       return &pos;
     }
   } else if (name[0] == '$') {        /* last column or line */
@@ -19531,6 +19539,13 @@ void ex_execute(exarg_T *eap)
   }
 
   if (ret != FAIL && ga.ga_data != NULL) {
+    if (eap->cmdidx == CMD_echomsg || eap->cmdidx == CMD_echoerr) {
+      // Mark the already saved text as finishing the line, so that what
+      // follows is displayed on a new line when scrolling back at the
+      // more prompt.
+      msg_sb_eol();
+    }
+
     if (eap->cmdidx == CMD_echomsg) {
       MSG_ATTR(ga.ga_data, echo_attr);
       ui_flush();
@@ -20499,6 +20514,12 @@ void free_all_functions(void)
   uint64_t todo = 1;
   uint64_t used;
 
+  // Clean up the call stack.
+  while (current_funccal != NULL) {
+    tv_clear(current_funccal->rettv);
+    cleanup_function_call(current_funccal);
+  }
+
   // First clear what the functions contain. Since this may lower the
   // reference count of a function, it may also free a function and change
   // the hash table. Restart if that happens.
@@ -21161,6 +21182,7 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   proftime_T wait_start;
   proftime_T call_start;
   bool did_save_redo = false;
+  save_redo_T save_redo;
 
   /* If depth of calling is getting too high, don't execute the function */
   if (depth >= p_mfd) {
@@ -21173,7 +21195,7 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   // Save search patterns and redo buffer.
   save_search_patterns();
   if (!ins_compl_active()) {
-    saveRedobuff();
+    saveRedobuff(&save_redo);
     did_save_redo = true;
   }
   ++fp->uf_calls;
@@ -21478,30 +21500,9 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   }
 
   did_emsg |= save_did_emsg;
-  current_funccal = fc->caller;
-  --depth;
+  depth--;
 
-  // If the a:000 list and the l: and a: dicts are not referenced and there
-  // is no closure using it, we can free the funccall_T and what's in it.
-  if (!fc_referenced(fc)) {
-    free_funccal(fc, false);
-  } else {
-    // "fc" is still in use.  This can happen when returning "a:000",
-    // assigning "l:" to a global variable or defining a closure.
-    // Link "fc" in the list for garbage collection later.
-    fc->caller = previous_funccal;
-    previous_funccal = fc;
-
-    // Make a copy of the a: variables, since we didn't do that above.
-    TV_DICT_ITER(&fc->l_avars, di, {
-      tv_copy(&di->di_tv, &di->di_tv);
-    });
-
-    // Make a copy of the a:000 items, since we didn't do that above.
-    TV_LIST_ITER(&fc->l_varlist, li, {
-      tv_copy(TV_LIST_ITEM_TV(li), TV_LIST_ITEM_TV(li));
-    });
-  }
+  cleanup_function_call(fc);
 
   if (--fp->uf_calls <= 0 && fp->uf_refcount <= 0) {
     // Function was unreferenced while being used, free it now.
@@ -21509,7 +21510,7 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   }
   // restore search patterns and redo buffer
   if (did_save_redo) {
-    restoreRedobuff();
+    restoreRedobuff(&save_redo);
   }
   restore_search_patterns();
 }
@@ -21592,6 +21593,35 @@ free_funccal(
 
   func_ptr_unref(fc->func);
   xfree(fc);
+}
+
+/// Handle the last part of returning from a function: free the local hashtable.
+/// Unless it is still in use by a closure.
+static void cleanup_function_call(funccall_T *fc)
+{
+  current_funccal = fc->caller;
+
+  // If the a:000 list and the l: and a: dicts are not referenced and there
+  // is no closure using it, we can free the funccall_T and what's in it.
+  if (!fc_referenced(fc)) {
+    free_funccal(fc, false);
+  } else {
+    // "fc" is still in use.  This can happen when returning "a:000",
+    // assigning "l:" to a global variable or defining a closure.
+    // Link "fc" in the list for garbage collection later.
+    fc->caller = previous_funccal;
+    previous_funccal = fc;
+
+    // Make a copy of the a: variables, since we didn't do that above.
+    TV_DICT_ITER(&fc->l_avars, di, {
+      tv_copy(&di->di_tv, &di->di_tv);
+    });
+
+    // Make a copy of the a:000 items, since we didn't do that above.
+    TV_LIST_ITER(&fc->l_varlist, li, {
+      tv_copy(TV_LIST_ITEM_TV(li), TV_LIST_ITEM_TV(li));
+    });
+  }
 }
 
 /*

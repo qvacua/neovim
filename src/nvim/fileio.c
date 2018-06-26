@@ -3566,13 +3566,13 @@ restore_backup:
    * writing to the original file and '+' is not in 'cpoptions'. */
   if (reset_changed && whole && !append
       && !write_info.bw_conv_error
-      && (overwriting || vim_strchr(p_cpo, CPO_PLUS) != NULL)
-      ) {
-    unchanged(buf, TRUE);
-    /* buf->b_changedtick is always incremented in unchanged() but that
-     * should not trigger a TextChanged event. */
-    if (buf->b_last_changedtick + 1 == buf->b_changedtick) {
-      buf->b_last_changedtick = buf->b_changedtick;
+      && (overwriting || vim_strchr(p_cpo, CPO_PLUS) != NULL)) {
+    unchanged(buf, true);
+    const varnumber_T changedtick = buf_get_changedtick(buf);
+    if (buf->b_last_changedtick + 1 == changedtick) {
+      // changedtick is always incremented in unchanged() but that
+      // should not trigger a TextChanged event.
+      buf->b_last_changedtick = changedtick;
     }
     u_unchanged(buf);
     u_update_save_nr(buf);
@@ -6711,6 +6711,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   static int filechangeshell_busy = FALSE;
   proftime_T wait_time;
   bool did_save_redobuff = false;
+  save_redo_T save_redo;
 
   // Quickly return if there are no autocommands for this event or
   // autocommands are blocked.
@@ -6895,7 +6896,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   if (!autocmd_busy) {
     save_search_patterns();
     if (!ins_compl_active()) {
-      saveRedobuff();
+      saveRedobuff(&save_redo);
       did_save_redobuff = true;
     }
     did_filetype = keep_filetype;
@@ -6984,7 +6985,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   if (!autocmd_busy) {
     restore_search_patterns();
     if (did_save_redobuff) {
-      restoreRedobuff();
+      restoreRedobuff(&save_redo);
     }
     did_filetype = FALSE;
     while (au_pending_free_buf != NULL) {

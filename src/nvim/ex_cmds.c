@@ -1306,10 +1306,10 @@ filterend:
  * Call a shell to execute a command.
  * When "cmd" is NULL start an interactive shell.
  */
-void 
-do_shell (
+void
+do_shell(
     char_u *cmd,
-    int flags              /* may be SHELL_DOOUT when output is redirected */
+    int flags             // may be SHELL_DOOUT when output is redirected
 )
 {
   int save_nwr;
@@ -1789,14 +1789,14 @@ theend:
  * May set eap->forceit if a dialog says it's OK to overwrite.
  * Return OK if it's OK, FAIL if it is not.
  */
-int 
-check_overwrite (
+int
+check_overwrite(
     exarg_T *eap,
     buf_T *buf,
-    char_u *fname,         /* file name to be used (can differ from
-                               buf->ffname) */
-    char_u *ffname,        /* full path version of fname */
-    int other                  /* writing under other name */
+    char_u *fname,         // file name to be used (can differ from
+                           //   buf->ffname)
+    char_u *ffname,        // full path version of fname
+    int other              // writing under other name
 )
 {
   /*
@@ -2006,11 +2006,14 @@ static int check_readonly(int *forceit, buf_T *buf)
 
 /*
  * Try to abandon current file and edit a new or existing file.
- * 'fnum' is the number of the file, if zero use ffname/sfname.
+ * "fnum" is the number of the file, if zero use ffname/sfname.
+ * "lnum" is the line number for the cursor in the new file (if non-zero).
  *
- * Return 1 for "normal" error, 2 for "not written" error, 0 for success
- * -1 for successfully opening another file.
- * 'lnum' is the line number for the cursor in the new file (if non-zero).
+ * Return:
+ * GETFILE_ERROR for "normal" error,
+ * GETFILE_NOT_WRITTEN for "not written" error,
+ * GETFILE_SAME_FILE for success
+ * GETFILE_OPEN_OTHER for successfully opening another file.
  */
 int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, int forceit)
 {
@@ -2018,10 +2021,12 @@ int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, 
   int retval;
   char_u      *free_me = NULL;
 
-  if (text_locked())
-    return 1;
-  if (curbuf_locked())
-    return 1;
+  if (text_locked()) {
+    return GETFILE_ERROR;
+  }
+  if (curbuf_locked()) {
+    return GETFILE_ERROR;
+  }
 
   if (fnum == 0) {
     /* make ffname full path, set sfname */
@@ -2042,7 +2047,7 @@ int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, 
     if (curbufIsChanged()) {
       no_wait_return--;
       EMSG(_(e_nowrtmsg));
-      retval = 2;  // File has been changed.
+      retval = GETFILE_NOT_WRITTEN;     // File has been changed.
       goto theend;
     }
   }
@@ -2056,13 +2061,13 @@ int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, 
     }
     check_cursor_lnum();
     beginline(BL_SOL | BL_FIX);
-    retval = 0;         // it's in the same file
+    retval = GETFILE_SAME_FILE;     // it's in the same file
   } else if (do_ecmd(fnum, ffname, sfname, NULL, lnum,
                      (buf_hide(curbuf) ? ECMD_HIDE : 0)
                      + (forceit ? ECMD_FORCEIT : 0), curwin) == OK) {
-    retval = -1;        // opened another file
+    retval = GETFILE_OPEN_OTHER;    // opened another file
   } else {
-    retval = 1;         // error encountered
+    retval = GETFILE_ERROR;         // error encountered
   }
 
 theend:
@@ -2347,8 +2352,8 @@ int do_ecmd(
         } else {
           // <VN> We could instead free the synblock
           // and re-attach to buffer, perhaps.
-          if (curwin->w_buffer != NULL
-              && curwin->w_s == &(curwin->w_buffer->b_s)) {
+          if (curwin->w_buffer == NULL
+              || curwin->w_s == &(curwin->w_buffer->b_s)) {
             curwin->w_s = &(buf->b_s);
           }
 
@@ -2823,7 +2828,7 @@ void ex_change(exarg_T *eap)
 void ex_z(exarg_T *eap)
 {
   char_u      *x;
-  int bigness;
+  int64_t     bigness;
   char_u      *kind;
   int minus = 0;
   linenr_T start, end, curs, i;
@@ -2856,10 +2861,17 @@ void ex_z(exarg_T *eap)
       EMSG(_("E144: non-numeric argument to :z"));
       return;
     }
-    bigness = atoi((char *)x);
+    bigness = atol((char *)x);
+
+    // bigness could be < 0 if atol(x) overflows.
+    if (bigness > 2 * curbuf->b_ml.ml_line_count || bigness < 0) {
+      bigness = 2 * curbuf->b_ml.ml_line_count;
+    }
+
     p_window = bigness;
-    if (*kind == '=')
+    if (*kind == '=') {
       bigness += 2;
+    }
   }
 
   /* the number of '-' and '+' multiplies the distance */
@@ -4587,11 +4599,11 @@ char_u *check_help_lang(char_u *arg)
  * Assumption is made that the matched_string passed has already been found to
  * match some string for which help is requested.  webb.
  */
-int 
-help_heuristic (
+int
+help_heuristic(
     char_u *matched_string,
-    int offset,                             /* offset for match */
-    int wrong_case                         /* no matching case */
+    int offset,                             // offset for match
+    int wrong_case                          // no matching case
 )
 {
   int num_letters;
@@ -6281,7 +6293,7 @@ void ex_substitute(exarg_T *eap)
   garray_T save_view;
   win_size_save(&save_view);  // Save current window sizes.
   save_search_patterns();
-  int save_changedtick = curbuf->b_changedtick;
+  int save_changedtick = buf_get_changedtick(curbuf);
   time_t save_b_u_time_cur = curbuf->b_u_time_cur;
   u_header_T *save_b_u_newhead = curbuf->b_u_newhead;
   long save_b_p_ul = curbuf->b_p_ul;
@@ -6298,7 +6310,7 @@ void ex_substitute(exarg_T *eap)
   buf_T *preview_buf = do_sub(eap, profile_setlimit(p_rdt), false);
   p_hls = save_hls;
 
-  if (save_changedtick != curbuf->b_changedtick) {
+  if (save_changedtick != buf_get_changedtick(curbuf)) {
     // Undo invisibly. This also moves the cursor!
     if (!u_undo_and_forget(1)) { abort(); }
     // Restore newhead. It is meaningless when curhead is valid, but we must
