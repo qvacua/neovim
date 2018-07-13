@@ -1172,14 +1172,21 @@ do_buffer (
         }
       } else {
         if (buf->terminal) {
-          EMSG2(_("E89: %s will be killed(add ! to override)"),
-              (char *)buf->b_fname);
+          if (p_confirm || cmdmod.confirm) {
+            if (!dialog_close_terminal(buf)) {
+              return FAIL;
+            }
+          } else {
+            EMSG2(_("E89: %s will be killed(add ! to override)"),
+                  (char *)buf->b_fname);
+            return FAIL;
+          }
         } else {
           EMSGN(_("E89: No write since last change for buffer %" PRId64
                   " (add ! to override)"),
                 buf->b_fnum);
+          return FAIL;
         }
-        return FAIL;
       }
     }
 
@@ -3273,9 +3280,6 @@ int build_stl_str_hl(
     // Two `%` in a row is the escape sequence to print a
     // single `%` in the output buffer.
     if (*fmt_p == '%') {
-      // Ignore the character if we're out of room in the output buffer.
-      if (out_p >= out_end_p)
-        break;
       *out_p++ = *fmt_p++;
       prevchar_isflag = prevchar_isitem = false;
       continue;

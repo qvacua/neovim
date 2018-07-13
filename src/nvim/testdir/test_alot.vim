@@ -15,6 +15,7 @@ source test_findfile.vim
 source test_float_func.vim
 source test_functions.vim
 source test_ga.vim
+source test_global.vim
 source test_goto.vim
 source test_jumps.vim
 source test_fileformat.vim
@@ -29,6 +30,7 @@ source test_put.vim
 source test_recover.vim
 source test_regexp_utf8.vim
 source test_scroll_opt.vim
+source test_sort.vim
 source test_source_utf8.vim
 source test_sha256.vim
 source test_statusline.vim
