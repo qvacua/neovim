@@ -6712,6 +6712,10 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   proftime_T wait_time;
   bool did_save_redobuff = false;
 
+#ifdef CUSTOM_UI
+  custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
+#endif
+
   // Quickly return if there are no autocommands for this event or
   // autocommands are blocked.
   if (event == NUM_EVENTS || first_autopat[(int)event] == NULL
@@ -6764,10 +6768,6 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
              || (autocmd_no_leave
                  && (event == EVENT_WINLEAVE || event == EVENT_BUFLEAVE)))
     goto BYPASS_AU;
-
-#ifdef CUSTOM_UI
-  custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
-#endif
 
   /*
    * Save the autocmd_* variables and info about the current buffer.
