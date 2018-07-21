@@ -2,6 +2,8 @@
 .ropeproject/
 # Visual Studio
 /.vs/
+# Jetbrains
+.idea/
 
 # Build/deps dir
 /build/
