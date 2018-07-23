@@ -273,6 +273,7 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
 
   ccline.last_colors = (ColoredCmdline){ .cmdbuff = NULL,
                                          .colors = KV_INITIAL_VALUE };
+  sb_text_start_cmdline();
 
   // autoindent for :insert and :append
   if (s->firstc <= 0) {
@@ -479,6 +480,8 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
   xfree(s->save_p_icm);
   xfree(ccline.last_colors.cmdbuff);
   kv_destroy(ccline.last_colors.colors);
+
+  sb_text_end_cmdline();
 
   {
     char_u *p = ccline.cmdbuff;
@@ -861,7 +864,7 @@ static int command_line_execute(VimState *state, int key)
   if (s->c == cedit_key || s->c == K_CMDWIN) {
     if (ex_normal_busy == 0 && got_int == false) {
       // Open a window to edit the command line (and history).
-      s->c = ex_window();
+      s->c = open_cmdwin();
       s->some_key_typed = true;
     }
   } else {
@@ -1444,7 +1447,7 @@ static int command_line_handle_key(CommandLineState *s)
     return command_line_not_changed(s);
 
   case K_IGNORE:
-    // Ignore mouse event or ex_window() result.
+    // Ignore mouse event or open_cmdwin() result.
     return command_line_not_changed(s);
 
 
@@ -2934,7 +2937,7 @@ static void ui_ext_cmdline_show(CmdlineInfo *line)
   Array content = ARRAY_DICT_INIT;
   if (cmdline_star) {
     size_t len = 0;
-    for (char_u *p = ccline.cmdbuff; *p; mb_ptr_adv(p)) {
+    for (char_u *p = ccline.cmdbuff; *p; MB_PTR_ADV(p)) {
       len++;
     }
     char *buf = xmallocz(len);
@@ -4254,7 +4257,7 @@ char_u *sm_gettail(char_u *s)
       t = p;
       had_sep = FALSE;
     }
-    mb_ptr_adv(p);
+    MB_PTR_ADV(p);
   }
   return t;
 }
@@ -5179,7 +5182,7 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
     char_u *e = s + STRLEN(s);
     if (e - s > 4 && STRNICMP(e - 4, ".vim", 4) == 0) {
       e -= 4;
-      for (s = e; s > match; mb_ptr_back(match, s)) {
+      for (s = e; s > match; MB_PTR_BACK(match, s)) {
         if (vim_ispathsep(*s)) {
           break;
         }
@@ -6001,7 +6004,7 @@ int cmd_gchar(int offset)
  *	Ctrl_C	 if it is to be abandoned
  *	K_IGNORE if editing continues
  */
-static int ex_window(void)
+static int open_cmdwin(void)
 {
   struct cmdline_info save_ccline;
   bufref_T            old_curbuf;
@@ -6034,6 +6037,7 @@ static int ex_window(void)
   block_autocmds();
   /* don't use a new tab page */
   cmdmod.tab = 0;
+  cmdmod.noswapfile = 1;
 
   /* Create a window for the command-line buffer. */
   if (win_split((int)p_cwh, WSP_BOT) == FAIL) {
@@ -6053,8 +6057,10 @@ static int ex_window(void)
   curbuf->b_p_ma = true;
   curwin->w_p_fen = false;
 
-  /* Do execute autocommands for setting the filetype (load syntax). */
+  // Do execute autocommands for setting the filetype (load syntax).
   unblock_autocmds();
+  // But don't allow switching to another buffer.
+  curbuf_lock++;
 
   /* Showing the prompt may have set need_wait_return, reset it. */
   need_wait_return = FALSE;
@@ -6067,6 +6073,7 @@ static int ex_window(void)
     }
     set_option_value("ft", 0L, "vim", OPT_LOCAL);
   }
+  curbuf_lock--;
 
   /* Reset 'textwidth' after setting 'filetype' (the Vim filetype plugin
    * sets 'textwidth' to 78). */
@@ -6179,9 +6186,13 @@ static int ex_window(void)
       ccline.cmdbuff = NULL;
     } else
       ccline.cmdbuff = vim_strsave(get_cursor_line_ptr());
-    if (ccline.cmdbuff == NULL)
+    if (ccline.cmdbuff == NULL) {
+      ccline.cmdbuff = vim_strsave((char_u *)"");
+      ccline.cmdlen = 0;
+      ccline.cmdbufflen = 1;
+      ccline.cmdpos = 0;
       cmdwin_result = Ctrl_C;
-    else {
+    } else {
       ccline.cmdlen = (int)STRLEN(ccline.cmdbuff);
       ccline.cmdbufflen = ccline.cmdlen + 1;
       ccline.cmdpos = curwin->w_cursor.col;

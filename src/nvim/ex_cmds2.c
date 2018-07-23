@@ -1339,6 +1339,22 @@ void dialog_changed(buf_T *buf, int checkall)
   }
 }
 
+/// Ask the user whether to close the terminal buffer or not.
+///
+/// @param buf The terminal buffer.
+/// @return bool Whether to close the buffer or not.
+bool dialog_close_terminal(buf_T *buf)
+{
+  char_u buff[DIALOG_MSG_SIZE];
+
+  dialog_msg(buff, _("Close \"%s\"?"),
+             (buf->b_fname != NULL) ? buf->b_fname : (char_u *)"?");
+
+  int ret = vim_dialog_yesnocancel(VIM_QUESTION, NULL, buff, 1);
+
+  return (ret == VIM_YES) ? true : false;
+}
+
 /// Return true if the buffer "buf" can be abandoned, either by making it
 /// hidden, autowriting it or unloading it.
 bool can_abandon(buf_T *buf, int forceit)
@@ -2532,7 +2548,7 @@ static void add_pack_plugin(char_u *fname, void *cookie)
   if (cookie != &APP_LOAD && strstr((char *)p_rtp, ffname) == NULL) {
     // directory is not yet in 'runtimepath', add it
     p4 = p3 = p2 = p1 = get_past_head((char_u *)ffname);
-    for (p = p1; *p; mb_ptr_adv(p)) {
+    for (p = p1; *p; MB_PTR_ADV(p)) {
       if (vim_ispathsep_nocolon(*p)) {
         p4 = p3; p3 = p2; p2 = p1; p1 = p;
       }

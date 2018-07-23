@@ -373,14 +373,17 @@ endfunc
 
 " Tests for the mode() function
 let current_modes = ''
-func! Save_mode()
+func Save_mode()
   let g:current_modes = mode(0) . '-' . mode(1)
   return ''
 endfunc
 
-func! Test_mode()
+func Test_mode()
   new
   call append(0, ["Blue Ball Black", "Brown Band Bowl", ""])
+
+  " Only complete from the current buffer.
+  set complete=.
 
   inoremap <F2> <C-R>=Save_mode()<CR>
 
@@ -490,6 +493,7 @@ func! Test_mode()
 
   bwipe!
   iunmap <F2>
+  set complete&
 endfunc
 
 func Test_getbufvar()
@@ -765,4 +769,57 @@ func Test_balloon_show()
     " This won't do anything but must not crash either.
     call balloon_show('hi!')
   endif
+endfunc
+
+func Test_shellescape()
+  let save_shell = &shell
+  set shell=bash
+  call assert_equal("'text'", shellescape('text'))
+  call assert_equal("'te\"xt'", shellescape('te"xt'))
+  call assert_equal("'te'\\''xt'", shellescape("te'xt"))
+
+  call assert_equal("'te%xt'", shellescape("te%xt"))
+  call assert_equal("'te\\%xt'", shellescape("te%xt", 1))
+  call assert_equal("'te#xt'", shellescape("te#xt"))
+  call assert_equal("'te\\#xt'", shellescape("te#xt", 1))
+  call assert_equal("'te!xt'", shellescape("te!xt"))
+  call assert_equal("'te\\!xt'", shellescape("te!xt", 1))
+
+  call assert_equal("'te\nxt'", shellescape("te\nxt"))
+  call assert_equal("'te\\\nxt'", shellescape("te\nxt", 1))
+  set shell=tcsh
+  call assert_equal("'te\\!xt'", shellescape("te!xt"))
+  call assert_equal("'te\\\\!xt'", shellescape("te!xt", 1))
+  call assert_equal("'te\\\nxt'", shellescape("te\nxt"))
+  call assert_equal("'te\\\\\nxt'", shellescape("te\nxt", 1))
+
+  let &shell = save_shell
+endfunc
+
+func Test_redo_in_nested_functions()
+  nnoremap g. :set opfunc=Operator<CR>g@
+  function Operator( type, ... )
+     let @x = 'XXX'
+     execute 'normal! g`[' . (a:type ==# 'line' ? 'V' : 'v') . 'g`]' . '"xp'
+  endfunction
+
+  function! Apply()
+      5,6normal! .
+  endfunction
+
+  new
+  call setline(1, repeat(['some "quoted" text', 'more "quoted" text'], 3))
+  1normal g.i"
+  call assert_equal('some "XXX" text', getline(1))
+  3,4normal .
+  call assert_equal('some "XXX" text', getline(3))
+  call assert_equal('more "XXX" text', getline(4))
+  call Apply()
+  call assert_equal('some "XXX" text', getline(5))
+  call assert_equal('more "XXX" text', getline(6))
+  bwipe!
+
+  nunmap g.
+  delfunc Operator
+  delfunc Apply
 endfunc

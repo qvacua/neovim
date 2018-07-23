@@ -1171,7 +1171,7 @@ void ml_recover(void)
      * empty.  Don't set the modified flag then. */
     if (!(curbuf->b_ml.ml_line_count == 2 && *ml_get(1) == NUL)) {
       changed_int();
-      buf_set_changedtick(curbuf, curbuf->b_changedtick + 1);
+      buf_inc_changedtick(curbuf);
     }
   } else {
     for (idx = 1; idx <= lnum; ++idx) {
@@ -1181,7 +1181,7 @@ void ml_recover(void)
       xfree(p);
       if (i != 0) {
         changed_int();
-        buf_set_changedtick(curbuf, curbuf->b_changedtick + 1);
+        buf_inc_changedtick(curbuf);
         break;
       }
     }
@@ -1432,7 +1432,7 @@ static char *make_percent_swname(const char *dir, char *name)
   char *f = fix_fname(name != NULL ? name : "");
   if (f != NULL) {
     char *s = xstrdup(f);
-    for (d = s; *d != NUL; mb_ptr_adv(d)) {
+    for (d = s; *d != NUL; MB_PTR_ADV(d)) {
       if (vim_ispathsep(*d)) {
         *d = '%';
       }

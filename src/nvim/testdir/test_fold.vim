@@ -1,10 +1,10 @@
 " Test for folding
 
-func! PrepIndent(arg)
+func PrepIndent(arg)
   return [a:arg] + repeat(["\t".a:arg], 5)
 endfu
 
-func! Test_address_fold()
+func Test_address_fold()
   new
   call setline(1, ['int FuncName() {/*{{{*/', 1, 2, 3, 4, 5, '}/*}}}*/',
 	      \ 'after fold 1', 'after fold 2', 'after fold 3'])
@@ -68,17 +68,7 @@ func! Test_address_fold()
   quit!
 endfunc
 
-func! Test_indent_fold()
-    new
-    call setline(1, ['', 'a', '    b', '    c'])
-    setl fen fdm=indent
-    2
-    norm! >>
-    let a=map(range(1,4), 'foldclosed(v:val)')
-    call assert_equal([-1,-1,-1,-1], a)
-endfunc
-
-func! Test_indent_fold()
+func Test_indent_fold()
     new
     call setline(1, ['', 'a', '    b', '    c'])
     setl fen fdm=indent
@@ -89,7 +79,7 @@ func! Test_indent_fold()
     bw!
 endfunc
 
-func! Test_indent_fold2()
+func Test_indent_fold2()
     new
     call setline(1, ['', '{{{', '}}}', '{{{', '}}}'])
     setl fen fdm=marker
@@ -122,7 +112,7 @@ func Test_manual_fold_with_filter()
   endfor
 endfunc
 
-func! Test_indent_fold_with_read()
+func Test_indent_fold_with_read()
   new
   set foldmethod=indent
   call setline(1, repeat(["\<Tab>a"], 4))
@@ -224,7 +214,11 @@ func Test_update_folds_expr_read()
   set foldmethod& foldexpr&
 endfunc
 
-func! Test_move_folds_around_manual()
+func Check_foldlevels(expected)
+  call assert_equal(a:expected, map(range(1, line('$')), 'foldlevel(v:val)'))
+endfunc
+
+func Test_move_folds_around_manual()
   new
   let input = PrepIndent("a") + PrepIndent("b") + PrepIndent("c")
   call setline(1, PrepIndent("a") + PrepIndent("b") + PrepIndent("c"))
@@ -293,11 +287,50 @@ func! Test_move_folds_around_manual()
   6m$
   " The first fold has been truncated to the 5'th line.
   " Second fold has been moved up because the moved line is now below it.
-  call assert_equal([0, 1, 1, 1, 1, 0, 0, 0, 1, 0], map(range(1, line('$')), 'foldlevel(v:val)'))
+  call Check_foldlevels([0, 1, 1, 1, 1, 0, 0, 0, 1, 0])
+
+  %delete
+  set fdm=indent foldlevel=0
+  call setline(1, [
+	\ "a",
+	\ "\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "a",
+	\ "a"])
+  set fdm=manual
+  %foldopen!
+  4,5m6
+  call Check_foldlevels([0, 1, 2, 0, 0, 0, 0])
+
+  %delete
+  set fdm=indent
+  call setline(1, [
+	\ "\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\t\ta",
+	\ "\ta",
+	\ "a"])
+  set fdm=manual
+  %foldopen!
+  13m7
+  call Check_foldlevels([1, 2, 2, 2, 1, 2, 2, 1, 1, 1, 2, 2, 2, 1, 0])
+  
   bw!
 endfunc
 
-func! Test_move_folds_around_indent()
+func Test_move_folds_around_indent()
   new
   let input = PrepIndent("a") + PrepIndent("b") + PrepIndent("c")
   call setline(1, PrepIndent("a") + PrepIndent("b") + PrepIndent("c"))
@@ -357,7 +390,7 @@ func! Test_move_folds_around_indent()
   6m$
   " The first fold has been truncated to the 5'th line.
   " Second fold has been moved up because the moved line is now below it.
-  call assert_equal([0, 1, 1, 1, 1, 0, 0, 0, 1, 1], map(range(1, line('$')), 'foldlevel(v:val)'))
+  call Check_foldlevels([0, 1, 1, 1, 1, 0, 0, 0, 1, 1])
   bw!
 endfunc
 
@@ -433,4 +466,171 @@ func Test_fold_error()
   set modifiable&
   set foldmethod&
   bw!
+endfunc
+
+" Various fold related tests
+
+" Basic test if a fold can be created, opened, moving to the end and closed
+func Test_fold_manual()
+  enew!
+  set fdm=manual
+
+  let content = ['1 aa', '2 bb', '3 cc']
+  call append(0, content)
+  call cursor(1, 1)
+  normal zf2j
+  call assert_equal('1 aa', getline(foldclosed('.')))
+  normal zo
+  call assert_equal(-1, foldclosed('.'))
+  normal ]z
+  call assert_equal('3 cc', getline('.'))
+  normal zc
+  call assert_equal('1 aa', getline(foldclosed('.')))
+
+  set fdm&
+  enew!
+endfunc
+
+" test folding with markers.
+func Test_fold_marker()
+  enew!
+  set fdm=marker fdl=1 fdc=3
+
+  let content = ['4 dd {{{', '5 ee {{{ }}}', '6 ff }}}']
+  call append(0, content)
+  call cursor(2, 1)
+  call assert_equal(2, foldlevel('.'))
+  normal [z
+  call assert_equal(1, foldlevel('.'))
+  exe "normal jo{{ \<Esc>r{jj"
+  call assert_equal(1, foldlevel('.'))
+  normal kYpj
+  call assert_equal(0, foldlevel('.'))
+
+  set fdm& fdl& fdc&
+  enew!
+endfunc
+
+" test folding with indent
+func Test_fold_indent()
+  enew!
+  set fdm=indent sw=2
+
+  let content = ['1 aa', '2 bb', '3 cc']
+  call append(0, content)
+  call cursor(2, 1)
+  exe "normal i  \<Esc>jI    "
+  call assert_equal(2, foldlevel('.'))
+  normal k
+  call assert_equal(1, foldlevel('.'))
+
+  set fdm& sw&
+  enew!
+endfunc
+
+" test syntax folding
+func Test_fold_syntax()
+  if !has('syntax')
+    return
+  endif
+
+  enew!
+  set fdm=syntax fdl=0
+
+  syn region Hup start="dd" end="ii" fold contains=Fd1,Fd2,Fd3
+  syn region Fd1 start="ee" end="ff" fold contained
+  syn region Fd2 start="gg" end="hh" fold contained
+  syn region Fd3 start="commentstart" end="commentend" fold contained
+  let content = ['3 cc', '4 dd {{{', '5 ee {{{ }}}', '{{{{', '6 ff }}}',
+	      \ '6 ff }}}', '7 gg', '8 hh', '9 ii']
+  call append(0, content)
+  normal Gzk
+  call assert_equal('9 ii', getline('.'))
+  normal k
+  call assert_equal('3 cc', getline('.'))
+  exe "normal jAcommentstart   \<Esc>Acommentend"
+  set fdl=1
+  normal 3j
+  call assert_equal('7 gg', getline('.'))
+  set fdl=0
+  exe "normal zO\<C-L>j"
+  call assert_equal('8 hh', getline('.'))
+  syn clear Fd1 Fd2 Fd3 Hup
+
+  set fdm& fdl&
+  enew!
+endfunc
+
+func Flvl()
+  let l = getline(v:lnum)
+  if l =~ "bb$"
+    return 2
+  elseif l =~ "gg$"
+    return "s1"
+  elseif l =~ "ii$"
+    return ">2"
+  elseif l =~ "kk$"
+    return "0"
+  endif
+  return "="
+endfun
+
+" test expression folding
+func Test_fold_expr()
+  enew!
+  set fdm=expr fde=Flvl()
+
+  let content = ['1 aa',
+	      \ '2 bb',
+	      \ '3 cc',
+	      \ '4 dd {{{commentstart  commentend',
+	      \ '5 ee {{{ }}}',
+	      \ '{{{',
+	      \ '6 ff }}}',
+	      \ '6 ff }}}',
+	      \ '  7 gg',
+	      \ '    8 hh',
+	      \ '9 ii',
+	      \ 'a jj',
+	      \ 'b kk']
+  call append(0, content)
+  call cursor(1, 1)
+  exe "normal /bb$\<CR>"
+  call assert_equal(2, foldlevel('.'))
+  exe "normal /hh$\<CR>"
+  call assert_equal(1, foldlevel('.'))
+  exe "normal /ii$\<CR>"
+  call assert_equal(2, foldlevel('.'))
+  exe "normal /kk$\<CR>"
+  call assert_equal(0, foldlevel('.'))
+
+  set fdm& fde&
+  enew!
+endfunc
+
+" Bug with fdm=indent and moving folds
+" Moving a fold a few times, messes up the folds below the moved fold.
+" Fixed by 7.4.700
+func Test_fold_move()
+  enew!
+  set fdm=indent sw=2 fdl=0
+
+  let content = ['', '', 'Line1', '  Line2', '  Line3',
+	      \ 'Line4', '  Line5', '  Line6',
+	      \ 'Line7', '  Line8', '  Line9']
+  call append(0, content)
+  normal zM
+  call cursor(4, 1)
+  move 2
+  move 1
+  call assert_equal(7, foldclosed(7))
+  call assert_equal(8, foldclosedend(7))
+  call assert_equal(0, foldlevel(9))
+  call assert_equal(10, foldclosed(10))
+  call assert_equal(11, foldclosedend(10))
+  call assert_equal('+--  2 lines: Line2', foldtextresult(2))
+  call assert_equal('+--  2 lines: Line8', foldtextresult(10))
+
+  set fdm& sw& fdl&
+  enew!
 endfunc

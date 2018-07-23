@@ -1495,9 +1495,8 @@ return {
       full_name='maxcombine', abbreviation='mco',
       type='number', scope={'global'},
       vi_def=true,
-      redraw={'curswant'},
       varname='p_mco',
-      defaults={if_true={vi=2}}
+      defaults={if_true={vi=6}}
     },
     {
       full_name='maxfuncdepth', abbreviation='mfd',
@@ -2126,7 +2125,7 @@ return {
       type='string', list='flags', scope={'global'},
       vim=true,
       varname='p_shm',
-      defaults={if_true={vi="", vim="filnxtToO"}}
+      defaults={if_true={vi="", vim="filnxtToOF"}}
     },
     {
       full_name='showbreak', abbreviation='sbr',

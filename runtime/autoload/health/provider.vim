@@ -383,8 +383,10 @@ function! s:check_python(version) abort
   endif
 
   " Check if $VIRTUAL_ENV is valid.
-  if exists('$VIRTUAL_ENV')
-    if !empty(pyname) && $VIRTUAL_ENV !=# matchstr(exepath(pyname), '^\V'.$VIRTUAL_ENV)
+  if exists('$VIRTUAL_ENV') && !empty(python_bin)
+    if $VIRTUAL_ENV ==# matchstr(python_bin, '^\V'.$VIRTUAL_ENV)
+      call health#report_info('$VIRTUAL_ENV matches executable')
+    else
       call health#report_warn(
         \ '$VIRTUAL_ENV exists but appears to be inactive. '
         \ . 'This could lead to unexpected results.',
@@ -502,10 +504,10 @@ function! s:check_node() abort
     return
   endif
 
-  if !executable('node') || !executable('npm')
+  if !executable('node') || (!executable('npm') && !executable('yarn'))
     call health#report_warn(
-          \ '`node` and `npm` must be in $PATH.',
-          \ ['Install Node.js and verify that `node` and `npm` commands work.'])
+          \ '`node` and `npm` (or `yarn`) must be in $PATH.',
+          \ ['Install Node.js and verify that `node` and `npm` (or `yarn`) commands work.'])
     return
   endif
   let node_v = get(split(s:system('node -v'), "\n"), 0, '')
@@ -521,9 +523,9 @@ function! s:check_node() abort
 
   let host = provider#node#Detect()
   if empty(host)
-    call health#report_warn('Missing "neovim" npm package.',
+    call health#report_warn('Missing "neovim" npm (or yarn) package.',
           \ ['Run in shell: npm install -g neovim',
-          \  'Is the npm bin directory in $PATH?'])
+          \  'Run in shell (if you use yarn): yarn global add neovim'])
     return
   endif
   call health#report_info('Neovim node.js host: '. host)
@@ -559,7 +561,7 @@ function! s:check_node() abort
           \ current_npm, latest_npm),
           \ ['Run in shell: npm install -g neovim'])
   else
-    call health#report_ok('Latest "neovim" npm package is installed: '. current_npm)
+    call health#report_ok('Latest "neovim" npm/yarn package is installed: '. current_npm)
   endif
 endfunction
 

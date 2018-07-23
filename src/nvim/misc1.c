@@ -531,7 +531,7 @@ open_line (
             int l;
 
             while (old_size < repl_size && p > leader) {
-              mb_ptr_back(leader, p);
+              MB_PTR_BACK(leader, p);
               old_size += ptr2cells(p);
             }
             l = lead_repl_len - (int)(endp - p);
@@ -1311,7 +1311,7 @@ int plines_win_col(win_T *wp, linenr_T lnum, long column)
   colnr_T col = 0;
   while (*s != NUL && --column >= 0) {
     col += win_lbr_chartabsize(wp, line, s, col, NULL);
-    mb_ptr_adv(s);
+    MB_PTR_ADV(s);
   }
 
   // If *s is a TAB, and the TAB is not displayed as ^I, and we're not in
@@ -1795,7 +1795,7 @@ void changed(void)
     }
     changed_int();
   }
-  buf_set_changedtick(curbuf, curbuf->b_changedtick + 1);
+  buf_inc_changedtick(curbuf);
 }
 
 /*
@@ -1922,9 +1922,9 @@ changed_lines(
     linenr_T lnume,       // line below last changed line
     long xtra,            // number of extra lines (negative when deleting)
     bool do_buf_event  // some callers like undo/redo call changed_lines()
-                       // and then increment b_changedtick *again*. This flag
+                       // and then increment changedtick *again*. This flag
                        // allows these callers to send the nvim_buf_lines_event
-                       // events after they're done modifying b_changedtick.
+                       // events after they're done modifying changedtick.
 )
 {
   changed_lines_buf(curbuf, lnum, lnume, xtra);
@@ -2168,7 +2168,7 @@ unchanged (
     redraw_tabline = TRUE;
     need_maketitle = TRUE;          /* set window title later */
   }
-  buf_set_changedtick(buf, buf->b_changedtick + 1);
+  buf_inc_changedtick(buf);
 }
 
 /*

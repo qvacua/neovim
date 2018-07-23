@@ -3566,13 +3566,13 @@ restore_backup:
    * writing to the original file and '+' is not in 'cpoptions'. */
   if (reset_changed && whole && !append
       && !write_info.bw_conv_error
-      && (overwriting || vim_strchr(p_cpo, CPO_PLUS) != NULL)
-      ) {
-    unchanged(buf, TRUE);
-    /* buf->b_changedtick is always incremented in unchanged() but that
-     * should not trigger a TextChanged event. */
-    if (buf->b_last_changedtick + 1 == buf->b_changedtick) {
-      buf->b_last_changedtick = buf->b_changedtick;
+      && (overwriting || vim_strchr(p_cpo, CPO_PLUS) != NULL)) {
+    unchanged(buf, true);
+    const varnumber_T changedtick = buf_get_changedtick(buf);
+    if (buf->b_last_changedtick + 1 == changedtick) {
+      // changedtick is always incremented in unchanged() but that
+      // should not trigger a TextChanged event.
+      buf->b_last_changedtick = changedtick;
     }
     u_unchanged(buf);
     u_update_save_nr(buf);
@@ -4404,7 +4404,7 @@ char *modname(const char *fname, const char *ext, bool prepend_dot)
   // Search backwards until we hit a '/', '\' or ':'.
   // Then truncate what is after the '/', '\' or ':' to BASENAMELEN characters.
   char *ptr = NULL;
-  for (ptr = retval + fnamelen; ptr > retval; mb_ptr_back(retval, ptr)) {
+  for (ptr = retval + fnamelen; ptr > retval; MB_PTR_BACK(retval, ptr)) {
     if (vim_ispathsep(*ptr)) {
       ptr++;
       break;
@@ -6653,7 +6653,7 @@ bool trigger_cursorhold(void) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 /// Return true if "event" autocommand is defined.
 ///
 /// @param event the autocommand to check
-bool has_event(int event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
+bool has_event(event_T event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
   switch (event) {
     case EVENT_TEXTCHANGED:
@@ -6711,6 +6711,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   static int filechangeshell_busy = FALSE;
   proftime_T wait_time;
   bool did_save_redobuff = false;
+  save_redo_T save_redo;
 
 #ifdef CUSTOM_UI
   custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
@@ -6895,7 +6896,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   if (!autocmd_busy) {
     save_search_patterns();
     if (!ins_compl_active()) {
-      saveRedobuff();
+      saveRedobuff(&save_redo);
       did_save_redobuff = true;
     }
     did_filetype = keep_filetype;
@@ -6984,7 +6985,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   if (!autocmd_busy) {
     restore_search_patterns();
     if (did_save_redobuff) {
-      restoreRedobuff();
+      restoreRedobuff(&save_redo);
     }
     did_filetype = FALSE;
     while (au_pending_free_buf != NULL) {

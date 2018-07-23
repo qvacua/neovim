@@ -1213,11 +1213,11 @@ static void normal_check_cursor_moved(NormalState *s)
 
 static void normal_check_text_changed(NormalState *s)
 {
-  // Trigger TextChanged if b_changedtick differs.
+  // Trigger TextChanged if changedtick differs.
   if (!finish_op && has_event(EVENT_TEXTCHANGED)
-      && curbuf->b_last_changedtick != curbuf->b_changedtick) {
+      && curbuf->b_last_changedtick != buf_get_changedtick(curbuf)) {
     apply_autocmds(EVENT_TEXTCHANGED, NULL, NULL, false, curbuf);
-    curbuf->b_last_changedtick = curbuf->b_changedtick;
+    curbuf->b_last_changedtick = buf_get_changedtick(curbuf);
   }
 }
 
@@ -3769,14 +3769,17 @@ find_decl (
       t = false;         /* match after start is failure too */
 
     if (thisblock && t != false) {
-      pos_T       *pos;
+      const int64_t maxtravel = old_pos.lnum - curwin->w_cursor.lnum + 1;
+      const pos_T *pos = findmatchlimit(NULL, '}', FM_FORWARD, maxtravel);
 
-      /* Check that the block the match is in doesn't end before the
-       * position where we started the search from. */
-      if ((pos = findmatchlimit(NULL, '}', FM_FORWARD,
-               (int)(old_pos.lnum - curwin->w_cursor.lnum + 1))) != NULL
-          && pos->lnum < old_pos.lnum)
+      // Check that the block the match is in doesn't end before the
+      // position where we started the search from.
+      if (pos != NULL && pos->lnum < old_pos.lnum) {
+        // There can't be a useful match before the end of this block.
+        // Skip to the end
+        curwin->w_cursor = *pos;
         continue;
+      }
     }
 
     if (t == false) {
@@ -5234,9 +5237,9 @@ static void nv_gotofile(cmdarg_T *cap)
       (void)autowrite(curbuf, false);
     }
     setpcmark();
-    (void)do_ecmd(0, ptr, NULL, NULL, ECMD_LAST,
-                  buf_hide(curbuf) ? ECMD_HIDE : 0, curwin);
-    if (cap->nchar == 'F' && lnum >= 0) {
+    if (do_ecmd(0, ptr, NULL, NULL, ECMD_LAST,
+                buf_hide(curbuf) ? ECMD_HIDE : 0, curwin) == OK
+        && cap->nchar == 'F' && lnum >= 0) {
       curwin->w_cursor.lnum = lnum;
       check_cursor_lnum();
       beginline(BL_SOL | BL_FIX);
@@ -6899,7 +6902,7 @@ static void nv_g_cmd(cmdarg_T *cap)
     else
       show_utf8();
     break;
-
+  // "g<": show scrollback text
   case '<':
     show_sb_text();
     break;
@@ -7155,7 +7158,7 @@ static void set_op_var(int optype)
     assert(opchar0 >= 0 && opchar0 <= UCHAR_MAX);
     opchars[0] = (char) opchar0;
 
-    int opchar1 = get_extra_op_char(optype); 
+    int opchar1 = get_extra_op_char(optype);
     assert(opchar1 >= 0 && opchar1 <= UCHAR_MAX);
     opchars[1] = (char) opchar1;
 
@@ -7468,8 +7471,10 @@ static void nv_esc(cmdarg_T *cap)
     if (restart_edit == 0
         && cmdwin_type == 0
         && !VIsual_active
-        && no_reason)
-      MSG(_("Type  :quit<Enter>  to exit Nvim"));
+        && no_reason) {
+      MSG(_("Type  :qa!  and press <Enter> to abandon all changes"
+            " and exit Nvim"));
+    }
 
     /* Don't reset "restart_edit" when 'insertmode' is set, it won't be
      * set again below when halfway through a mapping. */

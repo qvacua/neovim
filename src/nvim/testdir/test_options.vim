@@ -275,3 +275,67 @@ func Test_complete()
   set complete&
 endfun
 
+func ResetIndentexpr()
+  set indentexpr=
+endfunc
+
+func Test_set_indentexpr()
+  " this was causing usage of freed memory
+  set indentexpr=ResetIndentexpr()
+  new
+  call feedkeys("i\<c-f>", 'x')
+  call assert_equal('', &indentexpr)
+  bwipe!
+endfunc
+
+func Test_copy_winopt()
+  set hidden
+
+  " Test copy option from current buffer in window
+  split
+  enew
+  setlocal numberwidth=5
+  wincmd w
+  call assert_equal(4,&numberwidth)
+  bnext
+  call assert_equal(5,&numberwidth)
+  bw!
+  call assert_equal(4,&numberwidth)
+
+  " Test copy value from window that used to be display the buffer
+  split
+  enew
+  setlocal numberwidth=6
+  bnext
+  wincmd w
+  call assert_equal(4,&numberwidth)
+  bnext
+  call assert_equal(6,&numberwidth)
+  bw!
+
+  " Test that if buffer is current, don't use the stale cached value
+  " from the last time the buffer was displayed.
+  split
+  enew
+  setlocal numberwidth=7
+  bnext
+  bnext
+  setlocal numberwidth=8
+  wincmd w
+  call assert_equal(4,&numberwidth)
+  bnext
+  call assert_equal(8,&numberwidth)
+  bw!
+
+  " Test value is not copied if window already has seen the buffer
+  enew
+  split
+  setlocal numberwidth=9
+  bnext
+  setlocal numberwidth=10
+  wincmd w
+  call assert_equal(4,&numberwidth)
+  bnext
+  call assert_equal(4,&numberwidth)
+  bw!
+endfunc

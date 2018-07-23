@@ -2830,7 +2830,7 @@ did_set_string_option (
     for (s = p_sbr; *s; ) {
       if (ptr2cells(s) != 1)
         errmsg = (char_u *)N_("E595: contains unprintable or wide character");
-      mb_ptr_adv(s);
+      MB_PTR_ADV(s);
     }
   }
 
@@ -3243,6 +3243,10 @@ did_set_string_option (
         did_filetype = true;
         apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft,
                        curbuf->b_fname, true, curbuf);
+        // Just in case the old "curbuf" is now invalid
+        if (varp != &(curbuf->b_p_ft)) {
+          varp = NULL;
+        }
       }
     }
     if (varp == &(curwin->w_s->b_p_spl)) {
@@ -3386,6 +3390,7 @@ static char_u *set_chars_option(char_u **varp)
     { &fill_fold,    "fold" , 183  },  // ·
     { &fill_diff,    "diff" , '-'  },
     { &fill_msgsep,  "msgsep", ' ' },
+    { &fill_eob,     "eob",   '~' },
   };
   static struct charstab lcstab[] = {
     { &lcs_eol,      "eol",      NUL },
@@ -3437,16 +3442,20 @@ static char_u *set_chars_option(char_u **varp)
             && p[len] == ':'
             && p[len + 1] != NUL) {
           s = p + len + 1;
-          c1 = mb_ptr2char_adv((const char_u **)&s);
-          if (mb_char2cells(c1) > 1) {
+
+          // TODO(bfredl): use schar_T representation and utfc_ptr2len
+          int c1len = utf_ptr2len(s);
+          c1 = mb_cptr2char_adv((const char_u **)&s);
+          if (mb_char2cells(c1) > 1 || (c1len == 1 && c1 > 127)) {
             continue;
           }
           if (tab[i].cp == &lcs_tab2) {
             if (*s == NUL) {
               continue;
             }
-            c2 = mb_ptr2char_adv((const char_u **)&s);
-            if (mb_char2cells(c2) > 1) {
+            int c2len = utf_ptr2len(s);
+            c2 = mb_cptr2char_adv((const char_u **)&s);
+            if (mb_char2cells(c2) > 1 || (c2len == 1 && c2 > 127)) {
               continue;
             }
           }
@@ -4102,11 +4111,7 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
       errmsg = e_winwidth;
     }
   } else if (pp == &p_mco) {
-    if (value > MAX_MCO) {
-      errmsg = e_invarg;
-    } else if (value < 0) {
-      errmsg = e_positive;
-    }
+    value = MAX_MCO;
   } else if (pp == &p_titlelen) {
     if (value < 0) {
       errmsg = e_positive;
@@ -4268,8 +4273,6 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
     if (pp == &curbuf->b_p_sw || curbuf->b_p_sw == 0) {
       parse_cino(curbuf);
     }
-  } else if (pp == &p_mco) {
-    screenclear();          // will re-allocate the screen
   } else if (pp == &curbuf->b_p_iminsert) {
     showmode();
     // Show/unshow value of 'keymap' in status lines.
@@ -4757,18 +4760,21 @@ int get_option_value_strict(char *name,
       // Special case: 'modified' is b_changed, but we also want to
       // consider it set when 'ff' or 'fenc' changed.
       if (p->indir == PV_MOD) {
-        *numval = bufIsChanged((buf_T *) from);
+        *numval = bufIsChanged((buf_T *)from);
         varp = NULL;
       } else {
-        aco_save_T	aco;
-        aucmd_prepbuf(&aco, (buf_T *) from);
+        buf_T *save_curbuf = curbuf;
+
+        // only getting a pointer, no need to use aucmd_prepbuf()
+        curbuf = (buf_T *)from;
+        curwin->w_buffer = curbuf;
         varp = get_varp(p);
-        aucmd_restbuf(&aco);
+        curbuf = save_curbuf;
+        curwin->w_buffer = curbuf;
       }
     } else if (opt_type == SREQ_WIN) {
-      win_T	*save_curwin;
-      save_curwin = curwin;
-      curwin = (win_T *) from;
+      win_T *save_curwin = curwin;
+      curwin = (win_T *)from;
       curbuf = curwin->w_buffer;
       varp = get_varp(p);
       curwin = save_curwin;
@@ -5812,7 +5818,7 @@ void buf_copy_options(buf_T *buf, int flags)
       buf->b_p_ml = p_ml;
       buf->b_p_ml_nobin = p_ml_nobin;
       buf->b_p_inf = p_inf;
-      buf->b_p_swf = p_swf;
+      buf->b_p_swf = cmdmod.noswapfile ? false : p_swf;
       buf->b_p_cpt = vim_strsave(p_cpt);
       buf->b_p_cfu = vim_strsave(p_cfu);
       buf->b_p_ofu = vim_strsave(p_ofu);
@@ -6210,13 +6216,15 @@ void ExpandOldSetting(int *num_file, char_u ***file)
 #ifdef BACKSLASH_IN_FILENAME
   /* For MS-Windows et al. we don't double backslashes at the start and
    * before a file name character. */
-  for (var = buf; *var != NUL; mb_ptr_adv(var))
+  for (var = buf; *var != NUL; MB_PTR_ADV(var)) {
     if (var[0] == '\\' && var[1] == '\\'
         && expand_option_idx >= 0
         && (options[expand_option_idx].flags & P_EXPAND)
         && vim_isfilec(var[2])
-        && (var[2] != '\\' || (var == buf && var[4] != '\\')))
+        && (var[2] != '\\' || (var == buf && var[4] != '\\'))) {
       STRMOVE(var, var + 1);
+    }
+  }
 #endif
 
   *file[0] = buf;
@@ -6384,9 +6392,10 @@ static void langmap_set(void)
 
   for (p = p_langmap; p[0] != NUL; ) {
     for (p2 = p; p2[0] != NUL && p2[0] != ',' && p2[0] != ';';
-         mb_ptr_adv(p2)) {
-      if (p2[0] == '\\' && p2[1] != NUL)
-        ++p2;
+         MB_PTR_ADV(p2)) {
+      if (p2[0] == '\\' && p2[1] != NUL) {
+        p2++;
+      }
     }
     if (p2[0] == ';')
       ++p2;                 /* abcd;ABCD form, p2 points to A */
@@ -6402,7 +6411,7 @@ static void langmap_set(void)
       from = (*mb_ptr2char)(p);
       to = NUL;
       if (p2 == NULL) {
-        mb_ptr_adv(p);
+        MB_PTR_ADV(p);
         if (p[0] != ',') {
           if (p[0] == '\\')
             ++p;
@@ -6428,10 +6437,10 @@ static void langmap_set(void)
         langmap_mapchar[from & 255] = (char_u)to;
       }
 
-      /* Advance to next pair */
-      mb_ptr_adv(p);
+      // Advance to next pair
+      MB_PTR_ADV(p);
       if (p2 != NULL) {
-        mb_ptr_adv(p2);
+        MB_PTR_ADV(p2);
         if (*p == ';') {
           p = p2;
           if (p[0] != NUL) {
@@ -6597,7 +6606,7 @@ void vimrc_found(char_u *fname, char_u *envname)
 /// @param[in]  name  Option name.
 ///
 /// @return True if it was set.
-static bool option_was_set(const char *name)
+bool option_was_set(const char *name)
 {
   int idx;
 
@@ -6608,6 +6617,18 @@ static bool option_was_set(const char *name)
     return true;
   }
   return false;
+}
+
+/// Reset the flag indicating option "name" was set.
+///
+/// @param[in]  name  Option name.
+void reset_option_was_set(const char *name)
+{
+  const int idx = findoption(name);
+
+  if (idx >= 0) {
+    options[idx].flags &= ~P_WAS_SET;
+  }
 }
 
 /*

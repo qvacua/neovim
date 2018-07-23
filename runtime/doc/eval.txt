@@ -1528,8 +1528,8 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 		event, e.g. |DirChanged| or |TextYankPost|.
 			KEY		DESCRIPTION ~
 			abort		Whether the event triggered during
-					an aborting condition, i e |c_Esc| or
-					|c_CTRL-c|for |CmdlineLeave|.
+					an aborting condition (e.g. |c_Esc| or
+					|c_CTRL-c| for |CmdlineLeave|).
 			cmdlevel	Level of cmdline.
 			cmdtype		Type of cmdline, |cmdline-char|.
 			cwd		Current working directory.
@@ -2221,6 +2221,8 @@ remote_peek({serverid} [, {retvar}])
 remote_read({serverid} [, {timeout}])
 				String	read reply string
 remote_send({server}, {string} [, {idvar}])
+				String	send key sequence
+remote_startserver({name})	none	become server {name}
 				String	send key sequence
 remove({list}, {idx} [, {end}])	any	remove items {idx}-{end} from {list}
 remove({dict}, {key})		any	remove entry {key} from {dict}
@@ -4993,6 +4995,9 @@ jobstart({cmd}[, {opts}])				*jobstart()*
 		  :call jobstart(split(&shell) + split(&shellcmdflag) + ['{cmd}'])
 <		(See |shell-unquoting| for details.)
 
+		Example: >
+		  :call jobstart('nvim -h', {'on_stdout':{j,d,e->append(line('.'),d)}})
+<
 		Returns |job-id| on success, 0 on invalid arguments (or job
 		table is full), -1 if {cmd}[0] or 'shell' is not executable.
 		For communication over the job's stdio, it is represented as a
@@ -5182,8 +5187,10 @@ line({expr})	The result is a Number, which is the line number of the file
 		    $	    the last line in the current buffer
 		    'x	    position of mark x (if the mark is not set, 0 is
 			    returned)
-		    w0	    first line visible in current window
-		    w$	    last line visible in current window
+		    w0	    first line visible in current window (one if the
+			    display isn't updated, e.g. in silent Ex mode)
+		    w$	    last line visible in current window (this is one
+			    less than "w0" if no lines are visible)
 		    v	    In Visual mode: the start of the Visual area (the
 			    cursor is the end).  When not in Visual mode
 			    returns the cursor position.  Differs from |'<| in
@@ -5200,9 +5207,9 @@ line({expr})	The result is a Number, which is the line number of the file
 		This autocommand jumps to the last known position in a file
 		just after opening it, if the '" mark is set: >
      :au BufReadPost *
-         \ if line("'\"") > 1 && line("'\"") <= line("$") && &ft !~# 'commit'
-         \ |   exe "normal! g`\""
-         \ | endif
+	\ if line("'\"") > 1 && line("'\"") <= line("$") && &ft !~# 'commit'
+	\ |   exe "normal! g`\""
+	\ | endif
 
 line2byte({lnum})					*line2byte()*
 		Return the byte count from the start of the buffer for line
@@ -5669,7 +5676,7 @@ min({expr})	Return the minimum value of all items in {expr}.
 		it returns the minimum of all values in the dictionary.
 		If {expr} is neither a list nor a dictionary, or one of the
 		items in {expr} cannot be used as a Number this results in
-                an error.  An empty |List| or |Dictionary| results in zero.
+		an error.  An empty |List| or |Dictionary| results in zero.
 
 							*mkdir()* *E739*
 mkdir({name} [, {path} [, {prot}]])
@@ -6194,15 +6201,17 @@ reltimestr({time})				*reltimestr()*
 <		Also see |profiling|.
 
 							*remote_expr()* *E449*
-remote_expr({server}, {string} [, {idvar}])
+remote_expr({server}, {string} [, {idvar} [, {timeout}]])
 		Send the {string} to {server}.	The string is sent as an
 		expression and the result is returned after evaluation.
 		The result must be a String or a |List|.  A |List| is turned
 		into a String by joining the items with a line break in
 		between (not at the end), like with join(expr, "\n").
-		If {idvar} is present, it is taken as the name of a
-		variable and a {serverid} for later use with
+		If {idvar} is present and not empty, it is taken as the name
+		of a variable and a {serverid} for later use with
 		remote_read() is stored there.
+		If {timeout} is given the read times out after this many
+		seconds.  Otherwise a timeout of 600 seconds is used.
 		See also |clientserver| |RemoteReply|.
 		This function is not available in the |sandbox|.
 		{only available when compiled with the |+clientserver| feature}
@@ -6246,9 +6255,10 @@ remote_peek({serverid} [, {retvar}])		*remote_peek()*
 			:let repl = ""
 			:echo "PEEK: ".remote_peek(id, "repl").": ".repl
 
-remote_read({serverid})				*remote_read()*
+remote_read({serverid}, [{timeout}])			*remote_read()*
 		Return the oldest available reply from {serverid} and consume
-		it.  It blocks until a reply is available.
+		it.  Unless a {timeout} in seconds is given, it blocks until a
+		reply is available.
 		See also |clientserver|.
 		This function is not available in the |sandbox|.
 		{only available when compiled with the |+clientserver| feature}
@@ -6266,6 +6276,7 @@ remote_send({server}, {string} [, {idvar}])
 		See also |clientserver| |RemoteReply|.
 		This function is not available in the |sandbox|.
 		{only available when compiled with the |+clientserver| feature}
+
 		Note: Any errors will be reported in the server and may mess
 		up the display.
 		Examples: >
@@ -6277,6 +6288,12 @@ remote_send({server}, {string} [, {idvar}])
 		:echo remote_send("gvim", ":sleep 10 | echo ".
 		 \ 'server2client(expand("<client>"), "HELLO")<CR>')
 <
+					*remote_startserver()* *E941* *E942*
+remote_startserver({name})
+		Become the server {name}.  This fails if already running as a
+		server, when |v:servername| is not empty.
+		{only available when compiled with the |+clientserver| feature}
+
 remove({list}, {idx} [, {end}])				*remove()*
 		Without {end}: Remove the item at {idx} from |List| {list} and
 		return the item.
@@ -8251,8 +8268,8 @@ winwidth({nr})						*winwidth()*
   :if winwidth(0) <= 50
   :  exe "normal 50\<C-W>|"
   :endif
-<               For getting the terminal or screen size, see the 'columns'
-               option.
+<		For getting the terminal or screen size, see the 'columns'
+		option.
 
 
 wordcount()						*wordcount()*
@@ -8270,11 +8287,11 @@ wordcount()						*wordcount()*
 			cursor_words    Number of words before cursor position
 					(not in Visual mode)
 			visual_bytes    Number of bytes visually selected
-			                (only in Visual mode)
+					(only in Visual mode)
 			visual_chars    Number of chars visually selected
-			                (only in Visual mode)
+					(only in Visual mode)
 			visual_words    Number of chars visually selected
-			                (only in Visual mode)
+					(only in Visual mode)
 
 
 							*writefile()*
@@ -8558,6 +8575,9 @@ See |:verbose-cmd| for more information.
 			not used an error message is given.  When [!] is used,
 			an existing function is silently replaced.  Unless it
 			is currently being executed, that is an error.
+			NOTE: Use ! wisely.  If used without care it can cause
+			an existing function to be replaced unexpectedly,
+			which is hard to debug.
 
 			For the {arguments} see |function-argument|.
 

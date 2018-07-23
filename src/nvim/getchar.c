@@ -78,11 +78,9 @@ FileDescriptor *scriptin[NSCRIPT] = { NULL };
 
 #define MINIMAL_SIZE 20                 /* minimal size for b_str */
 
-static buffheader_T redobuff = {{NULL, {NUL}}, NULL, 0, 0};
-static buffheader_T old_redobuff = {{NULL, {NUL}}, NULL, 0, 0};
-static buffheader_T save_redobuff = {{NULL, {NUL}}, NULL, 0, 0};
-static buffheader_T save_old_redobuff = {{NULL, {NUL}}, NULL, 0, 0};
-static buffheader_T recordbuff = {{NULL, {NUL}}, NULL, 0, 0};
+static buffheader_T redobuff = { { NULL, { NUL } }, NULL, 0, 0 };
+static buffheader_T old_redobuff = { { NULL, { NUL } }, NULL, 0, 0 };
+static buffheader_T recordbuff = { { NULL, { NUL } }, NULL, 0, 0 };
 
 // First read ahead buffer. Used for translated commands.
 static buffheader_T readbuf1 = {{NULL, {NUL}}, NULL, 0, 0};
@@ -480,41 +478,31 @@ void CancelRedo(void)
   }
 }
 
-/*
- * Save redobuff and old_redobuff to save_redobuff and save_old_redobuff.
- * Used before executing autocommands and user functions.
- */
-static int save_level = 0;
-
-void saveRedobuff(void)
+/// Save redobuff and old_redobuff to save_redobuff and save_old_redobuff.
+/// Used before executing autocommands and user functions.
+void saveRedobuff(save_redo_T *save_redo)
 {
-  if (save_level++ == 0) {
-    save_redobuff = redobuff;
-    redobuff.bh_first.b_next = NULL;
-    save_old_redobuff = old_redobuff;
-    old_redobuff.bh_first.b_next = NULL;
+  save_redo->sr_redobuff = redobuff;
+  redobuff.bh_first.b_next = NULL;
+  save_redo->sr_old_redobuff = old_redobuff;
+  old_redobuff.bh_first.b_next = NULL;
 
-    // Make a copy, so that ":normal ." in a function works.
-    char *const s = (char *)get_buffcont(&save_redobuff, false);
-    if (s != NULL) {
-      add_buff(&redobuff, s, -1L);
-      xfree(s);
-    }
+  // Make a copy, so that ":normal ." in a function works.
+  char *const s = (char *)get_buffcont(&save_redo->sr_redobuff, false);
+  if (s != NULL) {
+    add_buff(&redobuff, s, -1L);
+    xfree(s);
   }
 }
 
-/*
- * Restore redobuff and old_redobuff from save_redobuff and save_old_redobuff.
- * Used after executing autocommands and user functions.
- */
-void restoreRedobuff(void)
+/// Restore redobuff and old_redobuff from save_redobuff and save_old_redobuff.
+/// Used after executing autocommands and user functions.
+void restoreRedobuff(save_redo_T *save_redo)
 {
-  if (--save_level == 0) {
-    free_buff(&redobuff);
-    redobuff = save_redobuff;
-    free_buff(&old_redobuff);
-    old_redobuff = save_old_redobuff;
-  }
+  free_buff(&redobuff);
+  redobuff = save_redo->sr_redobuff;
+  free_buff(&old_redobuff);
+  old_redobuff = save_redo->sr_old_redobuff;
 }
 
 /*
@@ -835,7 +823,7 @@ static void init_typebuf(void)
     typebuf.tb_noremap = noremapbuf_init;
     typebuf.tb_buflen = TYPELEN_INIT;
     typebuf.tb_len = 0;
-    typebuf.tb_off = 0;
+    typebuf.tb_off = MAXMAPLEN + 4;
     typebuf.tb_change_cnt = 1;
   }
 }
@@ -879,9 +867,15 @@ int ins_typebuf(char_u *str, int noremap, int offset, int nottyped, bool silent)
     // Easy case: there is room in front of typebuf.tb_buf[typebuf.tb_off]
     typebuf.tb_off -= addlen;
     memmove(typebuf.tb_buf + typebuf.tb_off, str, (size_t)addlen);
+  } else if (typebuf.tb_len == 0
+             && typebuf.tb_buflen >= addlen + 3 * (MAXMAPLEN + 4)) {
+    // Buffer is empty and string fits in the existing buffer.
+    // Leave some space before and after, if possible.
+    typebuf.tb_off = (typebuf.tb_buflen - addlen - 3 * (MAXMAPLEN + 4)) / 2;
+    memmove(typebuf.tb_buf + typebuf.tb_off, str, (size_t)addlen);
   } else {
     // Need to allocate a new buffer.
-    // In typebuf.tb_buf there must always be room for 3 * MAXMAPLEN + 4
+    // In typebuf.tb_buf there must always be room for 3 * (MAXMAPLEN + 4)
     // characters.  We add some extra room to avoid having to allocate too
     // often.
     newoff = MAXMAPLEN + 4;
@@ -1145,7 +1139,7 @@ void alloc_typebuf(void)
   typebuf.tb_buf = xmalloc(TYPELEN_INIT);
   typebuf.tb_noremap = xmalloc(TYPELEN_INIT);
   typebuf.tb_buflen = TYPELEN_INIT;
-  typebuf.tb_off = 0;
+  typebuf.tb_off = MAXMAPLEN + 4;     // can insert without realloc
   typebuf.tb_len = 0;
   typebuf.tb_maplen = 0;
   typebuf.tb_silent = 0;
@@ -4249,7 +4243,7 @@ static bool typebuf_match_len(const uint8_t *str, int *mlen)
 mapblock_T *get_maphash(int index, buf_T *buf)
     FUNC_ATTR_PURE
 {
-  if (index > MAX_MAPHASH) {
+  if (index >= MAX_MAPHASH) {
     return NULL;
   }
 
