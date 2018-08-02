@@ -31,6 +31,7 @@
 #include "nvim/fileio.h"
 #include "nvim/func_attr.h"
 #include "nvim/getchar.h"
+#include "nvim/highlight.h"
 #include "nvim/if_cscope.h"
 #include "nvim/indent.h"
 #include "nvim/main.h"
@@ -213,6 +214,8 @@ static int hislen = 0;                  /* actual length of history tables */
 /// Used if it was received while processing highlight function in order for
 /// user interrupting highlight function to not interrupt command-line.
 static bool getln_interrupted_highlight = false;
+
+static bool need_cursor_update = false;
 
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -2943,30 +2946,22 @@ static void ui_ext_cmdline_show(CmdlineInfo *line)
     char *buf = xmallocz(len);
     memset(buf, '*', len);
     Array item = ARRAY_DICT_INIT;
-    ADD(item, DICTIONARY_OBJ((Dictionary)ARRAY_DICT_INIT));
+    ADD(item, INTEGER_OBJ(0));
     ADD(item, STRING_OBJ(((String) { .data = buf, .size = len })));
     ADD(content, ARRAY_OBJ(item));
   } else if (kv_size(line->last_colors.colors)) {
     for (size_t i = 0; i < kv_size(line->last_colors.colors); i++) {
       CmdlineColorChunk chunk = kv_A(line->last_colors.colors, i);
       Array item = ARRAY_DICT_INIT;
+      ADD(item, INTEGER_OBJ(chunk.attr));
 
-      if (chunk.attr) {
-        HlAttrs *aep = syn_cterm_attr2entry(chunk.attr);
-        // TODO(bfredl): this desicion could be delayed by making attr_code a
-        // recognized type
-        Dictionary rgb_attrs = hlattrs2dict(aep, true);
-        ADD(item, DICTIONARY_OBJ(rgb_attrs));
-      } else {
-        ADD(item, DICTIONARY_OBJ((Dictionary)ARRAY_DICT_INIT));
-      }
       ADD(item, STRING_OBJ(cbuf_to_string((char *)line->cmdbuff + chunk.start,
                                           chunk.end-chunk.start)));
       ADD(content, ARRAY_OBJ(item));
     }
   } else {
     Array item = ARRAY_DICT_INIT;
-    ADD(item, DICTIONARY_OBJ((Dictionary)ARRAY_DICT_INIT));
+    ADD(item, INTEGER_OBJ(0));
     ADD(item, STRING_OBJ(cstr_to_string((char *)(line->cmdbuff))));
     ADD(content, ARRAY_OBJ(item));
   }
@@ -3032,6 +3027,8 @@ void cmdline_screen_cleared(void)
     }
     prev_ccline = prev_ccline->prev_ccline;
   }
+
+  need_cursor_update = true;
 }
 
 /// called by ui_flush, do what redraws neccessary to keep cmdline updated.
@@ -3499,6 +3496,10 @@ static void cursorcmd(void)
   if (ui_is_external(kUICmdline)) {
     if (ccline.redraw_state < kCmdRedrawPos) {
       ccline.redraw_state = kCmdRedrawPos;
+    }
+    if (need_cursor_update) {
+      need_cursor_update = false;
+      setcursor();
     }
     return;
   }
@@ -5061,38 +5062,33 @@ static void * call_user_expand_func(user_expand_func_T user_expand_func,
  */
 static int ExpandUserDefined(expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file)
 {
-  char_u      *retstr;
-  char_u      *s;
   char_u      *e;
-  char_u keep;
   garray_T ga;
 
-  retstr = call_user_expand_func((user_expand_func_T)call_func_retstr, xp,
-                                 num_file, file);
+  char_u *const retstr = call_user_expand_func(
+      (user_expand_func_T)call_func_retstr, xp, num_file, file);
   if (retstr == NULL) {
     return FAIL;
   }
 
   ga_init(&ga, (int)sizeof(char *), 3);
-  for (s = retstr; *s != NUL; s = e) {
+  for (char_u *s = retstr; *s != NUL; s = e) {
     e = vim_strchr(s, '\n');
     if (e == NULL)
       e = s + STRLEN(s);
-    keep = *e;
-    *e = 0;
+    const int keep = *e;
+    *e = NUL;
 
-    if (xp->xp_pattern[0] && vim_regexec(regmatch, s, (colnr_T)0) == 0) {
-      *e = keep;
-      if (*e != NUL)
-        ++e;
-      continue;
+    const bool skip = xp->xp_pattern[0]
+        && vim_regexec(regmatch, s, (colnr_T)0) == 0;
+    *e = keep;
+    if (!skip) {
+      GA_APPEND(char_u *, &ga, vim_strnsave(s, (int)(e - s)));
     }
 
-    GA_APPEND(char_u *, &ga, vim_strnsave(s, (int)(e - s)));
-
-    *e = keep;
-    if (*e != NUL)
-      ++e;
+    if (*e != NUL) {
+      e++;
+    }
   }
   xfree(retstr);
   *file = ga.ga_data;

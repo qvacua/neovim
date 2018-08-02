@@ -45,6 +45,7 @@
 #include "nvim/fold.h"
 #include "nvim/getchar.h"
 #include "nvim/hashtab.h"
+#include "nvim/highlight.h"
 #include "nvim/indent.h"
 #include "nvim/indent_c.h"
 #include "nvim/main.h"
@@ -4419,7 +4420,7 @@ do_arg_all (
           if (i < alist->al_ga.ga_len
               && (AARGLIST(alist)[i].ae_fnum == buf->b_fnum
                   || path_full_compare(alist_name(&AARGLIST(alist)[i]),
-                      buf->b_ffname, TRUE) & kEqualFiles)) {
+                                       buf->b_ffname, true) & kEqualFiles)) {
             int weight = 1;
 
             if (old_curtab == curtab) {
