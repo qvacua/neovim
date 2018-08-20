@@ -1186,7 +1186,7 @@ int call_vim_function(
     const char_u *func,
     int argc,
     const char_u *const *const argv,
-    int safe,                       // use the sandbox
+    bool safe,                       // use the sandbox
     int str_arg_only,               // all arguments are strings
     typval_T *rettv
 )
@@ -1276,9 +1276,9 @@ varnumber_T call_func_retnr(char_u *func, int argc,
 ///
 /// @return [allocated] NULL when calling function fails, allocated string
 ///                     otherwise.
-char *call_func_retstr(const char *const func, const int argc,
-                       const char_u *const *const argv,
-                       const bool safe)
+char *call_func_retstr(const char *const func, int argc,
+                       const char_u *const *argv,
+                       bool safe)
   FUNC_ATTR_NONNULL_ARG(1) FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_MALLOC
 {
   typval_T rettv;
@@ -1302,8 +1302,8 @@ char *call_func_retstr(const char *const func, const int argc,
 ///
 /// @return [allocated] NULL when calling function fails or return tv is not a
 ///                     List, allocated List otherwise.
-void *call_func_retlist(char_u *func, int argc, const char_u *const *const argv,
-                        int safe)
+void *call_func_retlist(char_u *func, int argc, const char_u *const *argv,
+                        bool safe)
 {
   typval_T rettv;
 
@@ -7603,7 +7603,7 @@ static void f_count(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     const char_u *expr = (char_u *)tv_get_string_chk(&argvars[1]);
     const char_u *p = argvars[0].vval.v_string;
 
-    if (!error && expr != NULL && p != NULL) {
+    if (!error && expr != NULL && *expr != NUL && p != NULL) {
       if (ic) {
         const size_t len = STRLEN(expr);
 
@@ -9493,6 +9493,9 @@ static void f_getchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
         /* Find the window at the mouse coordinates and compute the
          * text position. */
         win = mouse_find_win(&row, &col);
+        if (win == NULL) {
+          return;
+        }
         (void)mouse_comp_pos(win, &row, &col, &lnum);
         for (wp = firstwin; wp != win; wp = wp->w_next)
           ++winnr;
@@ -9871,7 +9874,7 @@ static void f_getftype(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 # endif
 # ifdef S_ISSOCK
     else if (S_ISSOCK(mode))
-      t = "fifo";
+      t = "socket";
 # endif
     else
       t = "other";
@@ -10207,32 +10210,34 @@ static void f_gettabinfo(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 static void f_gettabvar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   win_T *oldcurwin;
-  tabpage_T *tp, *oldtabpage;
-  dictitem_T  *v;
+  tabpage_T *oldtabpage;
   bool done = false;
 
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;
 
   const char *const varname = tv_get_string_chk(&argvars[1]);
-  tp = find_tabpage((int)tv_get_number_chk(&argvars[0], NULL));
+  tabpage_T *const tp = find_tabpage((int)tv_get_number_chk(&argvars[0], NULL));
   if (tp != NULL && varname != NULL) {
     // Set tp to be our tabpage, temporarily.  Also set the window to the
     // first window in the tabpage, otherwise the window is not valid.
-    win_T *window = tp->tp_firstwin == NULL ? firstwin : tp->tp_firstwin;
+    win_T *const window = tp == curtab || tp->tp_firstwin == NULL
+        ? firstwin
+        : tp->tp_firstwin;
     if (switch_win(&oldcurwin, &oldtabpage, window, tp, true) == OK) {
       // look up the variable
       // Let gettabvar({nr}, "") return the "t:" dictionary.
-      v = find_var_in_ht(&tp->tp_vars->dv_hashtab, 't',
-                         varname, strlen(varname), false);
+      const dictitem_T *const v = find_var_in_ht(&tp->tp_vars->dv_hashtab, 't',
+                                                 varname, strlen(varname),
+                                                 false);
       if (v != NULL) {
         tv_copy(&v->di_tv, rettv);
         done = true;
       }
     }
 
-    /* restore previous notion of curwin */
-    restore_win(oldcurwin, oldtabpage, TRUE);
+    // restore previous notion of curwin
+    restore_win(oldcurwin, oldtabpage, true);
   }
 
   if (!done && argvars[2].v_type != VAR_UNKNOWN) {
@@ -12225,7 +12230,7 @@ static void find_some_match(typval_T *const argvars, typval_T *const rettv,
   long start = 0;
   long nth = 1;
   colnr_T startcol = 0;
-  int match = 0;
+  bool match = false;
   list_T      *l = NULL;
   listitem_T  *li = NULL;
   long idx = 0;
@@ -12323,7 +12328,7 @@ static void find_some_match(typval_T *const argvars, typval_T *const rettv,
     for (;; ) {
       if (l != NULL) {
         if (li == NULL) {
-          match = FALSE;
+          match = false;
           break;
         }
         xfree(tofree);
@@ -12349,7 +12354,7 @@ static void find_some_match(typval_T *const argvars, typval_T *const rettv,
         startcol = (colnr_T)(regmatch.startp[0]
                              + (*mb_ptr2len)(regmatch.startp[0]) - str);
         if (startcol > (colnr_T)len || str + startcol <= regmatch.startp[0]) {
-            match = FALSE;
+            match = false;
             break;
         }
       }
@@ -12422,13 +12427,13 @@ static void find_some_match(typval_T *const argvars, typval_T *const rettv,
     vim_regfree(regmatch.regprog);
   }
 
-  if (type == kSomeMatchStrPos && l == NULL) {
+theend:
+  if (type == kSomeMatchStrPos && l == NULL && rettv->vval.v_list != NULL) {
     // matchstrpos() without a list: drop the second item
     list_T *const ret_l = rettv->vval.v_list;
     tv_list_item_remove(ret_l, TV_LIST_ITEM_NEXT(ret_l, tv_list_first(ret_l)));
   }
 
-theend:
   xfree(tofree);
   p_cpo = save_cpo;
 }
@@ -15896,7 +15901,7 @@ static void f_strgetchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   while (charidx >= 0 && byteidx < len) {
     if (charidx == 0) {
-      rettv->vval.v_number = mb_ptr2char((const char_u *)str + byteidx);
+      rettv->vval.v_number = utf_ptr2char((const char_u *)str + byteidx);
       break;
     }
     charidx--;
@@ -17214,6 +17219,69 @@ error:
   EMSG2(_(e_invarg2), fromstr);
   ga_clear(&ga);
   return;
+}
+
+// "trim({expr})" function
+static void f_trim(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  char buf1[NUMBUFLEN];
+  char buf2[NUMBUFLEN];
+  const char_u *head = (const char_u *)tv_get_string_buf_chk(&argvars[0], buf1);
+  const char_u *mask = NULL;
+  const char_u *tail;
+  const char_u *prev;
+  const char_u *p;
+  int c1;
+
+  rettv->v_type = VAR_STRING;
+  if (head == NULL) {
+    rettv->vval.v_string = NULL;
+    return;
+  }
+
+  if (argvars[1].v_type == VAR_STRING) {
+    mask = (const char_u *)tv_get_string_buf_chk(&argvars[1], buf2);
+  }
+
+  while (*head != NUL) {
+    c1 = PTR2CHAR(head);
+    if (mask == NULL) {
+      if (c1 > ' ' && c1 != 0xa0) {
+        break;
+      }
+    } else {
+      for (p = mask; *p != NUL; MB_PTR_ADV(p)) {
+        if (c1 == PTR2CHAR(p)) {
+          break;
+        }
+      }
+      if (*p == NUL) {
+        break;
+      }
+    }
+    MB_PTR_ADV(head);
+  }
+
+  for (tail = head + STRLEN(head); tail > head; tail = prev) {
+    prev = tail;
+    MB_PTR_BACK(head, prev);
+    c1 = PTR2CHAR(prev);
+    if (mask == NULL) {
+      if (c1 > ' ' && c1 != 0xa0) {
+        break;
+      }
+    } else {
+      for (p = mask; *p != NUL; MB_PTR_ADV(p)) {
+        if (c1 == PTR2CHAR(p)) {
+          break;
+        }
+      }
+      if (*p == NUL) {
+        break;
+      }
+    }
+  }
+  rettv->vval.v_string = vim_strnsave(head, (int)(tail - head));
 }
 
 /*

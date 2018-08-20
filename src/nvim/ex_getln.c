@@ -177,10 +177,6 @@ typedef struct command_line_state {
   int break_ctrl_c;
   expand_T xpc;
   long *b_im_ptr;
-  // Everything that may work recursively should save and restore the
-  // current command line in save_ccline.  That includes update_screen(), a
-  // custom status line may invoke ":normal".
-  struct cmdline_info save_ccline;
 } CommandLineState;
 
 typedef struct cmdline_info CmdlineInfo;
@@ -201,7 +197,10 @@ static Array cmdline_block = ARRAY_DICT_INIT;
 /*
  * Type used by call_user_expand_func
  */
-typedef void *(*user_expand_func_T)(char_u *, int, char_u **, int);
+typedef void *(*user_expand_func_T)(const char_u *,
+                                    int,
+                                    const char_u * const *,
+                                    bool);
 
 static histentry_T *(history[HIST_COUNT]) = {NULL, NULL, NULL, NULL, NULL};
 static int hisidx[HIST_COUNT] = {-1, -1, -1, -1, -1};       /* lastused entry */
@@ -222,11 +221,19 @@ static bool need_cursor_update = false;
 # include "ex_getln.c.generated.h"
 #endif
 
-static int cmd_hkmap = 0;       /* Hebrew mapping during command line */
+static int cmd_hkmap = 0;  // Hebrew mapping during command line
+static int cmd_fkmap = 0;  // Farsi mapping during command line
 
-static int cmd_fkmap = 0;       /* Farsi mapping during command line */
+/// Internal entry point for cmdline mode.
+///
+/// caller must use save_cmdline and restore_cmdline. Best is to use
+/// getcmdline or getcmdline_prompt, instead of calling this directly.
 static uint8_t *command_line_enter(int firstc, long count, int indent)
 {
+  // can be invoked recursively, identify each level
+  static int cmdline_level = 0;
+  cmdline_level++;
+
   CommandLineState state, *s = &state;
   memset(s, 0, sizeof(CommandLineState));
   s->firstc = firstc;
@@ -254,7 +261,7 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
   }
 
   ccline.prompt_id = last_prompt_id++;
-  ccline.level++;
+  ccline.level = cmdline_level;
   ccline.overstrike = false;                // always start in insert mode
   clearpos(&s->match_end);
   s->save_cursor = curwin->w_cursor;        // may be restored later
@@ -486,19 +493,14 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
 
   sb_text_end_cmdline();
 
-  {
-    char_u *p = ccline.cmdbuff;
+  char_u *p = ccline.cmdbuff;
 
-    // Make ccline empty, getcmdline() may try to use it.
-    ccline.cmdbuff = NULL;
-
-    if (ui_is_external(kUICmdline)) {
-      ccline.redraw_state = kCmdRedrawNone;
-      ui_call_cmdline_hide(ccline.level);
-    }
-    ccline.level--;
-    return p;
+  if (ui_is_external(kUICmdline)) {
+    ui_call_cmdline_hide(ccline.level);
   }
+
+  cmdline_level--;
+  return p;
 }
 
 static int command_line_check(VimState *state)
@@ -638,9 +640,7 @@ static int command_line_execute(VimState *state, int key)
         p_ls = save_p_ls;
         p_wmh = save_p_wmh;
         last_status(false);
-        save_cmdline(&s->save_ccline);
         update_screen(VALID);                 // redraw the screen NOW
-        restore_cmdline(&s->save_ccline);
         redrawcmd();
         save_p_ls = -1;
         wild_menu_showing = 0;
@@ -815,18 +815,17 @@ static int command_line_execute(VimState *state, int key)
         new_cmdpos = ccline.cmdpos;
       }
 
-      save_cmdline(&s->save_ccline);
       s->c = get_expr_register();
-      restore_cmdline(&s->save_ccline);
       if (s->c == '=') {
         // Need to save and restore ccline.  And set "textlock"
         // to avoid nasty things like going to another buffer when
         // evaluating an expression.
-        save_cmdline(&s->save_ccline);
-        ++textlock;
+        CmdlineInfo save_ccline;
+        save_cmdline(&save_ccline);
+        textlock++;
         p = get_expr_line();
-        --textlock;
-        restore_cmdline(&s->save_ccline);
+        textlock--;
+        restore_cmdline(&save_ccline);
 
         if (p != NULL) {
           len = (int)STRLEN(p);
@@ -1359,9 +1358,10 @@ static int command_line_handle_key(CommandLineState *s)
         beep_flush();
         s->c = ESC;
       } else {
-        save_cmdline(&s->save_ccline);
+        CmdlineInfo save_ccline;
+        save_cmdline(&save_ccline);
         s->c = get_expr_register();
-        restore_cmdline(&s->save_ccline);
+        restore_cmdline(&save_ccline);
       }
     }
 
@@ -1896,9 +1896,7 @@ static int command_line_changed(CommandLineState *s)
       curwin->w_redr_status = true;
     }
 
-    save_cmdline(&s->save_ccline);
     update_screen(SOME_VALID);
-    restore_cmdline(&s->save_ccline);
     restore_last_search_pattern();
 
     // Leave it at the end to make CTRL-R CTRL-W work.
@@ -1993,7 +1991,14 @@ getcmdline (
     int indent               // indent for inside conditionals
 )
 {
-  return command_line_enter(firstc, count, indent);
+  // Be prepared for situations where cmdline can be invoked recursively.
+  // That includes cmd mappings, event handlers, as well as update_screen()
+  // (custom status line eval), which all may invoke ":normal :".
+  CmdlineInfo save_ccline;
+  save_cmdline(&save_ccline);
+  char_u *retval = command_line_enter(firstc, count, indent);
+  restore_cmdline(&save_ccline);
+  return retval;
 }
 
 /// Get a command line with a prompt
@@ -2017,7 +2022,7 @@ char *getcmdline_prompt(const char firstc, const char *const prompt,
 {
   const int msg_col_save = msg_col;
 
-  struct cmdline_info save_ccline;
+  CmdlineInfo save_ccline;
   save_cmdline(&save_ccline);
 
   ccline.prompt_id = last_prompt_id++;
@@ -2031,7 +2036,7 @@ char *getcmdline_prompt(const char firstc, const char *const prompt,
   int msg_silent_saved = msg_silent;
   msg_silent = 0;
 
-  char *const ret = (char *)getcmdline(firstc, 1L, 0);
+  char *const ret = (char *)command_line_enter(firstc, 1L, 0);
 
   restore_cmdline(&save_ccline);
   msg_silent = msg_silent_saved;
@@ -2173,6 +2178,7 @@ getexline (
   /* When executing a register, remove ':' that's in front of each line. */
   if (exec_from_reg && vpeekc() == ':')
     (void)vgetc();
+
   return getcmdline(c, 1L, indent);
 }
 
@@ -3016,16 +3022,16 @@ void cmdline_screen_cleared(void)
   }
 
   int prev_level = ccline.level-1;
-  CmdlineInfo *prev_ccline = ccline.prev_ccline;
-  while (prev_level > 0 && prev_ccline) {
-    if (prev_ccline->level == prev_level) {
+  CmdlineInfo *line = ccline.prev_ccline;
+  while (prev_level > 0 && line) {
+    if (line->level == prev_level) {
       // don't redraw a cmdline already shown in the cmdline window
       if (prev_level != cmdwin_level) {
-        prev_ccline->redraw_state = kCmdRedrawAll;
+        line->redraw_state = kCmdRedrawAll;
       }
       prev_level--;
     }
-    prev_ccline = prev_ccline->prev_ccline;
+    line = line->prev_ccline;
   }
 
   need_cursor_update = true;
@@ -3241,6 +3247,7 @@ static void save_cmdline(struct cmdline_info *ccp)
   ccline.cmdprompt = NULL;
   ccline.xpc = NULL;
   ccline.special_char = NUL;
+  ccline.level = 0;
 }
 
 /*
@@ -3324,16 +3331,11 @@ static bool cmdline_paste(int regname, bool literally, bool remcr)
 
       /* Locate start of last word in the cmd buffer. */
       for (w = ccline.cmdbuff + ccline.cmdpos; w > ccline.cmdbuff; ) {
-        if (has_mbyte) {
-          len = (*mb_head_off)(ccline.cmdbuff, w - 1) + 1;
-          if (!vim_iswordc(mb_ptr2char(w - len)))
-            break;
-          w -= len;
-        } else {
-          if (!vim_iswordc(w[-1]))
-            break;
-          --w;
+        len = utf_head_off(ccline.cmdbuff, w - 1) + 1;
+        if (!vim_iswordc(utf_ptr2char(w - len))) {
+          break;
         }
+        w -= len;
       }
       len = (int)((ccline.cmdbuff + ccline.cmdpos) - w);
       if (p_ic ? STRNICMP(w, arg, len) == 0 : STRNCMP(w, arg, len) == 0)
@@ -3834,24 +3836,13 @@ ExpandOne (
 
   // Find longest common part
   if (mode == WILD_LONGEST && xp->xp_numfiles > 0) {
-    size_t len;
-    size_t mb_len = 1;
-    int c0;
-    int ci;
+    size_t len = 0;
 
-    for (len = 0; xp->xp_files[0][len]; len += mb_len) {
-      if (has_mbyte) {
-        mb_len = (* mb_ptr2len)(&xp->xp_files[0][len]);
-        c0 = (* mb_ptr2char)(&xp->xp_files[0][len]);
-      } else {
-        c0 = xp->xp_files[0][len];
-      }
-      for (i = 1; i < xp->xp_numfiles; ++i) {
-        if (has_mbyte) {
-          ci =(* mb_ptr2char)(&xp->xp_files[i][len]);
-        } else {
-          ci = xp->xp_files[i][len];
-        }
+    for (size_t mb_len; xp->xp_files[0][len]; len += mb_len) {
+      mb_len = utfc_ptr2len(&xp->xp_files[0][len]);
+      int c0 = utf_ptr2char(&xp->xp_files[0][len]);
+      for (i = 1; i < xp->xp_numfiles; i++) {
+        int ci = utf_ptr2char(&xp->xp_files[i][len]);
 
         if (p_fic && (xp->xp_context == EXPAND_DIRECTORIES
                       || xp->xp_context == EXPAND_FILES
@@ -5046,7 +5037,10 @@ static void * call_user_expand_func(user_expand_func_T user_expand_func,
   ccline.cmdprompt = NULL;
   current_SID = xp->xp_scriptID;
 
-  ret = user_expand_func(xp->xp_arg, 3, args, FALSE);
+  ret = user_expand_func(xp->xp_arg,
+                         3,
+                         (const char_u * const *)args,
+                         false);
 
   ccline = save_ccline;
   current_SID = save_current_SID;
@@ -5062,11 +5056,12 @@ static void * call_user_expand_func(user_expand_func_T user_expand_func,
  */
 static int ExpandUserDefined(expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file)
 {
-  char_u      *e;
-  garray_T ga;
+  char_u   *e;
+  garray_T  ga;
 
   char_u *const retstr = call_user_expand_func(
       (user_expand_func_T)call_func_retstr, xp, num_file, file);
+
   if (retstr == NULL) {
     return FAIL;
   }
@@ -6093,7 +6088,7 @@ static int open_cmdwin(void)
 
   /* Replace the empty last line with the current command-line and put the
    * cursor there. */
-  ml_replace(curbuf->b_ml.ml_line_count, ccline.cmdbuff, TRUE);
+  ml_replace(curbuf->b_ml.ml_line_count, ccline.cmdbuff, true);
   curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
   curwin->w_cursor.col = ccline.cmdpos;
   changed_line_abv_curs();

@@ -165,8 +165,8 @@ open_line (
     *p_extra = NUL;
   }
 
-  u_clearline();                /* cannot do "U" command when adding lines */
-  did_si = FALSE;
+  u_clearline();                // cannot do "U" command when adding lines
+  did_si = false;
   ai_col = 0;
 
   /*
@@ -286,8 +286,8 @@ open_line (
            * checking for "if" and the like.
            */
           if (last_char == '{') {
-            did_si = TRUE;              /* do indent */
-            no_si = TRUE;               /* don't delete it when '{' typed */
+            did_si = true;              // do indent
+            no_si = true;               // don't delete it when '{' typed
           }
           /*
            * Look for "if" and the like, use 'cinwords'.
@@ -296,7 +296,7 @@ open_line (
            */
           else if (last_char != ';' && last_char != '}'
                    && cin_is_cinword(ptr))
-            did_si = TRUE;
+            did_si = true;
         }
       } else {  // dir == BACKWARD
         // Skip preprocessor directives, unless they are
@@ -320,17 +320,19 @@ open_line (
           }
         }
         p = skipwhite(ptr);
-        if (*p == '}')              /* if line starts with '}': do indent */
-          did_si = TRUE;
-        else                        /* can delete indent when '{' typed */
-          can_si_back = TRUE;
+        if (*p == '}') {            // if line starts with '}': do indent
+          did_si = true;
+        } else {                    // can delete indent when '{' typed
+          can_si_back = true;
+        }
       }
       curwin->w_cursor = old_cursor;
     }
-    if (do_si)
-      can_si = TRUE;
+    if (do_si) {
+      can_si = true;
+    }
 
-    did_ai = TRUE;
+    did_ai = true;
   }
 
   /*
@@ -665,7 +667,7 @@ open_line (
         }
       }
 
-      did_si = can_si = FALSE;
+      did_si = can_si = false;
     } else if (comment_end != NULL) {
       // We have finished a comment, so we don't use the leader.
       // If this was a C-comment and 'ai' or 'si' is set do a normal
@@ -699,17 +701,17 @@ open_line (
       replace_push(NUL);            /* end of extra blanks */
     if (curbuf->b_p_ai || (flags & OPENLINE_DELSPACES)) {
       while ((*p_extra == ' ' || *p_extra == '\t')
-             && (!enc_utf8
-                 || !utf_iscomposing(utf_ptr2char(p_extra + 1)))
-             ) {
-        if (REPLACE_NORMAL(State))
+             && !utf_iscomposing(utf_ptr2char(p_extra + 1))) {
+        if (REPLACE_NORMAL(State)) {
           replace_push(*p_extra);
-        ++p_extra;
-        ++less_cols_off;
+        }
+        p_extra++;
+        less_cols_off++;
       }
     }
-    if (*p_extra != NUL)
-      did_ai = FALSE;               /* append some text, don't truncate now */
+    if (*p_extra != NUL) {
+      did_ai = false;               // append some text, don't truncate now
+    }
 
     /* columns for marks adjusted for removed columns */
     less_cols = (int)(p_extra - saved_line);
@@ -736,7 +738,7 @@ open_line (
     }
     STRCAT(leader, p_extra);
     p_extra = leader;
-    did_ai = TRUE;          /* So truncating blanks works with comments */
+    did_ai = true;          // So truncating blanks works with comments
     less_cols -= lead_len;
   } else
     end_comment_pending = NUL;      /* turns out there was no leader */
@@ -769,7 +771,7 @@ open_line (
       (void)u_save_cursor();                        /* errors are ignored! */
       vr_lines_changed++;
     }
-    ml_replace(curwin->w_cursor.lnum, p_extra, TRUE);
+    ml_replace(curwin->w_cursor.lnum, p_extra, true);
     changed_bytes(curwin->w_cursor.lnum, 0);
     curwin->w_cursor.lnum--;
     did_append = FALSE;
@@ -812,8 +814,9 @@ open_line (
       }
     }
     newcol += curwin->w_cursor.col;
-    if (no_si)
-      did_si = FALSE;
+    if (no_si) {
+      did_si = false;
+    }
   }
 
   /*
@@ -828,12 +831,13 @@ open_line (
 
   if (dir == FORWARD) {
     if (trunc_line || (State & INSERT)) {
-      /* truncate current line at cursor */
+      // truncate current line at cursor
       saved_line[curwin->w_cursor.col] = NUL;
-      /* Remove trailing white space, unless OPENLINE_KEEPTRAIL used. */
-      if (trunc_line && !(flags & OPENLINE_KEEPTRAIL))
+      // Remove trailing white space, unless OPENLINE_KEEPTRAIL used.
+      if (trunc_line && !(flags & OPENLINE_KEEPTRAIL)) {
         truncate_spaces(saved_line);
-      ml_replace(curwin->w_cursor.lnum, saved_line, FALSE);
+      }
+      ml_replace(curwin->w_cursor.lnum, saved_line, false);
       saved_line = NULL;
       if (did_append) {
         changed_lines(curwin->w_cursor.lnum, curwin->w_cursor.col,
@@ -909,8 +913,8 @@ open_line (
     /* Put new line in p_extra */
     p_extra = vim_strsave(get_cursor_line_ptr());
 
-    /* Put back original line */
-    ml_replace(curwin->w_cursor.lnum, next_line, FALSE);
+    // Put back original line
+    ml_replace(curwin->w_cursor.lnum, next_line, false);
 
     /* Insert new stuff into line again */
     curwin->w_cursor.col = 0;
@@ -1203,16 +1207,15 @@ int get_last_leader_offset(char_u *line, char_u **flags)
 /*
  * Return the number of window lines occupied by buffer line "lnum".
  */
-int plines(linenr_T lnum)
+int plines(const linenr_T lnum)
 {
-  return plines_win(curwin, lnum, TRUE);
+  return plines_win(curwin, lnum, true);
 }
 
-int 
-plines_win (
-    win_T *wp,
-    linenr_T lnum,
-    int winheight                  /* when TRUE limit to window height */
+int plines_win(
+    win_T *const wp,
+    const linenr_T lnum,
+    const bool winheight          // when true limit to window height
 )
 {
   /* Check for filler lines above this buffer line.  When folded the result
@@ -1220,34 +1223,34 @@ plines_win (
   return plines_win_nofill(wp, lnum, winheight) + diff_check_fill(wp, lnum);
 }
 
-int plines_nofill(linenr_T lnum)
+int plines_nofill(const linenr_T lnum)
 {
-  return plines_win_nofill(curwin, lnum, TRUE);
+  return plines_win_nofill(curwin, lnum, true);
 }
 
-int 
-plines_win_nofill (
-    win_T *wp,
-    linenr_T lnum,
-    int winheight                  /* when TRUE limit to window height */
+int plines_win_nofill(
+    win_T *const wp,
+    const linenr_T lnum,
+    const bool winheight          // when true limit to window height
 )
 {
-  int lines;
-
-  if (!wp->w_p_wrap)
+  if (!wp->w_p_wrap) {
     return 1;
+  }
 
-  if (wp->w_width == 0)
+  if (wp->w_width == 0) {
     return 1;
+  }
 
-  /* A folded lines is handled just like an empty line. */
-  /* NOTE: Caller must handle lines that are MAYBE folded. */
-  if (lineFolded(wp, lnum) == TRUE)
+  // A folded lines is handled just like an empty line.
+  if (lineFolded(wp, lnum)) {
     return 1;
+  }
 
-  lines = plines_win_nofold(wp, lnum);
-  if (winheight > 0 && lines > wp->w_height)
+  const int lines = plines_win_nofold(wp, lnum);
+  if (winheight && lines > wp->w_height) {
     return wp->w_height;
+  }
   return lines;
 }
 
@@ -1347,11 +1350,12 @@ int plines_m_win(win_T *wp, linenr_T first, linenr_T last)
       ++count;              /* count 1 for "+-- folded" line */
       first += x;
     } else {
-      if (first == wp->w_topline)
-        count += plines_win_nofill(wp, first, TRUE) + wp->w_topfill;
-      else
-        count += plines_win(wp, first, TRUE);
-      ++first;
+      if (first == wp->w_topline) {
+        count += plines_win_nofill(wp, first, true) + wp->w_topfill;
+      } else {
+        count += plines_win(wp, first, true);
+      }
+      first++;
     }
   }
   return count;
@@ -1494,8 +1498,8 @@ void ins_char_bytes(char_u *buf, size_t charlen)
     p[i] = ' ';
   }
 
-  /* Replace the line in the buffer. */
-  ml_replace(lnum, newp, FALSE);
+  // Replace the line in the buffer.
+  ml_replace(lnum, newp, false);
 
   // mark the buffer as changed and prepare for displaying
   changed_bytes(lnum, (colnr_T)col);
@@ -1508,7 +1512,7 @@ void ins_char_bytes(char_u *buf, size_t charlen)
       && msg_silent == 0
       && !ins_compl_active()
       ) {
-    showmatch(mb_ptr2char(buf));
+    showmatch(utf_ptr2char(buf));
   }
 
   if (!p_ri || (State & REPLACE_FLAG)) {
@@ -1545,19 +1549,17 @@ void ins_str(char_u *s)
     memmove(newp, oldp, (size_t)col);
   memmove(newp + col, s, (size_t)newlen);
   memmove(newp + col + newlen, oldp + col, (size_t)(oldlen - col + 1));
-  ml_replace(lnum, newp, FALSE);
+  ml_replace(lnum, newp, false);
   changed_bytes(lnum, col);
   curwin->w_cursor.col += newlen;
 }
 
-/*
- * Delete one character under the cursor.
- * If "fixpos" is TRUE, don't leave the cursor on the NUL after the line.
- * Caller must have prepared for undo.
- *
- * return FAIL for failure, OK otherwise
- */
-int del_char(int fixpos)
+// Delete one character under the cursor.
+// If "fixpos" is true, don't leave the cursor on the NUL after the line.
+// Caller must have prepared for undo.
+//
+// return FAIL for failure, OK otherwise
+int del_char(bool fixpos)
 {
   if (has_mbyte) {
     /* Make sure the cursor is at the start of a character. */
@@ -1663,8 +1665,9 @@ int del_bytes(colnr_T count, bool fixpos_arg, bool use_delcombine)
     memmove(newp, oldp, (size_t)col);
   }
   memmove(newp + col, oldp + col + count, (size_t)movelen);
-  if (!was_alloced)
-    ml_replace(lnum, newp, FALSE);
+  if (!was_alloced) {
+    ml_replace(lnum, newp, false);
+  }
 
   /* mark the buffer as changed and prepare for displaying */
   changed_bytes(lnum, curwin->w_cursor.col);
@@ -1745,11 +1748,7 @@ del_lines (
 
 int gchar_pos(pos_T *pos)
 {
-  char_u      *ptr = ml_get_pos(pos);
-
-  if (has_mbyte)
-    return (*mb_ptr2char)(ptr);
-  return (int)*ptr;
+  return utf_ptr2char(ml_get_pos(pos));
 }
 
 /*
@@ -2385,12 +2384,12 @@ int get_keystroke(void)
       }
       break;
     }
-    if (has_mbyte) {
-      if (MB_BYTE2LEN(n) > len)
-        continue;               /* more bytes to get */
-      buf[len >= buflen ? buflen - 1 : len] = NUL;
-      n = (*mb_ptr2char)(buf);
+    if (MB_BYTE2LEN(n) > len) {
+      // more bytes to get.
+      continue;
     }
+    buf[len >= buflen ? buflen - 1 : len] = NUL;
+    n = utf_ptr2char(buf);
 #ifdef UNIX
     if (n == intr_char)
       n = ESC;
@@ -2479,7 +2478,7 @@ int prompt_for_number(int *mouse_used)
   save_cmdline_row = cmdline_row;
   cmdline_row = 0;
   save_State = State;
-  State = CMDLINE;
+  State = ASKMORE;  // prevents a screen update when using a timer
 
   i = get_number(TRUE, mouse_used);
   if (KeyTyped) {
@@ -2836,4 +2835,3 @@ int goto_im(void)
 {
   return p_im && stuff_empty() && typebuf_typed();
 }
-

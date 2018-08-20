@@ -307,9 +307,12 @@ static int linelen(int *has_tab)
     ;
   save = *last;
   *last = NUL;
-  len = linetabsize(line);              /* get line length */
-  if (has_tab != NULL)                  /* check for embedded TAB */
-    *has_tab = (vim_strrchr(first, TAB) != NULL);
+  // Get line length.
+  len = linetabsize(line);
+  // Check for embedded TAB.
+  if (has_tab != NULL) {
+    *has_tab = STRRCHR(first, TAB) != NULL;
+  }
   *last = save;
 
   return len;
@@ -716,11 +719,13 @@ void ex_retab(exarg_T *eap)
             memmove(new_line + start_col + len,
                 ptr + col, (size_t)(old_len - col + 1));
             ptr = new_line + start_col;
-            for (col = 0; col < len; col++)
+            for (col = 0; col < len; col++) {
               ptr[col] = (col < num_tabs) ? '\t' : ' ';
-            ml_replace(lnum, new_line, FALSE);
-            if (first_line == 0)
+            }
+            ml_replace(lnum, new_line, false);
+            if (first_line == 0) {
               first_line = lnum;
+            }
             last_line = lnum;
             ptr = new_line;
             col = start_col + len;
@@ -1598,6 +1603,7 @@ void ex_file(exarg_T *eap)
     // print full file name if :cd used
     fileinfo(false, false, eap->forceit);
   }
+  redraw_tabline = true;
 }
 
 /*
@@ -3624,7 +3630,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
                 // before the cursor.
                 len_change = (int)STRLEN(new_line) - (int)STRLEN(orig_line);
                 curwin->w_cursor.col += len_change;
-                ml_replace(lnum, new_line, FALSE);
+                ml_replace(lnum, new_line, false);
               }
 
               search_match_lines = regmatch.endpos[0].lnum
@@ -3666,9 +3672,10 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               msg_col = 0;
               gotocmdline(TRUE);
 
-              /* restore the line */
-              if (orig_line != NULL)
-                ml_replace(lnum, orig_line, FALSE);
+              // restore the line
+              if (orig_line != NULL) {
+                ml_replace(lnum, orig_line, false);
+              }
             }
 
             need_wait_return = FALSE;             /* no hit-return prompt */
@@ -3925,9 +3932,10 @@ skip:
             prev_matchcol = (colnr_T)STRLEN(sub_firstline)
                             - prev_matchcol;
 
-            if (u_savesub(lnum) != OK)
+            if (u_savesub(lnum) != OK) {
               break;
-            ml_replace(lnum, new_start, TRUE);
+            }
+            ml_replace(lnum, new_start, true);
 
             if (nmatch_tl > 0) {
               /*
@@ -4913,11 +4921,7 @@ void fix_help_buffer(void)
 {
   linenr_T lnum;
   char_u      *line;
-  int in_example = FALSE;
-  int len;
-  char_u      *fname;
-  char_u      *p;
-  char_u      *rt;
+  bool in_example = false;
 
   // Set filetype to "help".
   if (STRCMP(curbuf->b_p_ft, "help") != 0) {
@@ -4927,9 +4931,9 @@ void fix_help_buffer(void)
   }
 
   if (!syntax_present(curwin)) {
-    for (lnum = 1; lnum <= curbuf->b_ml.ml_line_count; ++lnum) {
-      line = ml_get_buf(curbuf, lnum, FALSE);
-      len = (int)STRLEN(line);
+    for (lnum = 1; lnum <= curbuf->b_ml.ml_line_count; lnum++) {
+      line = ml_get_buf(curbuf, lnum, false);
+      const size_t len = STRLEN(line);
       if (in_example && len > 0 && !ascii_iswhite(line[0])) {
         /* End of example: non-white or '<' in first column. */
         if (line[0] == '<') {
@@ -4937,14 +4941,14 @@ void fix_help_buffer(void)
           line = ml_get_buf(curbuf, lnum, TRUE);
           line[0] = ' ';
         }
-        in_example = FALSE;
+        in_example = false;
       }
       if (!in_example && len > 0) {
         if (line[len - 1] == '>' && (len == 1 || line[len - 2] == ' ')) {
           /* blank-out a '>' in the last column (start of example) */
           line = ml_get_buf(curbuf, lnum, TRUE);
           line[len - 1] = ' ';
-          in_example = TRUE;
+          in_example = true;
         } else if (line[len - 1] == '~') {
           /* blank-out a '~' at the end of line (header marker) */
           line = ml_get_buf(curbuf, lnum, TRUE);
@@ -4958,7 +4962,7 @@ void fix_help_buffer(void)
    * In the "help.txt" and "help.abx" file, add the locally added help
    * files.  This uses the very first line in the help file.
    */
-  fname = path_tail(curbuf->b_fname);
+  char_u *const fname = path_tail(curbuf->b_fname);
   if (fnamecmp(fname, "help.txt") == 0
       || (fnamencmp(fname, "help.", 5) == 0
           && ASCII_ISALPHA(fname[5])
@@ -4973,17 +4977,15 @@ void fix_help_buffer(void)
 
       /* Go through all directories in 'runtimepath', skipping
        * $VIMRUNTIME. */
-      p = p_rtp;
+      char_u *p = p_rtp;
       while (*p != NUL) {
         copy_option_part(&p, NameBuff, MAXPATHL, ",");
-        rt = (char_u *)vim_getenv("VIMRUNTIME");
+        char_u *const rt = (char_u *)vim_getenv("VIMRUNTIME");
         if (rt != NULL
             && path_full_compare(rt, NameBuff, false) != kEqualFiles) {
           int fcount;
           char_u      **fnames;
-          FILE        *fd;
           char_u      *s;
-          int fi;
           vimconv_T vc;
           char_u      *cp;
 
@@ -5001,29 +5003,24 @@ void fix_help_buffer(void)
           if (gen_expand_wildcards(1, buff_list, &fcount,
                   &fnames, EW_FILE|EW_SILENT) == OK
               && fcount > 0) {
-            int i1;
-            int i2;
-            char_u  *f1;
-            char_u  *f2;
-            char_u  *t1;
-            char_u  *e1;
-            char_u  *e2;
-
-            /* If foo.abx is found use it instead of foo.txt in
-             * the same directory. */
-            for (i1 = 0; i1 < fcount; ++i1) {
-              for (i2 = 0; i2 < fcount; ++i2) {
-                if (i1 == i2)
+            // If foo.abx is found use it instead of foo.txt in
+            // the same directory.
+            for (int i1 = 0; i1 < fcount; i1++) {
+              for (int i2 = 0; i2 < fcount; i2++) {
+                if (i1 == i2) {
                   continue;
-                if (fnames[i1] == NULL || fnames[i2] == NULL)
+                }
+                if (fnames[i1] == NULL || fnames[i2] == NULL) {
                   continue;
-                f1 = fnames[i1];
-                f2 = fnames[i2];
-                t1 = path_tail(f1);
-                if (fnamencmp(f1, f2, t1 - f1) != 0)
+                }
+                const char_u *const f1 = fnames[i1];
+                const char_u *const f2 = fnames[i2];
+                const char_u *const t1 = path_tail(f1);
+                if (fnamencmp(f1, f2, t1 - f1) != 0) {
                   continue;
-                e1 = vim_strrchr(t1, '.');
-                e2 = vim_strrchr(path_tail(f2), '.');
+                }
+                const char_u *const e1 = STRRCHR(t1, '.');
+                const char_u *const e2 = STRRCHR(path_tail(f2), '.');
                 if (e1 == NULL || e2 == NULL) {
                   continue;
                 }
@@ -5044,10 +5041,12 @@ void fix_help_buffer(void)
                 }
               }
             }
-            for (fi = 0; fi < fcount; ++fi) {
-              if (fnames[fi] == NULL)
+            for (int fi = 0; fi < fcount; fi++) {
+              if (fnames[fi] == NULL) {
                 continue;
-              fd = mch_fopen((char *)fnames[fi], "r");
+              }
+
+              FILE *const fd = mch_fopen((char *)fnames[fi], "r");
               if (fd == NULL) {
                 continue;
               }
@@ -5055,9 +5054,9 @@ void fix_help_buffer(void)
               if (IObuff[0] == '*'
                   && (s = vim_strchr(IObuff + 1, '*'))
                   != NULL) {
-                int this_utf = MAYBE;
-                /* Change tag definition to a
-                 * reference and remove <CR>/<NL>. */
+                TriState this_utf = kNone;
+                // Change tag definition to a
+                // reference and remove <CR>/<NL>.
                 IObuff[0] = '|';
                 *s = '|';
                 while (*s != NUL) {
@@ -5067,13 +5066,12 @@ void fix_help_buffer(void)
                    * above 127 is found and no
                    * illegal byte sequence is found.
                    */
-                  if (*s >= 0x80 && this_utf != FALSE) {
-                    int l;
-
-                    this_utf = TRUE;
-                    l = utf_ptr2len(s);
-                    if (l == 1)
-                      this_utf = FALSE;
+                  if (*s >= 0x80 && this_utf != kFalse) {
+                    this_utf = kTrue;
+                    const int l = utf_ptr2len(s);
+                    if (l == 1) {
+                      this_utf = kFalse;
+                    }
                     s += l - 1;
                   }
                   ++s;
@@ -5082,18 +5080,20 @@ void fix_help_buffer(void)
                  * conversion to the current
                  * 'encoding' may be required. */
                 vc.vc_type = CONV_NONE;
-                convert_setup(&vc, (char_u *)(
-                      this_utf == TRUE ? "utf-8"
-                      : "latin1"), p_enc);
-                if (vc.vc_type == CONV_NONE)
-                  /* No conversion needed. */
+                convert_setup(
+                    &vc,
+                    (char_u *)(this_utf == kTrue ? "utf-8" : "latin1"),
+                    p_enc);
+                if (vc.vc_type == CONV_NONE) {
+                  // No conversion needed.
                   cp = IObuff;
-                else {
-                  /* Do the conversion.  If it fails
-                   * use the unconverted text. */
+                } else {
+                  // Do the conversion.  If it fails
+                  // use the unconverted text.
                   cp = string_convert(&vc, IObuff, NULL);
-                  if (cp == NULL)
+                  if (cp == NULL) {
                     cp = IObuff;
+                  }
                 }
                 convert_setup(&vc, NULL, NULL);
 
@@ -5138,22 +5138,16 @@ void ex_viusage(exarg_T *eap)
 /// @param tagname  Name of the tags file ("tags" for English, "tags-fr" for
 ///                 French)
 /// @param add_help_tags  Whether to add the "help-tags" tag
-static void helptags_one(char_u *dir, char_u *ext, char_u *tagfname,
-                         bool add_help_tags)
+static void helptags_one(char_u *const dir, const char_u *const ext,
+                         const char_u *const tagfname, const bool add_help_tags)
 {
-  FILE        *fd_tags;
-  FILE        *fd;
   garray_T ga;
   int filecount;
   char_u      **files;
   char_u      *p1, *p2;
-  int fi;
   char_u      *s;
-  char_u      *fname;
-  int utf8 = MAYBE;
-  int this_utf8;
-  int firstline;
-  int mix = FALSE;              /* detected mixed encodings */
+  TriState utf8 = kNone;
+  bool mix = false;             // detected mixed encodings
 
   // Find all *.txt files.
   size_t dirlen = STRLCPY(NameBuff, dir, sizeof(NameBuff));
@@ -5186,7 +5180,8 @@ static void helptags_one(char_u *dir, char_u *ext, char_u *tagfname,
     EMSG(_(e_fnametoolong));
     return;
   }
-  fd_tags = mch_fopen((char *)NameBuff, "w");
+
+  FILE *const fd_tags = mch_fopen((char *)NameBuff, "w");
   if (fd_tags == NULL) {
     EMSG2(_("E152: Cannot open %s for writing"), NameBuff);
     FreeWild(filecount, files);
@@ -5209,44 +5204,44 @@ static void helptags_one(char_u *dir, char_u *ext, char_u *tagfname,
   /*
    * Go over all the files and extract the tags.
    */
-  for (fi = 0; fi < filecount && !got_int; ++fi) {
-    fd = mch_fopen((char *)files[fi], "r");
+  for (int fi = 0; fi < filecount && !got_int; fi++) {
+    FILE *const fd = mch_fopen((char *)files[fi], "r");
     if (fd == NULL) {
       EMSG2(_("E153: Unable to open %s for reading"), files[fi]);
       continue;
     }
-    fname = files[fi] + dirlen + 1;
+    const char_u *const fname = files[fi] + dirlen + 1;
 
-    firstline = TRUE;
+    bool firstline = true;
     while (!vim_fgets(IObuff, IOSIZE, fd) && !got_int) {
       if (firstline) {
-        /* Detect utf-8 file by a non-ASCII char in the first line. */
-        this_utf8 = MAYBE;
-        for (s = IObuff; *s != NUL; ++s)
+        // Detect utf-8 file by a non-ASCII char in the first line.
+        TriState this_utf8 = kNone;
+        for (s = IObuff; *s != NUL; s++) {
           if (*s >= 0x80) {
-            int l;
-
-            this_utf8 = TRUE;
-            l = utf_ptr2len(s);
+            this_utf8 = kTrue;
+            const int l = utf_ptr2len(s);
             if (l == 1) {
-              /* Illegal UTF-8 byte sequence. */
-              this_utf8 = FALSE;
+              // Illegal UTF-8 byte sequence.
+              this_utf8 = kFalse;
               break;
             }
             s += l - 1;
           }
-        if (this_utf8 == MAYBE)             /* only ASCII characters found */
-          this_utf8 = FALSE;
-        if (utf8 == MAYBE)                  /* first file */
+        }
+        if (this_utf8 == kNone) {           // only ASCII characters found
+          this_utf8 = kFalse;
+        }
+        if (utf8 == kNone) {                // first file
           utf8 = this_utf8;
-        else if (utf8 != this_utf8) {
+        } else if (utf8 != this_utf8) {
           EMSG2(_(
                   "E670: Mix of help file encodings within a language: %s"),
               files[fi]);
           mix = !got_int;
           got_int = TRUE;
         }
-        firstline = FALSE;
+        firstline = false;
       }
       p1 = vim_strchr(IObuff, '*');             /* find first '*' */
       while (p1 != NULL) {
@@ -5316,8 +5311,9 @@ static void helptags_one(char_u *dir, char_u *ext, char_u *tagfname,
       }
     }
 
-    if (utf8 == TRUE)
+    if (utf8 == kTrue) {
       fprintf(fd_tags, "!_TAG_FILE_ENCODING\tutf-8\t//\n");
+    }
 
     /*
      * Write the tags into the file.
@@ -5653,7 +5649,7 @@ void ex_sign(exarg_T *eap)
             // Count cells and check for non-printable chars
             cells = 0;
             for (s = arg; s < p; s += (*mb_ptr2len)(s)) {
-              if (!vim_isprintc((*mb_ptr2char)(s))) {
+              if (!vim_isprintc(utf_ptr2char(s))) {
                 break;
               }
               cells += (*mb_ptr2cells)(s);

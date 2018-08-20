@@ -1,5 +1,7 @@
 " Tests for autocommands
 
+source shared.vim
+
 func! s:cleanup_buffers() abort
   for bnr in range(1, bufnr('$'))
     if bufloaded(bnr) && bufnr('%') != bnr
@@ -246,6 +248,23 @@ func Test_augroup_warning()
   redir END
   call assert_true(match(res, "W19:") < 0)
   au! VimEnter
+endfunc
+
+func Test_BufReadCmdHelp()
+  " This used to cause access to free memory
+  au BufReadCmd * e +h
+  help
+
+  au! BufReadCmd
+endfunc
+
+func Test_BufReadCmdHelpJump()
+  " This used to cause access to free memory
+  au BufReadCmd * e +h{
+  " } to fix highlighting
+  call assert_fails('help', 'E434:')
+
+  au! BufReadCmd
 endfunc
 
 func Test_augroup_deleted()
@@ -567,7 +586,7 @@ func Test_OptionSet()
   " Cleanup
   au! OptionSet
   for opt in ['nu', 'ai', 'acd', 'ar', 'bs', 'backup', 'cul', 'cp']
-    exe printf(":set %s&vi", opt)
+    exe printf(":set %s&vim", opt)
   endfor
   call test_override('starting', 0)
   delfunc! AutoCommandOptionSet
@@ -1165,6 +1184,13 @@ func Test_nocatch_wipe_dummy_buffer()
   au!
 endfunc
 
+func Test_wipe_cbuffer()
+  sv x
+  au * * bw
+  lb
+  au!
+endfunc
+
 " Test TextChangedI and TextChangedP
 func Test_ChangedP()
   " Nvim does not support test_override().
@@ -1220,4 +1246,47 @@ func Test_ChangedP()
   set complete&vim completeopt&vim
 
   bw!
+endfunc
+
+let g:setline_handled = v:false
+func! SetLineOne()
+  if !g:setline_handled
+    call setline(1, "(x)")
+    let g:setline_handled = v:true
+  endif
+endfunc
+
+func Test_TextChangedI_with_setline()
+  throw 'skipped: Nvim does not support test_override()'
+  new
+  call test_override('char_avail', 1)
+  autocmd TextChangedI <buffer> call SetLineOne()
+  call feedkeys("i(\<CR>\<Esc>", 'tx')
+  call assert_equal('(', getline(1))
+  call assert_equal('x)', getline(2))
+  undo
+  call assert_equal('', getline(1))
+  call assert_equal('', getline(2))
+
+  call test_override('starting', 0)
+  bwipe!
+endfunc
+
+func Test_Changed_FirstTime()
+  if !has('terminal') || has('gui_running')
+    return
+  endif
+  " Prepare file for TextChanged event.
+  call writefile([''], 'Xchanged.txt')
+  let buf = term_start([GetVimProg(), '--clean', '-c', 'set noswapfile'], {'term_rows': 3})
+  call assert_equal('running', term_getstatus(buf))
+  " It's only adding autocmd, so that no event occurs.
+  call term_sendkeys(buf, ":au! TextChanged <buffer> call writefile(['No'], 'Xchanged.txt')\<cr>")
+  call term_sendkeys(buf, "\<C-\\>\<C-N>:qa!\<cr>")
+  call WaitFor({-> term_getstatus(buf) == 'finished'})
+  call assert_equal([''], readfile('Xchanged.txt'))
+
+  " clean up
+  call delete('Xchanged.txt')
+  bwipe!
 endfunc

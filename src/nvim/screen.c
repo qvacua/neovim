@@ -423,7 +423,7 @@ void update_screen(int type)
 
     /* redraw status line after the window to minimize cursor movement */
     if (wp->w_redr_status) {
-      win_redr_status(wp);
+      win_redr_status(wp, true);  // any popup menu will be redrawn below
     }
   }
   end_search_hl();
@@ -589,7 +589,7 @@ void update_debug_sign(const buf_T *const buf, const linenr_T lnum)
       win_update(wp);
     }
     if (wp->w_redr_status) {
-      win_redr_status(wp);
+      win_redr_status(wp, false);
     }
   }
 
@@ -783,16 +783,18 @@ static void win_update(win_T *wp)
           }
         }
 
-      (void)hasFoldingWin(wp, mod_top, &mod_top, NULL, TRUE, NULL);
-      if (mod_top > lnumt)
+      (void)hasFoldingWin(wp, mod_top, &mod_top, NULL, true, NULL);
+      if (mod_top > lnumt) {
         mod_top = lnumt;
+      }
 
-      /* Now do the same for the bottom line (one above mod_bot). */
-      --mod_bot;
-      (void)hasFoldingWin(wp, mod_bot, NULL, &mod_bot, TRUE, NULL);
-      ++mod_bot;
-      if (mod_bot < lnumb)
+      // Now do the same for the bottom line (one above mod_bot).
+      mod_bot--;
+      (void)hasFoldingWin(wp, mod_bot, NULL, &mod_bot, true, NULL);
+      mod_bot++;
+      if (mod_bot < lnumb) {
         mod_bot = lnumb;
+      }
     }
 
     /* When a change starts above w_topline and the end is below
@@ -833,12 +835,13 @@ static void win_update(win_T *wp)
       type = VALID;
   }
 
-  /* Trick: we want to avoid clearing the screen twice.  screenclear() will
-   * set "screen_cleared" to TRUE.  The special value MAYBE (which is still
-   * non-zero and thus not FALSE) will indicate that screenclear() was not
-   * called. */
-  if (screen_cleared)
-    screen_cleared = MAYBE;
+  // Trick: we want to avoid clearing the screen twice.  screenclear() will
+  // set "screen_cleared" to kTrue.  The special value kNone (which is still
+  // non-zero and thus not kFalse) will indicate that screenclear() was not
+  // called.
+  if (screen_cleared) {
+    screen_cleared = kNone;
+  }
 
   /*
    * If there are no changes on the screen that require a complete redraw,
@@ -875,7 +878,7 @@ static void win_update(win_T *wp)
           ++j;
           if (j >= wp->w_height - 2)
             break;
-          (void)hasFoldingWin(wp, ln, NULL, &ln, TRUE, NULL);
+          (void)hasFoldingWin(wp, ln, NULL, &ln, true, NULL);
         }
       } else
         j = wp->w_lines[0].wl_lnum - wp->w_topline;
@@ -987,7 +990,7 @@ static void win_update(win_T *wp)
            * when it won't get updated below. */
           if (wp->w_p_diff && bot_start > 0)
             wp->w_lines[0].wl_size =
-              plines_win_nofill(wp, wp->w_topline, TRUE)
+              plines_win_nofill(wp, wp->w_topline, true)
               + wp->w_topfill;
         }
       }
@@ -999,14 +1002,16 @@ static void win_update(win_T *wp)
     if (mid_start == 0) {
       mid_end = wp->w_height;
       if (ONE_WINDOW) {
-        /* Clear the screen when it was not done by win_del_lines() or
-         * win_ins_lines() above, "screen_cleared" is FALSE or MAYBE
-         * then. */
-        if (screen_cleared != TRUE)
+        // Clear the screen when it was not done by win_del_lines() or
+        // win_ins_lines() above, "screen_cleared" is kFalse or kNone
+        // then.
+        if (screen_cleared != kTrue) {
           screenclear();
-        /* The screen was cleared, redraw the tab pages line. */
-        if (redraw_tabline)
+        }
+        // The screen was cleared, redraw the tab pages line.
+        if (redraw_tabline) {
           draw_tabline();
+        }
       }
     }
 
@@ -1014,8 +1019,9 @@ static void win_update(win_T *wp)
      * cleared (only happens for the first window) or when screenclear()
      * was called directly above, "must_redraw" will have been set to
      * NOT_VALID, need to reset it here to avoid redrawing twice. */
-    if (screen_cleared == TRUE)
+    if (screen_cleared == kTrue) {
       must_redraw = 0;
+    }
   } else {
     /* Not VALID or INVERTED: redraw all lines. */
     mid_start = 0;
@@ -1303,15 +1309,15 @@ static void win_update(win_T *wp)
           /* Able to count old number of rows: Count new window
            * rows, and may insert/delete lines */
           j = idx;
-          for (l = lnum; l < mod_bot; ++l) {
-            if (hasFoldingWin(wp, l, NULL, &l, TRUE, NULL))
-              ++new_rows;
-            else if (l == wp->w_topline)
-              new_rows += plines_win_nofill(wp, l, TRUE)
-                          + wp->w_topfill;
-            else
-              new_rows += plines_win(wp, l, TRUE);
-            ++j;
+          for (l = lnum; l < mod_bot; l++) {
+            if (hasFoldingWin(wp, l, NULL, &l, true, NULL)) {
+              new_rows++;
+            } else if (l == wp->w_topline) {
+              new_rows += plines_win_nofill(wp, l, true) + wp->w_topfill;
+            } else {
+              new_rows += plines_win(wp, l, true);
+            }
+            j++;
             if (new_rows > wp->w_height - row - 2) {
               /* it's getting too much, must redraw the rest */
               new_rows = 9999;
@@ -1441,12 +1447,13 @@ static void win_update(win_T *wp)
       }
 
       wp->w_lines[idx].wl_lnum = lnum;
-      wp->w_lines[idx].wl_valid = TRUE;
-      if (row > wp->w_height) {         /* past end of screen */
-        /* we may need the size of that too long line later on */
-        if (dollar_vcol == -1)
-          wp->w_lines[idx].wl_size = plines_win(wp, lnum, TRUE);
-        ++idx;
+      wp->w_lines[idx].wl_valid = true;
+      if (row > wp->w_height) {         // past end of screen
+        // we may need the size of that too long line later on
+        if (dollar_vcol == -1) {
+          wp->w_lines[idx].wl_size = plines_win(wp, lnum, true);
+        }
+        idx++;
         break;
       }
       if (dollar_vcol == -1)
@@ -2190,7 +2197,7 @@ win_line (
   match_T     *shl;                     // points to search_hl or a match
   int shl_flag;                         // flag to indicate whether search_hl
                                         // has been processed or not
-  int prevcol_hl_flag;                  // flag to indicate whether prevcol
+  bool prevcol_hl_flag;                 // flag to indicate whether prevcol
                                         // equals startcol of search_hl or one
                                         // of the matches
   int prev_c = 0;                       // previous Arabic character
@@ -2417,12 +2424,12 @@ win_line (
   if (wp->w_p_cul && lnum == wp->w_cursor.lnum
       && !(wp == curwin && VIsual_active)) {
     int cul_attr = win_hl_attr(wp, HLF_CUL);
-    HlAttrs *aep = syn_attr2entry(cul_attr);
+    HlAttrs ae = syn_attr2entry(cul_attr);
 
     // We make a compromise here (#7383):
     //  * low-priority CursorLine if fg is not set
     //  * high-priority ("same as Vim" priority) CursorLine if fg is set
-    if (aep->rgb_fg_color == -1 && aep->cterm_fg_color == 0) {
+    if (ae.rgb_fg_color == -1 && ae.cterm_fg_color == 0) {
       line_attr_lowprio = cul_attr;
     } else {
       if (line_attr != 0 && !(State & INSERT) && bt_quickfix(wp->w_buffer)
@@ -3019,6 +3026,12 @@ win_line (
           if (shl != &search_hl && cur != NULL)
             cur = cur->next;
         }
+        // Only highlight one character after the last column.
+        if (*ptr == NUL
+            && (did_line_attr >= 1
+                || (wp->w_p_list && lcs_eol_one == -1))) {
+          search_attr = 0;
+        }
       }
 
       if (diff_hlf != (hlf_T)0) {
@@ -3294,8 +3307,7 @@ win_line (
           did_emsg = FALSE;
 
           syntax_attr = get_syntax_attr((colnr_T)v - 1,
-              has_spell ? &can_spell :
-              NULL, FALSE);
+                                        has_spell ? &can_spell : NULL, false);
 
           if (did_emsg) {
             wp->w_s->b_syn_error = TRUE;
@@ -3668,7 +3680,9 @@ win_line (
 
           // don't do search HL for the rest of the line
           if ((line_attr_lowprio || line_attr)
-              && char_attr == search_attr && col > 0) {
+              && char_attr == search_attr
+              && (did_line_attr > 1
+                  || (wp->w_p_list && lcs_eol > 0))) {
             char_attr = line_attr;
           }
           if (diff_hlf == HLF_TXD) {
@@ -3827,9 +3841,12 @@ win_line (
                    || lnum == VIsual.lnum
                    || lnum == curwin->w_cursor.lnum)
                && c == NUL)
-              /* highlight 'hlsearch' match at end of line */
-              || (prevcol_hl_flag == TRUE && did_line_attr <= 1)
-              )) {
+              // highlight 'hlsearch' match at end of line
+              || (prevcol_hl_flag
+                  && !(wp->w_p_cul && lnum == wp->w_cursor.lnum
+                       && !(wp == curwin && VIsual_active))
+                  && diff_hlf == (hlf_T)0
+                  && did_line_attr <= 1))) {
         int n = 0;
 
         if (wp->w_p_rl) {
@@ -4215,26 +4232,19 @@ win_line (
         /* Remember that the line wraps, used for modeless copy. */
         LineWraps[screen_row - 1] = TRUE;
 
-        /*
-         * Special trick to make copy/paste of wrapped lines work with
-         * xterm/screen: write an extra character beyond the end of
-         * the line. This will work with all terminal types
-         * (regardless of the xn,am settings).
-         * Only do this if the cursor is on the current line
-         * (something has been written in it).
-         * Don't do this for double-width characters.
-         * Don't do this for a window not at the right screen border.
-         */
-        if (!(has_mbyte
-                 && ((*mb_off2cells)(LineOffset[screen_row],
-                                     LineOffset[screen_row] + screen_Columns)
-                     == 2
-                     || (*mb_off2cells)(LineOffset[screen_row - 1]
-                                        + (int)Columns - 2,
-                                        LineOffset[screen_row] + screen_Columns)
-                     == 2))
-            ) {
-          ui_add_linewrap(screen_row-1);
+        // Special trick to make copy/paste of wrapped lines work with
+        // xterm/screen: write an extra character beyond the end of
+        // the line. This will work with all terminal types
+        // (regardless of the xn,am settings).
+        // Only do this if the cursor is on the current line
+        // (something has been written in it).
+        // Don't do this for double-width characters.
+        // Don't do this for a window not at the right screen border.
+        if (utf_off2cells(LineOffset[screen_row],
+                          LineOffset[screen_row] + screen_Columns) != 2
+            && utf_off2cells(LineOffset[screen_row - 1] + (int)Columns - 2,
+                             LineOffset[screen_row] + screen_Columns) != 2) {
+          ui_add_linewrap(screen_row - 1);
         }
       }
 
@@ -4287,7 +4297,7 @@ static int char_needs_redraw(int off_from, int off_to, int cols)
   return (cols > 0
           && ((schar_cmp(ScreenLines[off_from], ScreenLines[off_to])
                || ScreenAttrs[off_from] != ScreenAttrs[off_to]
-               || ((*mb_off2cells)(off_from, off_from + cols) > 1
+               || (utf_off2cells(off_from, off_from + cols) > 1
                    && schar_cmp(ScreenLines[off_from + 1],
                                 ScreenLines[off_to + 1])))
               || p_wd < 0));
@@ -4313,15 +4323,11 @@ static void screen_line(int row, int coloff, int endcol,
   unsigned max_off_to;
   int col = 0;
   int hl;
-  int force = FALSE;                    /* force update rest of the line */
-  int redraw_this                       /* bool: does character need redraw? */
-  ;
-  int redraw_next;                      /* redraw_this for next character */
-  int clear_next = FALSE;
-  int char_cells;                       /* 1: normal char */
-                                        /* 2: occupies two display cells */
-# define CHAR_CELLS char_cells
-
+  bool redraw_this;                         // Does character need redraw?
+  bool redraw_next;                         // redraw_this for next character
+  bool clear_next = false;
+  int char_cells;                           // 1: normal char
+                                            // 2: occupies two display cells
   int start_dirty = -1, end_dirty = 0;
 
   /* Check for illegal row and col, just in case. */
@@ -4366,15 +4372,14 @@ static void screen_line(int row, int coloff, int endcol,
   redraw_next = char_needs_redraw(off_from, off_to, endcol - col);
 
   while (col < endcol) {
-    if (has_mbyte && (col + 1 < endcol))
-      char_cells = (*mb_off2cells)(off_from, max_off_from);
-    else
-      char_cells = 1;
-
+    char_cells = 1;
+    if (col + 1 < endcol) {
+      char_cells = utf_off2cells(off_from, max_off_from);
+    }
     redraw_this = redraw_next;
-    redraw_next = force || char_needs_redraw(off_from + CHAR_CELLS,
-        off_to + CHAR_CELLS, endcol - col - CHAR_CELLS);
-
+    redraw_next = char_needs_redraw(off_from + char_cells,
+                                    off_to + char_cells,
+                                    endcol - col - char_cells);
 
     if (redraw_this) {
       if (start_dirty == -1) {
@@ -4386,12 +4391,12 @@ static void screen_line(int row, int coloff, int endcol,
       // the right halve of the old character.
       // Also required when writing the right halve of a double-width
       // char over the left halve of an existing one
-      if (has_mbyte && col + char_cells == endcol
+      if (col + char_cells == endcol
           && ((char_cells == 1
-               && (*mb_off2cells)(off_to, max_off_to) > 1)
+               && utf_off2cells(off_to, max_off_to) > 1)
               || (char_cells == 2
-                  && (*mb_off2cells)(off_to, max_off_to) == 1
-                  && (*mb_off2cells)(off_to + 1, max_off_to) > 1))) {
+                  && utf_off2cells(off_to, max_off_to) == 1
+                  && utf_off2cells(off_to + 1, max_off_to) > 1))) {
         clear_next = true;
       }
 
@@ -4408,9 +4413,9 @@ static void screen_line(int row, int coloff, int endcol,
       }
     }
 
-    off_to += CHAR_CELLS;
-    off_from += CHAR_CELLS;
-    col += CHAR_CELLS;
+    off_to += char_cells;
+    off_from += char_cells;
+    col += char_cells;
   }
 
   if (clear_next) {
@@ -4525,7 +4530,7 @@ void redraw_statuslines(void)
 {
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
     if (wp->w_redr_status) {
-      win_redr_status(wp);
+      win_redr_status(wp, false);
     }
   }
   if (redraw_tabline)
@@ -4792,7 +4797,9 @@ win_redr_status_matches (
 /// Redraw the status line of window `wp`.
 ///
 /// If inversion is possible we use it. Else '=' characters are used.
-static void win_redr_status(win_T *wp)
+/// If "ignore_pum" is true, also redraw statusline when the popup menu is
+/// displayed.
+static void win_redr_status(win_T *wp, int ignore_pum)
 {
   int row;
   char_u      *p;
@@ -4815,7 +4822,7 @@ static void win_redr_status(win_T *wp)
   if (wp->w_status_height == 0) {
     // no status line, can only be last window
     redraw_cmdline = true;
-  } else if (!redrawing() || pum_drawn()) {
+  } else if (!redrawing() || (!ignore_pum && pum_drawn())) {
     // Don't redraw right now, do it later. Don't update status line when
     // popup menu is visible and may be drawn over it
     wp->w_redr_status = true;
@@ -5377,15 +5384,15 @@ void screen_puts_len(char_u *text, int textlen, int row, int col, int attr)
       // character with a one-cell character, need to clear the next
       // cell.  Also when overwriting the left halve of a two-cell char
       // with the right halve of a two-cell char.  Do this only once
-      // (mb_off2cells() may return 2 on the right halve).
+      // (utf8_off2cells() may return 2 on the right halve).
       if (clear_next_cell) {
         clear_next_cell = false;
       } else if ((len < 0 ? ptr[mbyte_blen] == NUL
                   : ptr + mbyte_blen >= text + len)
-                 && ((mbyte_cells == 1 && (*mb_off2cells)(off, max_off) > 1)
+                 && ((mbyte_cells == 1 && utf_off2cells(off, max_off) > 1)
                      || (mbyte_cells == 2
-                         && (*mb_off2cells)(off, max_off) == 1
-                         && (*mb_off2cells)(off + 1, max_off) > 1))) {
+                         && utf_off2cells(off, max_off) == 1
+                         && utf_off2cells(off + 1, max_off) > 1))) {
         clear_next_cell = true;
       }
 
@@ -5521,10 +5528,12 @@ static void prepare_search_hl(win_T *wp, linenr_T lnum)
         && re_multiline(shl->rm.regprog)) {
       if (shl->first_lnum == 0) {
         for (shl->first_lnum = lnum;
-             shl->first_lnum > wp->w_topline; --shl->first_lnum)
-          if (hasFoldingWin(wp, shl->first_lnum - 1,
-                  NULL, NULL, TRUE, NULL))
+             shl->first_lnum > wp->w_topline;
+             shl->first_lnum--) {
+          if (hasFoldingWin(wp, shl->first_lnum - 1, NULL, NULL, true, NULL)) {
             break;
+          }
+        }
       }
       if (cur != NULL) {
         cur->pos.cur = 0;
@@ -5797,7 +5806,8 @@ void screen_fill(int start_row, int end_row, int start_col, int end_col, int c1,
     // TODO(bfredl): The relevant caller should do this
     if (row == Rows - 1) {  // overwritten the command line
       redraw_cmdline = true;
-      if (c1 == ' ' && c2 == ' ') {
+      if (start_col == 0 && end_col == Columns
+          && c1 == ' ' && c2 == ' ' && attr == 0) {
         clear_cmdline = false;  // command line has been cleared
       }
       if (start_col == 0) {
@@ -6068,7 +6078,7 @@ static void screenclear2(void)
   ui_call_grid_clear(1);  // clear the display
   clear_cmdline = false;
   mode_displayed = false;
-  screen_cleared = true;  // can use contents of ScreenLines now
+  screen_cleared = kTrue;   // can use contents of ScreenLines now
 
   win_rest_invalid(firstwin);
   redraw_cmdline = TRUE;

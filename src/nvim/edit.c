@@ -227,7 +227,7 @@ static int last_insert_skip;      /* nr of chars in front of previous insert */
 static int new_insert_skip;       /* nr of chars in front of current insert */
 static int did_restart_edit;            /* "restart_edit" when calling edit() */
 
-static int can_cindent;                 /* may do cindenting on this line */
+static bool can_cindent;                // may do cindenting on this line
 
 static int old_indent = 0;              /* for ^^D command in insert mode */
 
@@ -240,10 +240,10 @@ static int ins_need_undo;               /* call u_save() before inserting a
                                            char.  Set when edit() is called.
                                            after that arrow_used is used. */
 
-static int did_add_space = FALSE;       /* auto_format() added an extra space
-                                           under the cursor */
-static int dont_sync_undo = false;      // CTRL-G U prevents syncing undo
-                                        // for the next left/right cursor
+static bool did_add_space = false;      // auto_format() added an extra space
+                                        // under the cursor
+static TriState dont_sync_undo = kFalse;  // CTRL-G U prevents syncing undo
+                                          // for the next left/right cursor
 
 static linenr_T o_lnum = 0;
 
@@ -276,7 +276,7 @@ static void insert_enter(InsertState *s)
 
     set_vim_var_string(VV_INSERTMODE, (char *) s->ptr, 1);
     set_vim_var_string(VV_CHAR, NULL, -1);
-    apply_autocmds(EVENT_INSERTENTER, NULL, NULL, false, curbuf);
+    ins_apply_autocmds(EVENT_INSERTENTER);
 
     // Make sure the cursor didn't move.  Do call check_cursor_col() in
     // case the text was modified.  Since Insert mode was not started yet
@@ -469,7 +469,7 @@ static void insert_enter(InsertState *s)
 
   foldUpdateAfterInsert();
   if (s->cmdchar != 'r' && s->cmdchar != 'v') {
-    apply_autocmds(EVENT_INSERTLEAVE, NULL, NULL, false, curbuf);
+    ins_apply_autocmds(EVENT_INSERTLEAVE);
   }
   did_cursorhold = false;
 }
@@ -595,10 +595,10 @@ static int insert_check(VimState *state)
   s->lastc = s->c;   // remember previous char for CTRL-D
 
   // After using CTRL-G U the next cursor key will not break undo.
-  if (dont_sync_undo == MAYBE) {
-    dont_sync_undo = true;
+  if (dont_sync_undo == kNone) {
+    dont_sync_undo = kTrue;
   } else {
-    dont_sync_undo = false;
+    dont_sync_undo = kFalse;
   }
 
   return 1;
@@ -999,7 +999,7 @@ static int insert_handle_key(InsertState *s)
     if (mod_mask & (MOD_MASK_SHIFT|MOD_MASK_CTRL)) {
       ins_s_left();
     } else {
-      ins_left(dont_sync_undo == false);
+      ins_left(dont_sync_undo == kFalse);
     }
     break;
 
@@ -1012,7 +1012,7 @@ static int insert_handle_key(InsertState *s)
     if (mod_mask & (MOD_MASK_SHIFT|MOD_MASK_CTRL)) {
       ins_s_right();
     } else {
-      ins_right(dont_sync_undo == false);
+      ins_right(dont_sync_undo == kFalse);
     }
     break;
 
@@ -1378,7 +1378,7 @@ ins_redraw (
       // Make sure curswant is correct, an autocommand may call
       // getcurpos()
       update_curswant();
-      apply_autocmds(EVENT_CURSORMOVEDI, NULL, NULL, false, curbuf);
+      ins_apply_autocmds(EVENT_CURSORMOVEDI);
     }
     if (curwin->w_p_cole > 0) {
       conceal_old_cursor_line = last_cursormoved.lnum;
@@ -1392,8 +1392,18 @@ ins_redraw (
   if (ready && has_event(EVENT_TEXTCHANGEDI)
       && curbuf->b_last_changedtick != buf_get_changedtick(curbuf)
       && !pum_visible()) {
+    aco_save_T aco;
+    varnumber_T tick = buf_get_changedtick(curbuf);
+
+    // save and restore curwin and curbuf, in case the autocmd changes them
+    aucmd_prepbuf(&aco, curbuf);
     apply_autocmds(EVENT_TEXTCHANGEDI, NULL, NULL, false, curbuf);
+    aucmd_restbuf(&aco);
     curbuf->b_last_changedtick = buf_get_changedtick(curbuf);
+    if (tick != buf_get_changedtick(curbuf)) {  // see ins_apply_autocmds()
+      u_save(curwin->w_cursor.lnum,
+             (linenr_T)(curwin->w_cursor.lnum + 1));
+    }
   }
 
   // Trigger TextChangedP if changedtick differs. When the popupmenu closes
@@ -1402,8 +1412,18 @@ ins_redraw (
   if (ready && has_event(EVENT_TEXTCHANGEDP)
       && curbuf->b_last_changedtick_pum != buf_get_changedtick(curbuf)
       && pum_visible()) {
-      apply_autocmds(EVENT_TEXTCHANGEDP, NULL, NULL, false, curbuf);
-      curbuf->b_last_changedtick_pum = buf_get_changedtick(curbuf);
+    aco_save_T aco;
+    varnumber_T tick = buf_get_changedtick(curbuf);
+
+    // save and restore curwin and curbuf, in case the autocmd changes them
+    aucmd_prepbuf(&aco, curbuf);
+    apply_autocmds(EVENT_TEXTCHANGEDP, NULL, NULL, false, curbuf);
+    aucmd_restbuf(&aco);
+    curbuf->b_last_changedtick_pum = buf_get_changedtick(curbuf);
+    if (tick != buf_get_changedtick(curbuf)) {  // see ins_apply_autocmds()
+      u_save(curwin->w_cursor.lnum,
+             (linenr_T)(curwin->w_cursor.lnum + 1));
+    }
   }
 
   if (must_redraw)
@@ -1768,8 +1788,8 @@ change_indent (
     /* We only put back the new line up to the cursor */
     new_line[curwin->w_cursor.col] = NUL;
 
-    /* Put back original line */
-    ml_replace(curwin->w_cursor.lnum, orig_line, FALSE);
+    // Put back original line
+    ml_replace(curwin->w_cursor.lnum, orig_line, false);
     curwin->w_cursor.col = orig_col;
 
     /* Backspace from cursor to start of line */
@@ -2313,24 +2333,14 @@ static void ins_compl_longest_match(compl_T *match)
     p = compl_leader;
     s = match->cp_str;
     while (*p != NUL) {
-      if (has_mbyte) {
-        c1 = mb_ptr2char(p);
-        c2 = mb_ptr2char(s);
-      } else {
-        c1 = *p;
-        c2 = *s;
-      }
-      if (match->cp_icase ? (mb_tolower(c1) != mb_tolower(c2))
-          : (c1 != c2)) {
+      c1 = utf_ptr2char(p);
+      c2 = utf_ptr2char(s);
+
+      if (match->cp_icase ? (mb_tolower(c1) != mb_tolower(c2)) : (c1 != c2)) {
         break;
       }
-      if (has_mbyte) {
-        MB_PTR_ADV(p);
-        MB_PTR_ADV(s);
-      } else {
-        ++p;
-        ++s;
-      }
+      MB_PTR_ADV(p);
+      MB_PTR_ADV(s);
     }
 
     if (*p != NUL) {
@@ -3404,12 +3414,12 @@ static bool ins_compl_prep(int c)
         do_c_expr_indent();
       /* Trigger the CompleteDone event to give scripts a chance to act
        * upon the completion. */
-      apply_autocmds(EVENT_COMPLETEDONE, NULL, NULL, FALSE, curbuf);
+      ins_apply_autocmds(EVENT_COMPLETEDONE);
     }
   } else if (ctrl_x_mode == CTRL_X_LOCAL_MSG)
     /* Trigger the CompleteDone event to give scripts a chance to act
      * upon the (possibly failed) completion. */
-    apply_autocmds(EVENT_COMPLETEDONE, NULL, NULL, FALSE, curbuf);
+    ins_apply_autocmds(EVENT_COMPLETEDONE);
 
   /* reset continue_* if we left expansion-mode, if we stay they'll be
    * (re)set properly in ins_complete() */
@@ -4458,7 +4468,7 @@ static int ins_complete(int c, bool enable_pum)
   int save_w_wrow;
   int save_w_leftcol;
   int insert_match;
-  int save_did_ai = did_ai;
+  const bool save_did_ai = did_ai;
 
   compl_direction = ins_compl_key2dir(c);
   insert_match = ins_compl_use_match(c);
@@ -4466,12 +4476,13 @@ static int ins_complete(int c, bool enable_pum)
   if (!compl_started) {
     /* First time we hit ^N or ^P (in a row, I mean) */
 
-    did_ai = FALSE;
-    did_si = FALSE;
-    can_si = FALSE;
-    can_si_back = FALSE;
-    if (stop_arrow() == FAIL)
+    did_ai = false;
+    did_si = false;
+    can_si = false;
+    can_si_back = false;
+    if (stop_arrow() == FAIL) {
       return FAIL;
+    }
 
     line = ml_get(curwin->w_cursor.lnum);
     curs_col = curwin->w_cursor.col;
@@ -5271,10 +5282,10 @@ insertchar (
   }
   end_comment_pending = NUL;
 
-  did_ai = FALSE;
-  did_si = FALSE;
-  can_si = FALSE;
-  can_si_back = FALSE;
+  did_ai = false;
+  did_si = false;
+  can_si = false;
+  can_si_back = false;
 
   // If there's any pending input, grab up to INPUT_BUFLEN at once.
   // This speeds up normal text input considerably.
@@ -5369,7 +5380,7 @@ internal_format (
 {
   int cc;
   int save_char = NUL;
-  int haveto_redraw = FALSE;
+  bool haveto_redraw = false;
   int fo_ins_blank = has_format_option(FO_INS_BLANK);
   int fo_multibyte = has_format_option(FO_MBYTE_BREAK);
   int fo_white_par = has_format_option(FO_WHITE_PAR);
@@ -5657,13 +5668,13 @@ internal_format (
         curwin->w_cursor.col = len;
     }
 
-    haveto_redraw = TRUE;
-    can_cindent = TRUE;
-    /* moved the cursor, don't autoindent or cindent now */
-    did_ai = FALSE;
-    did_si = FALSE;
-    can_si = FALSE;
-    can_si_back = FALSE;
+    haveto_redraw = true;
+    can_cindent = true;
+    // moved the cursor, don't autoindent or cindent now
+    did_ai = false;
+    did_si = false;
+    can_si = false;
+    can_si_back = false;
     line_breakcheck();
   }
 
@@ -5704,8 +5715,8 @@ auto_format (
   pos = curwin->w_cursor;
   old = get_cursor_line_ptr();
 
-  /* may remove added space */
-  check_auto_format(FALSE);
+  // may remove added space
+  check_auto_format(false);
 
   /* Don't format in Insert mode when the cursor is on a trailing blank, the
    * user might insert normal text next.  Also skip formatting when "1" is
@@ -5771,12 +5782,13 @@ auto_format (
       pnew = vim_strnsave(new, len + 2);
       pnew[len] = ' ';
       pnew[len + 1] = NUL;
-      ml_replace(curwin->w_cursor.lnum, pnew, FALSE);
-      /* remove the space later */
-      did_add_space = TRUE;
-    } else
-      /* may remove added space */
-      check_auto_format(FALSE);
+      ml_replace(curwin->w_cursor.lnum, pnew, false);
+      // remove the space later
+      did_add_space = true;
+    } else {
+      // may remove added space
+      check_auto_format(false);
+    }
   }
 
   check_cursor();
@@ -5787,9 +5799,8 @@ auto_format (
  * delete it now.  The space must be under the cursor, just after the insert
  * position.
  */
-static void
-check_auto_format (
-    int end_insert                     /* TRUE when ending Insert mode */
+static void check_auto_format(
+    bool end_insert                   // true when ending Insert mode
 )
 {
   int c = ' ';
@@ -5797,19 +5808,19 @@ check_auto_format (
 
   if (did_add_space) {
     cc = gchar_cursor();
-    if (!WHITECHAR(cc))
-      /* Somehow the space was removed already. */
-      did_add_space = FALSE;
-    else {
+    if (!WHITECHAR(cc)) {
+      // Somehow the space was removed already.
+      did_add_space = false;
+    } else {
       if (!end_insert) {
         inc_cursor();
         c = gchar_cursor();
         dec_cursor();
       }
       if (c != NUL) {
-        /* The space is no longer at the end of the line, delete it. */
-        del_char(FALSE);
-        did_add_space = FALSE;
+        // The space is no longer at the end of the line, delete it.
+        del_char(false);
+        did_add_space = false;
       }
     }
   }
@@ -6034,8 +6045,8 @@ stop_insert (
       }
     }
 
-    /* If a space was inserted for auto-formatting, remove it now. */
-    check_auto_format(TRUE);
+    // If a space was inserted for auto-formatting, remove it now.
+    check_auto_format(true);
 
     /* If we just did an auto-indent, remove the white space from the end
      * of the line, and put the cursor back.
@@ -6054,10 +6065,12 @@ stop_insert (
         if (gchar_cursor() == NUL && curwin->w_cursor.col > 0)
           --curwin->w_cursor.col;
         cc = gchar_cursor();
-        if (!ascii_iswhite(cc))
+        if (!ascii_iswhite(cc)) {
           break;
-        if (del_char(TRUE) == FAIL)
-          break;            /* should not happen */
+        }
+        if (del_char(true) == FAIL) {
+          break;            // should not happen
+        }
       }
       if (curwin->w_cursor.lnum != tpos.lnum)
         curwin->w_cursor = tpos;
@@ -6082,10 +6095,10 @@ stop_insert (
       }
     }
   }
-  did_ai = FALSE;
-  did_si = FALSE;
-  can_si = FALSE;
-  can_si_back = FALSE;
+  did_ai = false;
+  did_si = false;
+  can_si = false;
+  can_si_back = false;
 
   /* Set '[ and '] to the inserted text.  When end_insert_pos is NULL we are
    * now in a different buffer. */
@@ -6199,12 +6212,10 @@ int oneright(void)
 
     /* Adjust for multi-wide char (excluding TAB) */
     ptr = get_cursor_pos_ptr();
-    coladvance(getviscol() + ((*ptr != TAB && vim_isprintc(
-                                   (*mb_ptr2char)(ptr)
-                                   ))
-                              ? ptr2cells(ptr) : 1));
-    curwin->w_set_curswant = TRUE;
-    /* Return OK if the cursor moved, FAIL otherwise (at window edge). */
+    coladvance(getviscol() + ((*ptr != TAB && vim_isprintc(utf_ptr2char(ptr))) ?
+                              ptr2cells(ptr) : 1));
+    curwin->w_set_curswant = true;
+    // Return OK if the cursor moved, FAIL otherwise (at window edge).
     return (prevpos.col != curwin->w_cursor.col
             || prevpos.coladd != curwin->w_cursor.coladd) ? OK : FAIL;
   }
@@ -6259,10 +6270,10 @@ int oneleft(void)
 
       /* Adjust for multi-wide char (not a TAB) */
       ptr = get_cursor_pos_ptr();
-      if (*ptr != TAB && vim_isprintc(
-              (*mb_ptr2char)(ptr)
-              ) && ptr2cells(ptr) > 1)
+      if (*ptr != TAB && vim_isprintc(utf_ptr2char(ptr))
+          && ptr2cells(ptr) > 1) {
         curwin->w_cursor.coladd = 0;
+      }
     }
 
     curwin->w_set_curswant = TRUE;
@@ -6409,8 +6420,10 @@ stuff_inserted (
   /* may want to stuff the command character, to start Insert mode */
   if (c != NUL)
     stuffcharReadbuff(c);
-  if ((esc_ptr = (char_u *)vim_strrchr(ptr, ESC)) != NULL)
-    *esc_ptr = NUL;         /* remove the ESC */
+  if ((esc_ptr = STRRCHR(ptr, ESC)) != NULL) {
+    // remove the ESC.
+    *esc_ptr = NUL;
+  }
 
   /* when the last char is either "0" or "^" it will be quoted if no ESC
    * comes after it OR if it will inserted more than once and "ptr"
@@ -6711,8 +6724,8 @@ static void replace_do_bs(int limit_col)
        * text aligned. */
       curwin->w_cursor.col += ins_len;
       while (vcol > orig_vcols && gchar_cursor() == ' ') {
-        del_char(FALSE);
-        ++orig_vcols;
+        del_char(false);
+        orig_vcols++;
       }
       curwin->w_cursor.col -= ins_len;
     }
@@ -7176,7 +7189,7 @@ static void ins_ctrl_g(void)
   case 'U':
     // Allow one left/right cursor movement with the next char,
     // without breaking undo.
-    dont_sync_undo = MAYBE;
+    dont_sync_undo = kNone;
     break;
 
   /* Unknown CTRL-G command, reserved for future expansion. */
@@ -7408,7 +7421,7 @@ static void ins_insert(int replaceState)
   set_vim_var_string(VV_INSERTMODE, ((State & REPLACE_FLAG) ? "i" :
                                      replaceState == VREPLACE ? "v" :
                                      "r"), 1);
-  apply_autocmds(EVENT_INSERTCHANGE, NULL, NULL, false, curbuf);
+  ins_apply_autocmds(EVENT_INSERTCHANGE);
   if (State & REPLACE_FLAG) {
     State = INSERT | (State & LANGMAP);
   } else {
@@ -7454,46 +7467,55 @@ static void ins_shift(int c, int lastc)
    */
   if (c == Ctrl_D && (lastc == '0' || lastc == '^')
       && curwin->w_cursor.col > 0) {
-    --curwin->w_cursor.col;
-    (void)del_char(FALSE);              /* delete the '^' or '0' */
-    /* In Replace mode, restore the characters that '^' or '0' replaced. */
-    if (State & REPLACE_FLAG)
+    curwin->w_cursor.col--;
+    (void)del_char(false);              // delete the '^' or '0'
+    // In Replace mode, restore the characters that '^' or '0' replaced.
+    if (State & REPLACE_FLAG) {
       replace_pop_ins();
-    if (lastc == '^')
-      old_indent = get_indent();        /* remember curr. indent */
+    }
+    if (lastc == '^') {
+      old_indent = get_indent();        // remember curr. indent
+    }
     change_indent(INDENT_SET, 0, TRUE, 0, TRUE);
   } else
     change_indent(c == Ctrl_D ? INDENT_DEC : INDENT_INC, 0, TRUE, 0, TRUE);
 
-  if (did_ai && *skipwhite(get_cursor_line_ptr()) != NUL)
-    did_ai = FALSE;
-  did_si = FALSE;
-  can_si = FALSE;
-  can_si_back = FALSE;
-  can_cindent = FALSE;          /* no cindenting after ^D or ^T */
+  if (did_ai && *skipwhite(get_cursor_line_ptr()) != NUL) {
+    did_ai = false;
+  }
+  did_si = false;
+  can_si = false;
+  can_si_back = false;
+  can_cindent = false;          // no cindenting after ^D or ^T
 }
 
 static void ins_del(void)
 {
-  int temp;
-
-  if (stop_arrow() == FAIL)
+  if (stop_arrow() == FAIL) {
     return;
-  if (gchar_cursor() == NUL) {          /* delete newline */
-    temp = curwin->w_cursor.col;
+  }
+  if (gchar_cursor() == NUL) {          // delete newline
+    const int temp = curwin->w_cursor.col;
     if (!can_bs(BS_EOL)  // only if "eol" included
         || do_join(2, false, true, false, false) == FAIL) {
       vim_beep(BO_BS);
     } else {
       curwin->w_cursor.col = temp;
+      // Adjust orig_line_count in case more lines have been deleted than
+      // have been added. That makes sure, that open_line() later
+      // can access all buffer lines correctly
+      if (State & VREPLACE_FLAG
+          && orig_line_count > curbuf->b_ml.ml_line_count) {
+        orig_line_count = curbuf->b_ml.ml_line_count;
+      }
     }
   } else if (del_char(false) == FAIL) {  // delete char under cursor
     vim_beep(BO_BS);
   }
-  did_ai = FALSE;
-  did_si = FALSE;
-  can_si = FALSE;
-  can_si_back = FALSE;
+  did_ai = false;
+  did_si = false;
+  can_si = false;
+  can_si_back = false;
   AppendCharToRedobuff(K_DEL);
 }
 
@@ -7511,8 +7533,9 @@ static void ins_bs_one(colnr_T *vcolp)
     if (curwin->w_cursor.lnum != Insstart.lnum
         || curwin->w_cursor.col >= Insstart.col)
       replace_do_bs(-1);
-  } else
-    (void)del_char(FALSE);
+  } else {
+    (void)del_char(false);
+  }
 }
 
 /// Handle Backspace, delete-word and delete-line in Insert mode.
@@ -7660,7 +7683,7 @@ static bool ins_bs(int c, int mode, int *inserted_space_p)
         State = oldState;
       }
     }
-    did_ai = FALSE;
+    did_ai = false;
   } else {
     /*
      * Delete character(s) before the cursor.
@@ -7776,16 +7799,16 @@ static bool ins_bs(int c, int mode, int *inserted_space_p)
         else {
           const bool l_enc_utf8 = enc_utf8;
           const int l_p_deco = p_deco;
-          if (l_enc_utf8 && l_p_deco)
+          if (l_enc_utf8 && l_p_deco) {
             (void)utfc_ptr2char(get_cursor_pos_ptr(), cpc);
-          (void)del_char(FALSE);
-          /*
-           * If there are combining characters and 'delcombine' is set
-           * move the cursor back.  Don't back up before the base
-           * character.
-           */
-          if (l_enc_utf8 && l_p_deco && cpc[0] != NUL)
+          }
+          (void)del_char(false);
+          // If there are combining characters and 'delcombine' is set
+          // move the cursor back.  Don't back up before the base
+          // character.
+          if (l_enc_utf8 && l_p_deco && cpc[0] != NUL) {
             inc_cursor();
+          }
           if (revins_chars) {
             revins_chars--;
             revins_legal++;
@@ -7864,7 +7887,7 @@ static void ins_mouse(int c)
       curwin = new_curwin;
       curbuf = curwin->w_buffer;
     }
-    can_cindent = TRUE;
+    can_cindent = true;
   }
 
   /* redraw status lines (in case another window became active) */
@@ -7881,20 +7904,20 @@ void custom_ui_scroll(int dir, int count, int row, int col) {
 
 static void ins_mousescroll(int dir, int count)
 {
-  pos_T tpos;
-  win_T       *old_curwin = curwin;
-  int did_scroll = FALSE;
-
-  tpos = curwin->w_cursor;
+  win_T *const old_curwin = curwin;
+  bool did_scroll = false;
+  pos_T tpos = curwin->w_cursor;
 
   if (mouse_row >= 0 && mouse_col >= 0) {
-    int row, col;
+    int row = mouse_row;
+    int col = mouse_col;
 
-    row = mouse_row;
-    col = mouse_col;
-
-    /* find the window at the pointer coordinates */
-    curwin = mouse_find_win(&row, &col);
+    // find the window at the pointer coordinates
+    win_T *const wp = mouse_find_win(&row, &col);
+    if (wp == NULL) {
+      return;
+    }
+    curwin = wp;
     curbuf = curwin->w_buffer;
   }
   if (curwin == old_curwin)
@@ -7913,7 +7936,7 @@ static void ins_mousescroll(int dir, int count)
     } else {
         mouse_scroll_horiz_step(dir, count);
     }
-    did_scroll = TRUE;
+    did_scroll = true;
   }
 
   curwin->w_redr_status = TRUE;
@@ -7931,7 +7954,7 @@ static void ins_mousescroll(int dir, int count)
 
   if (!equalpos(curwin->w_cursor, tpos)) {
     start_arrow(&tpos);
-    can_cindent = TRUE;
+    can_cindent = true;
   }
 }
 // CUSTOM_UI end
@@ -7965,7 +7988,7 @@ static void ins_left(bool end_change)
   } else {
     vim_beep(BO_CRSR);
   }
-  dont_sync_undo = false;
+  dont_sync_undo = kFalse;
 }
 
 static void ins_home(int c)
@@ -8050,7 +8073,7 @@ static void ins_right(bool end_change)
   } else {
     vim_beep(BO_CRSR);
   }
-  dont_sync_undo = false;
+  dont_sync_undo = kFalse;
 }
 
 static void ins_s_right(void)
@@ -8400,8 +8423,8 @@ static bool ins_eol(int c)
                      has_format_option(FO_RET_COMS) ? OPENLINE_DO_COM : 0,
                      old_indent);
   old_indent = 0;
-  can_cindent = TRUE;
-  /* When inserting a line the cursor line must never be in a closed fold. */
+  can_cindent = true;
+  // When inserting a line the cursor line must never be in a closed fold.
   foldOpenCursor();
 
   return !i;
@@ -8505,7 +8528,7 @@ int ins_copychar(linenr_T lnum)
   if ((colnr_T)temp > curwin->w_virtcol)
     ptr = prev_ptr;
 
-  c = (*mb_ptr2char)(ptr);
+  c = utf_ptr2char(ptr);
   if (c == NUL) {
     vim_beep(BO_COPY);
   }
@@ -8669,18 +8692,36 @@ static char_u *do_insert_char_pre(int c)
   set_vim_var_string(VV_CHAR, buf, -1);
 
   char_u *res = NULL;
-  if (apply_autocmds(EVENT_INSERTCHARPRE, NULL, NULL, FALSE, curbuf)) {
-    /* Get the value of v:char.  It may be empty or more than one
-     * character.  Only use it when changed, otherwise continue with the
-     * original character to avoid breaking autoindent. */
-    if (STRCMP(buf, get_vim_var_str(VV_CHAR)) != 0)
+  if (ins_apply_autocmds(EVENT_INSERTCHARPRE)) {
+    // Get the value of v:char.  It may be empty or more than one
+    // character.  Only use it when changed, otherwise continue with the
+    // original character to avoid breaking autoindent.
+    if (STRCMP(buf, get_vim_var_str(VV_CHAR)) != 0) {
       res = vim_strsave(get_vim_var_str(VV_CHAR));
+    }
   }
 
   set_vim_var_string(VV_CHAR, NULL, -1);
   textlock--;
 
   return res;
+}
+
+/// Trigger "event" and take care of fixing undo.
+static int ins_apply_autocmds(event_T event)
+{
+  varnumber_T tick = buf_get_changedtick(curbuf);
+  int r;
+
+  r = apply_autocmds(event, NULL, NULL, false, curbuf);
+
+  // If u_savesub() was called then we are not prepared to start
+  // a new line.  Call u_save() with no contents to fix that.
+  if (tick != buf_get_changedtick(curbuf)) {
+    u_save(curwin->w_cursor.lnum, (linenr_T)(curwin->w_cursor.lnum + 1));
+  }
+
+  return r;
 }
 
 static void show_pum(int prev_w_wrow, int prev_w_leftcol)

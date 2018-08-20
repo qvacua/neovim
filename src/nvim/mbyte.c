@@ -566,7 +566,9 @@ int utf_off2cells(unsigned off, unsigned max_off)
 /// Convert a UTF-8 byte sequence to a wide character
 ///
 /// If the sequence is illegal or truncated by a NUL then the first byte is
-/// returned. Does not include composing characters for obvious reasons.
+/// returned.
+/// For an overlong sequence this may return zero.
+/// Does not include composing characters for obvious reasons.
 ///
 /// @param[in]  p  String to convert.
 ///
@@ -674,7 +676,7 @@ int mb_ptr2char_adv(const char_u **const pp)
 {
   int c;
 
-  c = (*mb_ptr2char)(*pp);
+  c = utf_ptr2char(*pp);
   *pp += (*mb_ptr2len)(*pp);
   return c;
 }
@@ -687,7 +689,7 @@ int mb_cptr2char_adv(const char_u **pp)
 {
   int c;
 
-  c = (*mb_ptr2char)(*pp);
+  c = utf_ptr2char(*pp);
   *pp += utf_ptr2len(*pp);
   return c;
 }
@@ -1714,7 +1716,7 @@ void mb_check_adjust_col(void *win_)
     // Reset `coladd` when the cursor would be on the right half of a
     // double-wide character.
     if (win->w_cursor.coladd == 1 && p[win->w_cursor.col] != TAB
-        && vim_isprintc((*mb_ptr2char)(p + win->w_cursor.col))
+        && vim_isprintc(utf_ptr2char(p + win->w_cursor.col))
         && ptr2cells(p + win->w_cursor.col) > 1) {
       win->w_cursor.coladd = 0;
     }
@@ -1827,8 +1829,8 @@ const char *mb_unescape(const char **const pp)
  */
 bool mb_lefthalve(int row, int col)
 {
-  return (*mb_off2cells)(LineOffset[row] + col,
-      LineOffset[row] + screen_Columns) > 1;
+  return utf_off2cells(LineOffset[row] + col,
+                       LineOffset[row] + screen_Columns) > 1;
 }
 
 /*

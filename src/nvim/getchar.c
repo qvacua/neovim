@@ -439,7 +439,10 @@ void flush_buffers(int flush_typeahead)
       ;
     typebuf.tb_off = MAXMAPLEN;
     typebuf.tb_len = 0;
-  } else {                /* remove mapped characters at the start only */
+    // Reset the flag that text received from a client or from feedkeys()
+    // was inserted in the typeahead buffer.
+    typebuf_was_filled = false;
+  } else {                // remove mapped characters at the start only
     typebuf.tb_off += typebuf.tb_maplen;
     typebuf.tb_len -= typebuf.tb_maplen;
   }
@@ -698,7 +701,7 @@ static int read_redo(int init, int old_redo)
     buf[i] = (char_u)c;
     if (i == n - 1) {         // last byte of a character
       if (n != 1) {
-        c = (*mb_ptr2char)(buf);
+        c = utf_ptr2char(buf);
       }
       break;
     }
@@ -1077,9 +1080,10 @@ void del_typebuf(int len, int offset)
 
   /* Reset the flag that text received from a client or from feedkeys()
    * was inserted in the typeahead buffer. */
-  typebuf_was_filled = FALSE;
-  if (++typebuf.tb_change_cnt == 0)
+  typebuf_was_filled = false;
+  if (++typebuf.tb_change_cnt == 0) {
     typebuf.tb_change_cnt = 1;
+  }
 }
 
 /*
@@ -1482,7 +1486,7 @@ int vgetc(void)
           }
         }
         no_mapping--;
-        c = (*mb_ptr2char)(buf);
+        c = utf_ptr2char(buf);
       }
 
       break;

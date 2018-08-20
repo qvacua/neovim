@@ -85,12 +85,12 @@ get_vim_sources() {
     git clone https://github.com/vim/vim.git "${VIM_SOURCE_DIR}"
     cd "${VIM_SOURCE_DIR}"
   else
-    if [[ ! -d "${VIM_SOURCE_DIR}/.git" ]]; then
+    cd "${VIM_SOURCE_DIR}"
+    if [[ "$(git rev-parse --show-toplevel)" != "${VIM_SOURCE_DIR}" ]]; then
       msg_err "${VIM_SOURCE_DIR} does not appear to be a git repository."
       echo "  Please remove it and try again."
       exit 1
     fi
-    cd "${VIM_SOURCE_DIR}"
     echo "Updating Vim sources: ${VIM_SOURCE_DIR}"
     git pull &&
       msg_ok "Updated Vim sources." ||
@@ -131,7 +131,7 @@ assign_commit_details() {
   vim_commit_url="https://github.com/vim/vim/commit/${vim_commit}"
   vim_message="$(cd "${VIM_SOURCE_DIR}" \
     && git log -1 --pretty='format:%B' "${vim_commit}" \
-      | sed -e 's/\(#[0-9]*\)/vim\/vim\1/g')"
+      | sed -e 's/\(#[0-9]\{1,\}\)/vim\/vim\1/g')"
   if [[ ${munge_commit_line} == "true" ]]; then
     # Remove first line of commit message.
     vim_message="$(echo "${vim_message}" | sed -e '1s/^patch /vim-patch:/')"
@@ -202,7 +202,7 @@ get_vimpatch() {
   printf "Pre-processing patch...\n"
   preprocess_patch "${NVIM_SOURCE_DIR}/${patch_file}"
 
-  msg_ok "Saved patch to '${NVIM_SOURCE_DIR}/${patch_file}'.\n"
+  msg_ok "Saved patch to '${NVIM_SOURCE_DIR}/${patch_file}'."
 }
 
 stage_patch() {
@@ -244,7 +244,7 @@ stage_patch() {
     else
       printf "\nApplying patch...\n"
       patch -p1 < "${patch_file}" || true
-      find -name '*.orig' -type f -delete
+      find . -name '*.orig' -type f -delete
     fi
     printf "\nInstructions:\n  Proceed to port the patch.\n"
   else

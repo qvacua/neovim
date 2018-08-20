@@ -1380,15 +1380,15 @@ retry:
             }
           } else if (fio_flags & FIO_UCS4) {
             if (fio_flags & FIO_ENDIAN_L) {
-              u8c = (*--p << 24);
-              u8c += (*--p << 16);
-              u8c += (*--p << 8);
+              u8c = (unsigned)(*--p) << 24;
+              u8c += (unsigned)(*--p) << 16;
+              u8c += (unsigned)(*--p) << 8;
               u8c += *--p;
             } else {          /* big endian */
               u8c = *--p;
-              u8c += (*--p << 8);
-              u8c += (*--p << 16);
-              u8c += (*--p << 24);
+              u8c += (unsigned)(*--p) << 8;
+              u8c += (unsigned)(*--p) << 16;
+              u8c += (unsigned)(*--p) << 24;
             }
           } else {        /* UTF-8 */
             if (*--p < 0x80)
@@ -4892,10 +4892,12 @@ buf_check_timestamp (
           )) {
     retval = 1;
 
-    /* set b_mtime to stop further warnings (e.g., when executing
-     * FileChangedShell autocmd) */
+    // set b_mtime to stop further warnings (e.g., when executing
+    // FileChangedShell autocmd)
     if (!file_info_ok) {
-      buf->b_mtime = 0;
+      // When 'autoread' is set we'll check the file again to see if it
+      // re-appears.
+      buf->b_mtime = buf->b_p_ar;
       buf->b_orig_size = 0;
       buf->b_orig_mode = 0;
     } else {

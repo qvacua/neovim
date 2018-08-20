@@ -296,6 +296,11 @@ open_buffer (
   }
   save_file_ff(curbuf);                 // keep this fileformat
 
+  // Set last_changedtick to avoid triggering a TextChanged autocommand right
+  // after it was added.
+  curbuf->b_last_changedtick = buf_get_changedtick(curbuf);
+  curbuf->b_last_changedtick_pum = buf_get_changedtick(curbuf);
+
   /* require "!" to overwrite the file, because it wasn't read completely */
   if (aborting())
     curbuf->b_flags |= BF_READERR;
@@ -505,14 +510,20 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
 
   int nwindows = buf->b_nwindows;
 
-  /* decrease the link count from windows (unless not in any window) */
-  if (buf->b_nwindows > 0)
-    --buf->b_nwindows;
+  // decrease the link count from windows (unless not in any window)
+  if (buf->b_nwindows > 0) {
+    buf->b_nwindows--;
+  }
+
+  if (diffopt_hiddenoff() && !unload_buf && buf->b_nwindows == 0) {
+    diff_buf_delete(buf);   // Clear 'diff' for hidden buffer.
+  }
 
   /* Return when a window is displaying the buffer or when it's not
    * unloaded. */
-  if (buf->b_nwindows > 0 || !unload_buf)
+  if (buf->b_nwindows > 0 || !unload_buf) {
     return;
+  }
 
   if (buf->terminal) {
     terminal_close(buf->terminal, NULL);
@@ -3220,10 +3231,11 @@ int build_stl_str_hl(
   // Get the byte value now, in case we need it below. This is more
   // efficient than making a copy of the line.
   int byteval;
-  if (wp->w_cursor.col > (colnr_T)STRLEN(line_ptr))
+  if (wp->w_cursor.col > (colnr_T)STRLEN(line_ptr)) {
     byteval = 0;
-  else
-    byteval = (*mb_ptr2char)(line_ptr + wp->w_cursor.col);
+  } else {
+    byteval = utf_ptr2char(line_ptr + wp->w_cursor.col);
+  }
 
   int groupdepth = 0;
 
@@ -3603,7 +3615,7 @@ int build_stl_str_hl(
 
       // Store the current buffer number as a string variable
       vim_snprintf((char *)tmp, sizeof(tmp), "%d", curbuf->b_fnum);
-      set_internal_string_var((char_u *)"actual_curbuf", tmp);
+      set_internal_string_var((char_u *)"g:actual_curbuf", tmp);
 
       buf_T *o_curbuf = curbuf;
       win_T *o_curwin = curwin;
