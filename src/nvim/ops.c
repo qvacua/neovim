@@ -520,12 +520,12 @@ static void block_insert(oparg_T *oap, char_u *s, int b_insert, struct block_def
       }
     }
 
-    if (has_mbyte && spaces > 0) {
+    if (spaces > 0) {
       int off;
 
       // Avoid starting halfway through a multi-byte character.
       if (b_insert) {
-        off = (*mb_head_off)(oldp, oldp + offset + spaces);
+        off = utf_head_off(oldp, oldp + offset + spaces);
       } else {
         off = (*mb_off_next)(oldp, oldp + offset);
         offset += off;
@@ -1110,7 +1110,7 @@ int insert_reg(
 )
 {
   int retval = OK;
-  int allocated;
+  bool allocated;
 
   /*
    * It is possible to get into an endless loop by having CTRL-R a in
@@ -1187,82 +1187,92 @@ static void stuffescaped(const char *arg, int literally)
   }
 }
 
-/*
- * If "regname" is a special register, return TRUE and store a pointer to its
- * value in "argp".
- */
-int get_spec_reg(
+// If "regname" is a special register, return true and store a pointer to its
+// value in "argp".
+bool get_spec_reg(
     int regname,
     char_u **argp,
-    int *allocated,         /* return: TRUE when value was allocated */
-    int errmsg                     /* give error message when failing */
+    bool *allocated,        // return: true when value was allocated
+    bool errmsg             // give error message when failing
 )
 {
   size_t cnt;
 
   *argp = NULL;
-  *allocated = FALSE;
+  *allocated = false;
   switch (regname) {
   case '%':                     /* file name */
     if (errmsg)
       check_fname();            /* will give emsg if not set */
     *argp = curbuf->b_fname;
-    return TRUE;
+    return true;
 
-  case '#':                     /* alternate file name */
-    *argp = getaltfname(errmsg);                /* may give emsg if not set */
-    return TRUE;
+  case '#':                       // alternate file name
+    *argp = getaltfname(errmsg);  // may give emsg if not set
+    return true;
 
   case '=':                     /* result of expression */
     *argp = get_expr_line();
-    *allocated = TRUE;
-    return TRUE;
+    *allocated = true;
+    return true;
 
   case ':':                     /* last command line */
     if (last_cmdline == NULL && errmsg)
       EMSG(_(e_nolastcmd));
     *argp = last_cmdline;
-    return TRUE;
+    return true;
 
   case '/':                     /* last search-pattern */
     if (last_search_pat() == NULL && errmsg)
       EMSG(_(e_noprevre));
     *argp = last_search_pat();
-    return TRUE;
+    return true;
 
   case '.':                     /* last inserted text */
     *argp = get_last_insert_save();
-    *allocated = TRUE;
-    if (*argp == NULL && errmsg)
+    *allocated = true;
+    if (*argp == NULL && errmsg) {
       EMSG(_(e_noinstext));
-    return TRUE;
+    }
+    return true;
 
-  case Ctrl_F:                  /* Filename under cursor */
-  case Ctrl_P:                  /* Path under cursor, expand via "path" */
-    if (!errmsg)
-      return FALSE;
-    *argp = file_name_at_cursor(FNAME_MESS | FNAME_HYP
-        | (regname == Ctrl_P ? FNAME_EXP : 0), 1L, NULL);
-    *allocated = TRUE;
-    return TRUE;
+  case Ctrl_F:                  // Filename under cursor
+  case Ctrl_P:                  // Path under cursor, expand via "path"
+    if (!errmsg) {
+      return false;
+    }
+    *argp = file_name_at_cursor(
+        FNAME_MESS | FNAME_HYP | (regname == Ctrl_P ? FNAME_EXP : 0),
+        1L, NULL);
+    *allocated = true;
+    return true;
 
-  case Ctrl_W:                  /* word under cursor */
-  case Ctrl_A:                  /* WORD (mnemonic All) under cursor */
-    if (!errmsg)
-      return FALSE;
+  case Ctrl_W:                  // word under cursor
+  case Ctrl_A:                  // WORD (mnemonic All) under cursor
+    if (!errmsg) {
+      return false;
+    }
     cnt = find_ident_under_cursor(argp, (regname == Ctrl_W
                                          ? (FIND_IDENT|FIND_STRING)
                                          : FIND_STRING));
     *argp = cnt ? vim_strnsave(*argp, cnt) : NULL;
-    *allocated = TRUE;
-    return TRUE;
+    *allocated = true;
+    return true;
+
+  case Ctrl_L:                  // Line under cursor
+    if (!errmsg) {
+      return false;
+    }
+
+    *argp = ml_get_buf(curwin->w_buffer, curwin->w_cursor.lnum, false);
+    return true;
 
   case '_':                     /* black hole: always empty */
     *argp = (char_u *)"";
-    return TRUE;
+    return true;
   }
 
-  return FALSE;
+  return false;
 }
 
 /// Paste a yank register into the command line.
@@ -2004,6 +2014,7 @@ void op_insert(oparg_T *oap, long count1)
 {
   long ins_len, pre_textlen = 0;
   char_u              *firstline, *ins_text;
+  colnr_T ind_pre = 0;
   struct block_def bd;
   int i;
   pos_T t1;
@@ -2034,9 +2045,13 @@ void op_insert(oparg_T *oap, long count1)
     }
     // Get the info about the block before entering the text
     block_prep(oap, &bd, oap->start.lnum, true);
+    // Get indent information
+    ind_pre = (colnr_T)getwhitecols_curline();
     firstline = ml_get(oap->start.lnum) + bd.textcol;
-    if (oap->op_type == OP_APPEND)
+
+    if (oap->op_type == OP_APPEND) {
       firstline += bd.textlen;
+    }
     pre_textlen = (long)STRLEN(firstline);
   }
 
@@ -2089,10 +2104,23 @@ void op_insert(oparg_T *oap, long count1)
 
   if (oap->motion_type == kMTBlockWise) {
     struct block_def bd2;
+    bool did_indent = false;
 
-    /* The user may have moved the cursor before inserting something, try
-     * to adjust the block for that. */
-    if (oap->start.lnum == curbuf->b_op_start_orig.lnum && !bd.is_MAX) {
+    // if indent kicked in, the firstline might have changed
+    // but only do that, if the indent actually increased
+    const colnr_T ind_post = (colnr_T)getwhitecols_curline();
+    if (curbuf->b_op_start.col > ind_pre && ind_post > ind_pre) {
+      bd.textcol += ind_post - ind_pre;
+      bd.start_vcol += ind_post - ind_pre;
+      did_indent = true;
+    }
+
+    // The user may have moved the cursor before inserting something, try
+    // to adjust the block for that.  But only do it, if the difference
+    // does not come from indent kicking in.
+    if (oap->start.lnum == curbuf->b_op_start_orig.lnum
+        && !bd.is_MAX
+        && !did_indent) {
       if (oap->op_type == OP_INSERT
           && oap->start.col + oap->start.coladd
           != curbuf->b_op_start_orig.col + curbuf->b_op_start_orig.coladd) {
@@ -2206,7 +2234,7 @@ int op_change(oparg_T *oap)
     }
     firstline = ml_get(oap->start.lnum);
     pre_textlen = (long)STRLEN(firstline);
-    pre_indent = (long)(skipwhite(firstline) - firstline);
+    pre_indent = (long)getwhitecols(firstline);
     bd.textcol = curwin->w_cursor.col;
   }
 
@@ -2227,7 +2255,7 @@ int op_change(oparg_T *oap)
     // the indent, exclude that indent change from the inserted text.
     firstline = ml_get(oap->start.lnum);
     if (bd.textcol > (colnr_T)pre_indent) {
-      long new_indent = (long)(skipwhite(firstline) - firstline);
+      long new_indent = (long)getwhitecols(firstline);
 
       pre_textlen += new_indent - pre_indent;
       bd.textcol += (colnr_T)(new_indent - pre_indent);
@@ -2432,11 +2460,10 @@ static void op_yank_reg(oparg_T *oap, bool message, yankreg_T *reg, bool append)
         if (virtual_op) {
           getvcol(curwin, &oap->end, &cs, NULL, &ce);
           if (p[endcol] == NUL || (cs + oap->end.coladd < ce
-                                   /* Don't add space for double-wide
-                                    * char; endcol will be on last byte
-                                    * of multi-byte char. */
-                                   && (*mb_head_off)(p, p + endcol) == 0
-                                   )) {
+                                   // Don't add space for double-wide
+                                   // char; endcol will be on last byte
+                                   // of multi-byte char.
+                                   && utf_head_off(p, p + endcol) == 0)) {
             if (oap->start.lnum == oap->end.lnum
                 && oap->start.col == oap->end.col) {
               /* Special case: inside a single char */
@@ -2652,7 +2679,7 @@ void do_put(int regname, yankreg_T *reg, int dir, long count, int flags)
   int lendiff = 0;
   pos_T old_pos;
   char_u      *insert_string = NULL;
-  int allocated = FALSE;
+  bool allocated = false;
   long cnt;
 
   if (flags & PUT_FIXINDENT)
@@ -2748,9 +2775,10 @@ void do_put(int regname, yankreg_T *reg, int dir, long count, int flags)
    * For special registers '%' (file name), '#' (alternate file name) and
    * ':' (last command line), etc. we have to create a fake yank register.
    */
-  if (get_spec_reg(regname, &insert_string, &allocated, TRUE)) {
-    if (insert_string == NULL)
+  if (get_spec_reg(regname, &insert_string, &allocated, true)) {
+    if (insert_string == NULL) {
       return;
+    }
   }
 
   if (!curbuf->terminal) {
@@ -2992,7 +3020,7 @@ void do_put(int regname, yankreg_T *reg, int dir, long count, int flags)
         bd.startspaces = incr - bd.endspaces;
         --bd.textcol;
         delcount = 1;
-        bd.textcol -= (*mb_head_off)(oldp, oldp + bd.textcol);
+        bd.textcol -= utf_head_off(oldp, oldp + bd.textcol);
         if (oldp[bd.textcol] != TAB) {
           /* Only a Tab can be split into spaces.  Other
            * characters will have to be moved to after the
@@ -4109,10 +4137,9 @@ format_lines (
         if (next_leader_len > 0) {
           (void)del_bytes(next_leader_len, false, false);
           mark_col_adjust(curwin->w_cursor.lnum, (colnr_T)0, 0L,
-              (long)-next_leader_len);
-        } else if (second_indent > 0) {  /* the "leader" for FO_Q_SECOND */
-          char_u *p = get_cursor_line_ptr();
-          int indent = (int)(skipwhite(p) - p);
+                          (long)-next_leader_len);
+        } else if (second_indent > 0) {   // the "leader" for FO_Q_SECOND
+          int indent = (int)getwhitecols_curline();
 
           if (indent > 0) {
             (void)del_bytes(indent, FALSE, FALSE);
@@ -4907,10 +4934,11 @@ void *get_reg_contents(int regname, int flags)
     return NULL;
 
   char_u *retval;
-  int allocated;
-  if (get_spec_reg(regname, &retval, &allocated, FALSE)) {
-    if (retval == NULL)
+  bool allocated;
+  if (get_spec_reg(regname, &retval, &allocated, false)) {
+    if (retval == NULL) {
       return NULL;
+    }
     if (allocated) {
       return get_reg_wrap_one_line(retval, flags);
     }

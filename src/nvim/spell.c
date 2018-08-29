@@ -688,8 +688,9 @@ static void find_word(matchinf_T *mip, int mode)
     arridx = endidx[endidxcnt];
     wlen = endlen[endidxcnt];
 
-    if ((*mb_head_off)(ptr, ptr + wlen) > 0)
+    if (utf_head_off(ptr, ptr + wlen) > 0) {
       continue;             // not at first byte of character
+    }
     if (spell_iswordp(ptr + wlen, mip->mi_win)) {
       if (slang->sl_compprog == NULL && !slang->sl_nobreak)
         continue;                   // next char is a word character
@@ -1398,13 +1399,14 @@ spell_move_to (
       capcol = 0;
 
     // For checking first word with a capital skip white space.
-    if (capcol == 0)
-      capcol = (int)(skipwhite(line) - line);
-    else if (curline && wp == curwin) {
+    if (capcol == 0) {
+      capcol = (int)getwhitecols(line);
+    } else if (curline && wp == curwin) {
       // For spellbadword(): check if first word needs a capital.
-      col = (int)(skipwhite(line) - line);
-      if (check_need_cap(lnum, col))
+      col = (int)getwhitecols(line);
+      if (check_need_cap(lnum, col)) {
         capcol = col;
+      }
 
       // Need to get the line again, may have looked at the previous
       // one.
@@ -2976,7 +2978,7 @@ static bool check_need_cap(linenr_T lnum, colnr_T col)
 
   line = get_cursor_line_ptr();
   endcol = 0;
-  if ((int)(skipwhite(line) - line) >= (int)col) {
+  if (getwhitecols(line) >= (int)col) {
     // At start of line, check if previous line is empty or sentence
     // ends there.
     if (lnum == 1)

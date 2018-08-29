@@ -1558,14 +1558,11 @@ void display_dollar(colnr_T col)
 
   save_col = curwin->w_cursor.col;
   curwin->w_cursor.col = col;
-  if (has_mbyte) {
-    char_u *p;
 
-    /* If on the last byte of a multi-byte move to the first byte. */
-    p = get_cursor_line_ptr();
-    curwin->w_cursor.col -= (*mb_head_off)(p, p + col);
-  }
-  curs_columns(FALSE);              /* recompute w_wrow and w_wcol */
+  // If on the last byte of a multi-byte move to the first byte.
+  char_u *p = get_cursor_line_ptr();
+  curwin->w_cursor.col -= utf_head_off(p, p + col);
+  curs_columns(false);              // Recompute w_wrow and w_wcol
   if (curwin->w_wcol < curwin->w_width) {
     edit_putchar('$', FALSE);
     dollar_vcol = curwin->w_virtcol;
@@ -3450,10 +3447,10 @@ static void ins_compl_fixRedoBufForLeader(char_u *ptr_arg)
   }
   if (compl_orig_text != NULL) {
     p = compl_orig_text;
-    for (len = 0; p[len] != NUL && p[len] == ptr[len]; ++len)
-      ;
-    if (len > 0)
-      len -= (*mb_head_off)(p, p + len);
+    for (len = 0; p[len] != NUL && p[len] == ptr[len]; len++) {}
+    if (len > 0) {
+      len -= utf_head_off(p, p + len);
+    }
     for (p += len; *p != NUL; MB_PTR_ADV(p)) {
       AppendCharToRedobuff(K_BS);
     }
@@ -4508,7 +4505,7 @@ static int ins_complete(int c, bool enable_pum)
            * first non_blank in the line, if it is not a wordchar
            * include it to get a better pattern, but then we don't
            * want the "\\<" prefix, check it bellow */
-          compl_col = (colnr_T)(skipwhite(line) - line);
+          compl_col = (colnr_T)getwhitecols(line);
           compl_startpos.col = compl_col;
           compl_startpos.lnum = curwin->w_cursor.lnum;
           compl_cont_status &= ~CONT_SOL;             /* clear SOL if present */
@@ -4589,24 +4586,17 @@ static int ins_complete(int c, bool enable_pum)
         compl_col += curs_col;
         compl_length = 0;
       } else {
-        /* Search the point of change class of multibyte character
-         * or not a word single byte character backward.  */
-        if (has_mbyte) {
-          int base_class;
-          int head_off;
-
-          startcol -= (*mb_head_off)(line, line + startcol);
-          base_class = mb_get_class(line + startcol);
-          while (--startcol >= 0) {
-            head_off = (*mb_head_off)(line, line + startcol);
-            if (base_class != mb_get_class(line + startcol
-                    - head_off))
-              break;
-            startcol -= head_off;
+        // Search the point of change class of multibyte character
+        // or not a word single byte character backward.
+        startcol -= utf_head_off(line, line + startcol);
+        int base_class = mb_get_class(line + startcol);
+        while (--startcol >= 0) {
+          int head_off = utf_head_off(line, line + startcol);
+          if (base_class != mb_get_class(line + startcol - head_off)) {
+            break;
           }
-        } else
-          while (--startcol >= 0 && vim_iswordc(line[startcol]))
-            ;
+          startcol -= head_off;
+        }
         compl_col += ++startcol;
         compl_length = (int)curs_col - startcol;
         if (compl_length == 1) {
@@ -4627,7 +4617,7 @@ static int ins_complete(int c, bool enable_pum)
         }
       }
     } else if (CTRL_X_MODE_LINE_OR_EVAL(ctrl_x_mode)) {
-      compl_col = (colnr_T)(skipwhite(line) - line);
+      compl_col = (colnr_T)getwhitecols(line);
       compl_length = (int)curs_col - (int)compl_col;
       if (compl_length < 0)             /* cursor in indent: empty pattern */
         compl_length = 0;
@@ -6921,7 +6911,7 @@ bool in_cinkeys(int keytyped, int when, bool line_is_empty)
         p = look + STRLEN(look);
       if ((try_match || try_match_word)
           && curwin->w_cursor.col >= (colnr_T)(p - look)) {
-        int match = FALSE;
+        bool match = false;
 
         if (keytyped == KEY_COMPLETE) {
           char_u      *s;
@@ -6946,29 +6936,30 @@ bool in_cinkeys(int keytyped, int when, bool line_is_empty)
               && (icase
                   ? mb_strnicmp(s, look, (size_t)(p - look))
                   : STRNCMP(s, look, p - look)) == 0)
-            match = TRUE;
-        } else
-        /* TODO: multi-byte */
-        if (keytyped == (int)p[-1] || (icase && keytyped < 256
-                                       && TOLOWER_LOC(keytyped) ==
-                                       TOLOWER_LOC((int)p[-1]))) {
-          line = get_cursor_pos_ptr();
-          assert(p >= look && (uintmax_t)(p - look) <= SIZE_MAX);
-          if ((curwin->w_cursor.col == (colnr_T)(p - look)
-               || !vim_iswordc(line[-(p - look) - 1]))
-              && (icase
-                  ? mb_strnicmp(line - (p - look), look, (size_t)(p - look))
-                  : STRNCMP(line - (p - look), look, p - look))
-              == 0)
-            match = TRUE;
+            match = true;
+        } else {
+          // TODO(@brammool): multi-byte
+          if (keytyped == (int)p[-1]
+              || (icase && keytyped < 256
+                  && TOLOWER_LOC(keytyped) == TOLOWER_LOC((int)p[-1]))) {
+            line = get_cursor_pos_ptr();
+            assert(p >= look && (uintmax_t)(p - look) <= SIZE_MAX);
+            if ((curwin->w_cursor.col == (colnr_T)(p - look)
+                 || !vim_iswordc(line[-(p - look) - 1]))
+                && (icase
+                    ? mb_strnicmp(line - (p - look), look, (size_t)(p - look))
+                    : STRNCMP(line - (p - look), look, p - look)) == 0) {
+              match = true;
+            }
+          }
         }
         if (match && try_match_word && !try_match) {
           /* "0=word": Check if there are only blanks before the
            * word. */
-          line = get_cursor_line_ptr();
-          if ((int)(skipwhite(line) - line) !=
-              (int)(curwin->w_cursor.col - (p - look)))
-            match = FALSE;
+          if (getwhitecols(line) !=
+              (int)(curwin->w_cursor.col - (p - look))) {
+            match = false;
+          }
         }
         if (match) {
           return true;

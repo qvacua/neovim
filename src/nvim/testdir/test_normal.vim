@@ -392,10 +392,31 @@ func! Test_normal10_expand()
   call setline(1, ['1', 'ifooar,,cbar'])
   2
   norm! $
-  let a=expand('<cword>')
-  let b=expand('<cWORD>')
-  call assert_equal('cbar', a)
-  call assert_equal('ifooar,,cbar', b)
+  call assert_equal('cbar', expand('<cword>'))
+  call assert_equal('ifooar,,cbar', expand('<cWORD>'))
+
+  call setline(1, ['prx = list[idx];'])
+  1
+  let expected = ['', 'prx', 'prx', 'prx',
+	\ 'list', 'list', 'list', 'list', 'list', 'list', 'list',
+	\ 'idx', 'idx', 'idx', 'idx',
+	\ 'list[idx]',
+	\ '];',
+	\ ]
+  for i in range(1, 16)
+    exe 'norm ' . i . '|'
+    call assert_equal(expected[i], expand('<cexpr>'), 'i == ' . i)
+  endfor
+
+  if executable('echo')
+    " Test expand(`...`) i.e. backticks command expansion.
+    " MS-Windows has a trailing space.
+    call assert_match('^abcde *$', expand('`echo abcde`'))
+  endif
+
+  " Test expand(`=...`) i.e. backticks expression expansion
+  call assert_equal('5', expand('`=2+3`'))
+
   " clean up
   bw!
 endfunc
@@ -1536,12 +1557,12 @@ fun! Test_normal29_brace()
   \ 'the ''{'' flag is in ''cpoptions'' then ''{'' in the first column is used as a',
   \ 'paragraph boundary |posix|.',
   \ '{',
-  \ 'This is no paragaraph',
+  \ 'This is no paragraph',
   \ 'unless the ''{'' is set',
   \ 'in ''cpoptions''',
   \ '}',
   \ '.IP',
-  \ 'The nroff macros IP seperates a paragraph',
+  \ 'The nroff macros IP separates a paragraph',
   \ 'That means, it must be a ''.''',
   \ 'followed by IP',
   \ '.LPIt does not matter, if afterwards some',
@@ -1556,7 +1577,7 @@ fun! Test_normal29_brace()
   1
   norm! 0d2}
   call assert_equal(['.IP',
-    \  'The nroff macros IP seperates a paragraph', 'That means, it must be a ''.''', 'followed by IP',
+    \  'The nroff macros IP separates a paragraph', 'That means, it must be a ''.''', 'followed by IP',
     \ '.LPIt does not matter, if afterwards some', 'more characters follow.', '.SHAlso section boundaries from the nroff',
     \  'macros terminate a paragraph. That means', 'a character like this:', '.NH', 'End of text here', ''], getline(1,'$'))
   norm! 0d}
@@ -1576,21 +1597,21 @@ fun! Test_normal29_brace()
   " set cpo+={
   " 1
   " norm! 0d2}
-  " call assert_equal(['{', 'This is no paragaraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}',
-  "   \ '.IP', 'The nroff macros IP seperates a paragraph', 'That means, it must be a ''.''',
+  " call assert_equal(['{', 'This is no paragraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}',
+  "   \ '.IP', 'The nroff macros IP separates a paragraph', 'That means, it must be a ''.''',
   "   \ 'followed by IP', '.LPIt does not matter, if afterwards some', 'more characters follow.',
   "   \ '.SHAlso section boundaries from the nroff', 'macros terminate a paragraph. That means',
   "   \ 'a character like this:', '.NH', 'End of text here', ''], getline(1,'$'))
   " $
   " norm! d}
-  " call assert_equal(['{', 'This is no paragaraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}',
-  "   \ '.IP', 'The nroff macros IP seperates a paragraph', 'That means, it must be a ''.''',
+  " call assert_equal(['{', 'This is no paragraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}',
+  "   \ '.IP', 'The nroff macros IP separates a paragraph', 'That means, it must be a ''.''',
   "   \ 'followed by IP', '.LPIt does not matter, if afterwards some', 'more characters follow.',
   "   \ '.SHAlso section boundaries from the nroff', 'macros terminate a paragraph. That means',
   "   \ 'a character like this:', '.NH', 'End of text here', ''], getline(1,'$'))
   " norm! gg}
   " norm! d5}
-  " call assert_equal(['{', 'This is no paragaraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}', ''], getline(1,'$'))
+  " call assert_equal(['{', 'This is no paragraph', 'unless the ''{'' is set', 'in ''cpoptions''', '}', ''], getline(1,'$'))
 
   " clean up
   set cpo-={
@@ -1809,11 +1830,6 @@ fun! Test_normal33_g_cmd2()
   call assert_equal(15, col('.'))
   call assert_equal('l', getreg(0))
 
-  " Test for g Ctrl-G
-  set ff=unix
-  let a=execute(":norm! g\<c-g>")
-  call assert_match('Col 15 of 43; Line 2 of 2; Word 2 of 2; Byte 16 of 45', a)
-
   " Test for gI
   norm! gIfoo
   call assert_equal(['', 'fooabcdefghijk   lmno0123456789AMNOPQRSTUVWXYZ'], getline(1,'$'))
@@ -1830,6 +1846,81 @@ fun! Test_normal33_g_cmd2()
 
   " clean up
   bw!
+endfunc
+
+func! Test_g_ctrl_g()
+  new
+
+  let a = execute(":norm! g\<c-g>")
+  call assert_equal("\n--No lines in buffer--", a)
+
+  call setline(1, ['first line', 'second line'])
+
+  " Test g CTRL-g with dos, mac and unix file type.
+  norm! gojll
+  set ff=dos
+  let a = execute(":norm! g\<c-g>")
+  call assert_equal("\nCol 3 of 11; Line 2 of 2; Word 3 of 4; Byte 15 of 25", a)
+
+  set ff=mac
+  let a = execute(":norm! g\<c-g>")
+  call assert_equal("\nCol 3 of 11; Line 2 of 2; Word 3 of 4; Byte 14 of 23", a)
+
+  set ff=unix
+  let a = execute(":norm! g\<c-g>")
+  call assert_equal("\nCol 3 of 11; Line 2 of 2; Word 3 of 4; Byte 14 of 23", a)
+
+  " Test g CTRL-g in visual mode (v)
+  let a = execute(":norm! gojllvlg\<c-g>")
+  call assert_equal("\nSelected 1 of 2 Lines; 1 of 4 Words; 2 of 23 Bytes", a)
+
+  " Test g CTRL-g in visual mode (CTRL-V) with end col > start col
+  let a = execute(":norm! \<Esc>gojll\<C-V>kllg\<c-g>")
+  call assert_equal("\nSelected 3 Cols; 2 of 2 Lines; 2 of 4 Words; 6 of 23 Bytes", a)
+
+  " Test g_CTRL-g in visual mode (CTRL-V) with end col < start col
+  let a = execute(":norm! \<Esc>goll\<C-V>jhhg\<c-g>")
+  call assert_equal("\nSelected 3 Cols; 2 of 2 Lines; 2 of 4 Words; 6 of 23 Bytes", a)
+
+  " Test g CTRL-g in visual mode (CTRL-V) with end_vcol being MAXCOL
+  let a = execute(":norm! \<Esc>gojll\<C-V>k$g\<c-g>")
+  call assert_equal("\nSelected 2 of 2 Lines; 4 of 4 Words; 17 of 23 Bytes", a)
+
+  " There should be one byte less with noeol
+  set bin noeol
+  let a = execute(":norm! \<Esc>gog\<c-g>")
+  call assert_equal("\nCol 1 of 10; Line 1 of 2; Word 1 of 4; Char 1 of 23; Byte 1 of 22", a)
+  set bin & eol&
+
+  if has('multi_byte')
+    call setline(1, ['Français', '日本語'])
+
+    let a = execute(":norm! \<Esc>gojlg\<c-g>")
+    call assert_equal("\nCol 4-3 of 9-6; Line 2 of 2; Word 2 of 2; Char 11 of 13; Byte 16 of 20", a)
+
+    let a = execute(":norm! \<Esc>gojvlg\<c-g>")
+    call assert_equal("\nSelected 1 of 2 Lines; 1 of 2 Words; 2 of 13 Chars; 6 of 20 Bytes", a)
+
+    let a = execute(":norm! \<Esc>goll\<c-v>jlg\<c-g>")
+    call assert_equal("\nSelected 4 Cols; 2 of 2 Lines; 2 of 2 Words; 6 of 13 Chars; 11 of 20 Bytes", a)
+
+    set fenc=utf8 bomb
+    let a = execute(":norm! \<Esc>gojlg\<c-g>")
+    call assert_equal("\nCol 4-3 of 9-6; Line 2 of 2; Word 2 of 2; Char 11 of 13; Byte 16 of 20(+3 for BOM)", a)
+
+    set fenc=utf16 bomb
+    let a = execute(":norm! g\<c-g>")
+    call assert_equal("\nCol 4-3 of 9-6; Line 2 of 2; Word 2 of 2; Char 11 of 13; Byte 16 of 20(+2 for BOM)", a)
+
+    set fenc=utf32 bomb
+    let a = execute(":norm! g\<c-g>")
+    call assert_equal("\nCol 4-3 of 9-6; Line 2 of 2; Word 2 of 2; Char 11 of 13; Byte 16 of 20(+4 for BOM)", a)
+
+    set fenc& bomb&
+  endif
+
+  set ff&
+  bwipe!
 endfunc
 
 fun! Test_normal34_g_cmd3()
@@ -2180,10 +2271,11 @@ func! Test_normal44_textobjects2()
 endfunc
 
 func! Test_normal45_drop()
-  if !has("dnd")
+  if !has('dnd')
     return
   endif
-  " basic test for :drop command
+
+  " basic test for drag-n-drop
   " unfortunately, without a gui, we can't really test much here,
   " so simply test that ~p fails (which uses the drop register)
   new

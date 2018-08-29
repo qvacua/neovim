@@ -541,7 +541,7 @@ int emsg(const char_u *s_)
 
     // Reset msg_silent, an error causes messages to be switched back on.
     msg_silent = 0;
-    cmd_silent = FALSE;
+    cmd_silent = false;
 
     if (global_busy) {        // break :global command
       global_busy++;
@@ -610,7 +610,7 @@ static bool emsgfv(const char *fmt, va_list ap)
 /// detected when fuzzing vim.
 void iemsg(const char *s)
 {
-    msg((char_u *)s);
+    emsg((char_u *)s);
 #ifdef ABORT_ON_INTERNAL_ERROR
     abort();
 #endif

@@ -548,7 +548,7 @@ open_line (
 
           /* blank-out any other chars from the old leader. */
           while (--p >= leader) {
-            int l = mb_head_off(leader, p);
+            int l = utf_head_off(leader, p);
 
             if (l > 1) {
               p -= l;
@@ -884,8 +884,7 @@ open_line (
       && curbuf->b_p_lisp
       && curbuf->b_p_ai) {
     fixthisline(get_lisp_indent);
-    p = get_cursor_line_ptr();
-    ai_col = (colnr_T)(skipwhite(p) - p);
+    ai_col = (colnr_T)getwhitecols_curline();
   }
   /*
    * May do indenting after opening a new line.
@@ -898,8 +897,7 @@ open_line (
           ? KEY_OPEN_FORW
           : KEY_OPEN_BACK, ' ', linewhite(curwin->w_cursor.lnum))) {
     do_c_expr_indent();
-    p = get_cursor_line_ptr();
-    ai_col = (colnr_T)(skipwhite(p) - p);
+    ai_col = (colnr_T)getwhitecols_curline();
   }
   if (vreplace_mode != 0)
     State = vreplace_mode;
@@ -1607,11 +1605,19 @@ int del_bytes(colnr_T count, bool fixpos_arg, bool use_delcombine)
   char_u *oldp = ml_get(lnum);
   colnr_T oldlen = (colnr_T)STRLEN(oldp);
 
-  /*
-   * Can't do anything when the cursor is on the NUL after the line.
-   */
-  if (col >= oldlen)
+  // Can't do anything when the cursor is on the NUL after the line.
+  if (col >= oldlen) {
     return FAIL;
+  }
+  // If "count" is zero there is nothing to do.
+  if (count == 0) {
+    return OK;
+  }
+  // If "count" is negative the caller must be doing something wrong.
+  if (count < 1) {
+    IEMSGN("E950: Invalid count for del_bytes(): %ld", count);
+    return FAIL;
+  }
 
   /* If 'delcombine' is set and deleting (less than) one character, only
    * delete the last combining character. */
@@ -1646,9 +1652,7 @@ int del_bytes(colnr_T count, bool fixpos_arg, bool use_delcombine)
         ) {
       --curwin->w_cursor.col;
       curwin->w_cursor.coladd = 0;
-      if (has_mbyte)
-        curwin->w_cursor.col -=
-          (*mb_head_off)(oldp, oldp + curwin->w_cursor.col);
+      curwin->w_cursor.col -= utf_head_off(oldp, oldp + curwin->w_cursor.col);
     }
     count = oldlen - col;
     movelen = 1;

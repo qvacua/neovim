@@ -1210,8 +1210,12 @@ int call_vim_function(
     if (str_arg_only) {
       len = 0;
     } else {
-      // Recognize a number argument, the others must be strings.
+      // Recognize a number argument, the others must be strings. A dash
+      // is a string too.
       vim_str2nr(argv[i], NULL, &len, STR2NR_ALL, &n, NULL, 0);
+      if (len == 1 && *argv[i] == '-') {
+        len = 0;
+      }
     }
     if (len != 0 && len == (int)STRLEN(argv[i])) {
       argvars[i].v_type = VAR_NUMBER;
@@ -10262,8 +10266,10 @@ static dict_T *get_win_info(win_T *wp, int16_t tpnr, int16_t winnr)
   tv_dict_add_nr(dict, S_LEN("winnr"), winnr);
   tv_dict_add_nr(dict, S_LEN("winid"), wp->handle);
   tv_dict_add_nr(dict, S_LEN("height"), wp->w_height);
+  tv_dict_add_nr(dict, S_LEN("winrow"), wp->w_winrow);
   tv_dict_add_nr(dict, S_LEN("width"), wp->w_width);
   tv_dict_add_nr(dict, S_LEN("bufnr"), wp->w_buffer->b_fnum);
+  tv_dict_add_nr(dict, S_LEN("wincol"), wp->w_wincol);
 
   tv_dict_add_nr(dict, S_LEN("quickfix"), bt_quickfix(wp->w_buffer));
   tv_dict_add_nr(dict, S_LEN("loclist"),
@@ -10308,6 +10314,15 @@ static void f_getwininfo(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       }
     }
   }
+}
+
+// "win_screenpos()" function
+static void f_win_screenpos(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  tv_list_alloc_ret(rettv, 2);
+  const win_T *const wp = find_win_by_nr(&argvars[0], NULL);
+  tv_list_append_number(rettv->vval.v_list, wp == NULL ? 0 : wp->w_winrow + 1);
+  tv_list_append_number(rettv->vval.v_list, wp == NULL ? 0 : wp->w_wincol + 1);
 }
 
 /*
@@ -10594,6 +10609,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 #ifdef HAVE_ACL
     "acl",
 #endif
+    "autochdir",
     "arabic",
     "autocmd",
     "browsefilter",
@@ -11222,7 +11238,7 @@ void get_user_input(const typval_T *const argvars,
     }
   }
 
-  int cmd_silent_save = cmd_silent;
+  const bool cmd_silent_save = cmd_silent;
 
   cmd_silent = false;  // Want to see the prompt.
   // Only the part of the message after the last NL is considered as

@@ -3955,7 +3955,7 @@ long ml_find_line_or_offset(buf_T *buf, linenr_T lnum, long *offp)
     /* Don't count the last line break if 'noeol' and ('bin' or
      * 'nofixeol'). */
     if ((!buf->b_p_fixeol || buf->b_p_bin) && !buf->b_p_eol
-        && buf->b_ml.ml_line_count == lnum) {
+        && lnum > buf->b_ml.ml_line_count) {
       size -= ffdos + 1;
     }
   }
@@ -4035,24 +4035,18 @@ int incl(pos_T *lp)
 
 int dec(pos_T *lp)
 {
-  char_u      *p;
-
   lp->coladd = 0;
   if (lp->col > 0) {            // still within line
     lp->col--;
-    if (has_mbyte) {
-      p = ml_get(lp->lnum);
-      lp->col -= (*mb_head_off)(p, p + lp->col);
-    }
+    char_u *p = ml_get(lp->lnum);
+    lp->col -= utf_head_off(p, p + lp->col);
     return 0;
   }
   if (lp->lnum > 1) {           // there is a prior line
     lp->lnum--;
-    p = ml_get(lp->lnum);
+    char_u *p = ml_get(lp->lnum);
     lp->col = (colnr_T)STRLEN(p);
-    if (has_mbyte) {
-      lp->col -= (*mb_head_off)(p, p + lp->col);
-    }
+    lp->col -= utf_head_off(p, p + lp->col);
     return 1;
   }
   return -1;                    // at start of file

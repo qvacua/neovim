@@ -149,7 +149,7 @@ void redraw_later(int type)
 
 void redraw_win_later(win_T *wp, int type)
 {
-  if (wp->w_redr_type < type) {
+  if (!exiting && wp->w_redr_type < type) {
     wp->w_redr_type = type;
     if (type >= NOT_VALID)
       wp->w_lines_valid = 0;
@@ -1448,7 +1448,11 @@ static void win_update(win_T *wp)
 
       wp->w_lines[idx].wl_lnum = lnum;
       wp->w_lines[idx].wl_valid = true;
-      if (row > wp->w_height) {         // past end of screen
+
+      // Past end of the window or end of the screen. Note that after
+      // resizing wp->w_height may be end up too big. That's a problem
+      // elsewhere, but prevent a crash here.
+      if (row > wp->w_height || row + wp->w_winrow >= Rows) {
         // we may need the size of that too long line later on
         if (dollar_vcol == -1) {
           wp->w_lines[idx].wl_size = plines_win(wp, lnum, true);
@@ -2460,9 +2464,10 @@ win_line (
   ptr = line;
 
   if (has_spell) {
-    /* For checking first word with a capital skip white space. */
-    if (cap_col == 0)
-      cap_col = (int)(skipwhite(line) - line);
+    // For checking first word with a capital skip white space.
+    if (cap_col == 0) {
+      cap_col = (int)getwhitecols(line);
+    }
 
     /* To be able to spell-check over line boundaries copy the end of the
      * current line into nextline[].  Above the start of the next line was
@@ -3430,7 +3435,7 @@ win_line (
         // Found last space before word: check for line break.
         if (wp->w_p_lbr && c0 == c && vim_isbreak(c)
             && !vim_isbreak((int)(*ptr))) {
-          int mb_off = has_mbyte ? (*mb_head_off)(line, ptr - 1) : 0;
+          int mb_off = utf_head_off(line, ptr - 1);
           char_u *p = ptr - (mb_off + 1);
           // TODO: is passing p for start of the line OK?
           n_extra = win_lbr_chartabsize(wp, line, p, (colnr_T)vcol, NULL) - 1;

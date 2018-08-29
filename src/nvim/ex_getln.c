@@ -722,9 +722,7 @@ static int command_line_execute(VimState *state, int key)
       s->j = ccline.cmdpos;
       s->i = (int)(s->xpc.xp_pattern - ccline.cmdbuff);
       while (--s->j > s->i) {
-        if (has_mbyte) {
-          s->j -= (*mb_head_off)(ccline.cmdbuff, ccline.cmdbuff + s->j);
-        }
+        s->j -= utf_head_off(ccline.cmdbuff, ccline.cmdbuff + s->j);
         if (vim_ispathsep(ccline.cmdbuff[s->j])) {
           found = true;
           break;
@@ -744,9 +742,7 @@ static int command_line_execute(VimState *state, int key)
       s->j = ccline.cmdpos - 1;
       s->i = (int)(s->xpc.xp_pattern - ccline.cmdbuff);
       while (--s->j > s->i) {
-        if (has_mbyte) {
-          s->j -= (*mb_head_off)(ccline.cmdbuff, ccline.cmdbuff + s->j);
-        }
+        s->j -= utf_head_off(ccline.cmdbuff, ccline.cmdbuff + s->j);
         if (vim_ispathsep(ccline.cmdbuff[s->j])
 #ifdef BACKSLASH_IN_FILENAME
             && vim_strchr((const char_u *)" *?[{`$%#", ccline.cmdbuff[s->j + 1])
@@ -1432,20 +1428,17 @@ static int command_line_handle_key(CommandLineState *s)
       return command_line_not_changed(s);
     }
     do {
-      --ccline.cmdpos;
-      if (has_mbyte) {                 // move to first byte of char
-        ccline.cmdpos -= (*mb_head_off)(ccline.cmdbuff,
-                                        ccline.cmdbuff + ccline.cmdpos);
-      }
+      ccline.cmdpos--;
+      // Move to first byte of possibly multibyte char.
+      ccline.cmdpos -= utf_head_off(ccline.cmdbuff,
+                                    ccline.cmdbuff + ccline.cmdpos);
       ccline.cmdspos -= cmdline_charsize(ccline.cmdpos);
     } while (ccline.cmdpos > 0
              && (s->c == K_S_LEFT || s->c == K_C_LEFT
                  || (mod_mask & (MOD_MASK_SHIFT|MOD_MASK_CTRL)))
              && ccline.cmdbuff[ccline.cmdpos - 1] != ' ');
 
-    if (has_mbyte) {
-      set_cmdspos_cursor();
-    }
+    set_cmdspos_cursor();
 
     return command_line_not_changed(s);
 
@@ -2271,14 +2264,10 @@ getexmodeline (
 
       if (c1 == BS || c1 == K_BS || c1 == DEL || c1 == K_DEL || c1 == K_KDEL) {
         if (!GA_EMPTY(&line_ga)) {
-          if (has_mbyte) {
-            p = (char_u *)line_ga.ga_data;
-            p[line_ga.ga_len] = NUL;
-            len = (*mb_head_off)(p, p + line_ga.ga_len - 1) + 1;
-            line_ga.ga_len -= len;
-          } else {
-            line_ga.ga_len--;
-          }
+          p = (char_u *)line_ga.ga_data;
+          p[line_ga.ga_len] = NUL;
+          len = utf_head_off(p, p + line_ga.ga_len - 1) + 1;
+          line_ga.ga_len -= len;
           goto redraw;
         }
         continue;
@@ -2990,7 +2979,7 @@ void ui_ext_cmdline_block_append(int indent, const char *line)
   memcpy(buf + indent, line, strlen(line));  // -V575
 
   Array item = ARRAY_DICT_INIT;
-  ADD(item, DICTIONARY_OBJ((Dictionary)ARRAY_DICT_INIT));
+  ADD(item, INTEGER_OBJ(0));
   ADD(item, STRING_OBJ(cstr_as_string(buf)));
   Array content = ARRAY_DICT_INIT;
   ADD(content, ARRAY_OBJ(item));
@@ -3159,18 +3148,15 @@ void put_on_cmdline(char_u *str, int len, int redraw)
     i = 0;
     c = utf_ptr2char(ccline.cmdbuff + ccline.cmdpos);
     while (ccline.cmdpos > 0 && utf_iscomposing(c)) {
-      i = (*mb_head_off)(ccline.cmdbuff,
-                         ccline.cmdbuff + ccline.cmdpos - 1) + 1;
+      i = utf_head_off(ccline.cmdbuff, ccline.cmdbuff + ccline.cmdpos - 1) + 1;
       ccline.cmdpos -= i;
       len += i;
       c = utf_ptr2char(ccline.cmdbuff + ccline.cmdpos);
     }
     if (i == 0 && ccline.cmdpos > 0 && arabic_maycombine(c)) {
-      /* Check the previous character for Arabic combining pair. */
-      i = (*mb_head_off)(ccline.cmdbuff,
-                         ccline.cmdbuff + ccline.cmdpos - 1) + 1;
-      if (arabic_combine(utf_ptr2char(ccline.cmdbuff
-                  + ccline.cmdpos - i), c)) {
+      // Check the previous character for Arabic combining pair.
+      i = utf_head_off(ccline.cmdbuff, ccline.cmdbuff + ccline.cmdpos - 1) + 1;
+      if (arabic_combine(utf_ptr2char(ccline.cmdbuff + ccline.cmdpos - i), c)) {
         ccline.cmdpos -= i;
         len += i;
       } else
@@ -3290,17 +3276,18 @@ void restore_cmdline_alloc(char_u *p)
 /// @returns FAIL for failure, OK otherwise
 static bool cmdline_paste(int regname, bool literally, bool remcr)
 {
-  long i;
   char_u              *arg;
   char_u              *p;
-  int allocated;
+  bool allocated;
   struct cmdline_info save_ccline;
 
   /* check for valid regname; also accept special characters for CTRL-R in
    * the command line */
   if (regname != Ctrl_F && regname != Ctrl_P && regname != Ctrl_W
-      && regname != Ctrl_A && !valid_yank_reg(regname, false))
+      && regname != Ctrl_A && regname != Ctrl_L
+      && !valid_yank_reg(regname, false)) {
     return FAIL;
+  }
 
   /* A register containing CTRL-R can cause an endless loop.  Allow using
    * CTRL-C to break the loop. */
@@ -3312,9 +3299,9 @@ static bool cmdline_paste(int regname, bool literally, bool remcr)
   /* Need to save and restore ccline.  And set "textlock" to avoid nasty
    * things like going to another buffer when evaluating an expression. */
   save_cmdline(&save_ccline);
-  ++textlock;
-  i = get_spec_reg(regname, &arg, &allocated, TRUE);
-  --textlock;
+  textlock++;
+  const bool i = get_spec_reg(regname, &arg, &allocated, true);
+  textlock--;
   restore_cmdline(&save_ccline);
 
   if (i) {
@@ -4760,6 +4747,7 @@ ExpandFromContext (
     } tab[] = {
       { EXPAND_COMMANDS, get_command_name, false, true },
       { EXPAND_BEHAVE, get_behave_arg, true, true },
+      { EXPAND_MAPCLEAR, get_mapclear_arg, true, true },
       { EXPAND_MESSAGES, get_messages_arg, true, true },
       { EXPAND_HISTORY, get_history_arg, true, true },
       { EXPAND_USER_COMMANDS, get_user_commands, false, true },
@@ -4787,6 +4775,7 @@ ExpandFromContext (
 #endif
       { EXPAND_ENV_VARS, get_env_name, true, true },
       { EXPAND_USER, get_users, true, false },
+      { EXPAND_ARGLIST, get_arglist_name, true, false },
     };
     int i;
 
