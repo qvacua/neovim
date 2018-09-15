@@ -1398,7 +1398,7 @@ void ins_bytes_len(char_u *p, size_t len)
 void ins_char(int c)
 {
   char_u buf[MB_MAXBYTES + 1];
-  size_t n = (size_t)(*mb_char2bytes)(c, buf);
+  size_t n = (size_t)utf_char2bytes(c, buf);
 
   // When "c" is 0x100, 0x200, etc. we don't want to insert a NUL byte.
   // Happens for CTRL-Vu9900.
@@ -2707,8 +2707,10 @@ void fast_breakcheck(void)
   }
 }
 
-// os_call_shell wrapper. Handles 'verbose', :profile, and v:shell_error.
-// Invalidates cached tags.
+/// os_call_shell() wrapper. Handles 'verbose', :profile, and v:shell_error.
+/// Invalidates cached tags.
+///
+/// @return shell command exit code
 int call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 {
   int retval;

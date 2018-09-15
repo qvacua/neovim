@@ -1176,16 +1176,6 @@ static void do_filter(
   cmd_buf = make_filter_cmd(cmd, itmp, otmp);
   ui_cursor_goto((int)Rows - 1, 0);
 
-  /*
-   * When not redirecting the output the command can write anything to the
-   * screen. If 'shellredir' is equal to ">", screen may be messed up by
-   * stderr output of external command. Clear the screen later.
-   * If do_in is FALSE, this could be something like ":r !cat", which may
-   * also mess up the screen, clear it later.
-   */
-  if (!do_out || STRCMP(p_srr, ">") == 0 || !do_in)
-    redraw_later_clear();
-
   if (do_out) {
     if (u_save((linenr_T)(line2), (linenr_T)(line2 + 1)) == FAIL) {
       xfree(cmd_buf);
@@ -1195,19 +1185,8 @@ static void do_filter(
   }
   read_linecount = curbuf->b_ml.ml_line_count;
 
-  // When call_shell() fails wait_return() is called to give the user a chance
-  // to read the error messages. Otherwise errors are ignored, so you can see
-  // the error messages from the command that appear on stdout; use 'u' to fix
-  // the text.
   // Pass on the kShellOptDoOut flag when the output is being redirected.
-  if (call_shell(
-        cmd_buf,
-        kShellOptFilter | shell_flags,
-        NULL
-        )) {
-    redraw_later_clear();
-    wait_return(FALSE);
-  }
+  call_shell(cmd_buf, kShellOptFilter | shell_flags, NULL);
   xfree(cmd_buf);
 
   did_check_timestamps = FALSE;
@@ -1308,23 +1287,17 @@ filterend:
   xfree(otmp);
 }
 
-/*
- * Call a shell to execute a command.
- * When "cmd" is NULL start an interactive shell.
- */
+// Call a shell to execute a command.
+// When "cmd" is NULL start an interactive shell.
 void
 do_shell(
     char_u *cmd,
     int flags             // may be SHELL_DOOUT when output is redirected
 )
 {
-  int save_nwr;
-
-  /*
-   * Disallow shell commands in restricted mode (-Z)
-   * Disallow shell commands from .exrc and .vimrc in current directory for
-   * security reasons.
-   */
+  // Disallow shell commands in restricted mode (-Z)
+  // Disallow shell commands from .exrc and .vimrc in current directory for
+  // security reasons.
   if (check_restricted() || check_secure()) {
     msg_end();
     return;
@@ -1362,33 +1335,7 @@ do_shell(
   msg_row = Rows - 1;
   msg_col = 0;
 
-  if (autocmd_busy) {
-    if (msg_silent == 0)
-      redraw_later_clear();
-  } else {
-    /*
-     * For ":sh" there is no need to call wait_return(), just redraw.
-     * Also for the Win32 GUI (the output is in a console window).
-     * Otherwise there is probably text on the screen that the user wants
-     * to read before redrawing, so call wait_return().
-     */
-    if (cmd == NULL
-        ) {
-      if (msg_silent == 0)
-        redraw_later_clear();
-      need_wait_return = FALSE;
-    } else {
-      /*
-       * If we switch screens when starttermcap() is called, we really
-       * want to wait for "hit return to continue".
-       */
-      save_nwr = no_wait_return;
-      wait_return(msg_silent == 0);
-      no_wait_return = save_nwr;
-    }
-  }
-
-  /* display any error messages now */
+  // display any error messages now
   display_errors();
 
   apply_autocmds(EVENT_SHELLCMDPOST, NULL, NULL, FALSE, curbuf);
@@ -2546,11 +2493,17 @@ int do_ecmd(
     }
     check_arg_idx(curwin);
 
-    // If autocommands change the cursor position or topline, we should keep
-    // it.  Also when it moves within a line.
+    // If autocommands change the cursor position or topline, we should
+    // keep it.  Also when it moves within a line. But not when it moves
+    // to the first non-blank.
     if (!equalpos(curwin->w_cursor, orig_pos)) {
-      newlnum = curwin->w_cursor.lnum;
-      newcol = curwin->w_cursor.col;
+      const char_u *text = get_cursor_line_ptr();
+
+      if (curwin->w_cursor.lnum != orig_pos.lnum
+          || curwin->w_cursor.col != (int)(skipwhite(text) - text)) {
+        newlnum = curwin->w_cursor.lnum;
+        newcol = curwin->w_cursor.col;
+      }
     }
     if (curwin->w_topline == topline)
       topline = 0;
@@ -4442,7 +4395,7 @@ void ex_help(exarg_T *eap)
   buf_T       *buf;
   int len;
   char_u      *lang;
-  int old_KeyTyped = KeyTyped;
+  const bool old_KeyTyped = KeyTyped;
 
   if (eap != NULL) {
     /*
@@ -4514,7 +4467,7 @@ void ex_help(exarg_T *eap)
    * Re-use an existing help window or open a new one.
    * Always open a new one for ":tab help".
    */
-  if (!curwin->w_buffer->b_help
+  if (!bt_help(curwin->w_buffer)
       || cmdmod.tab != 0
       ) {
     if (cmdmod.tab != 0) {
@@ -4522,7 +4475,7 @@ void ex_help(exarg_T *eap)
     } else {
       wp = NULL;
       FOR_ALL_WINDOWS_IN_TAB(wp2, curtab) {
-        if (wp2->w_buffer != NULL && wp2->w_buffer->b_help) {
+        if (bt_help(wp2->w_buffer)) {
           wp = wp2;
           break;
         }
@@ -4675,49 +4628,66 @@ static int help_compare(const void *s1, const void *s2)
   return strcmp(p1, p2);
 }
 
-/*
- * Find all help tags matching "arg", sort them and return in matches[], with
- * the number of matches in num_matches.
- * The matches will be sorted with a "best" match algorithm.
- * When "keep_lang" is TRUE try keeping the language of the current buffer.
- */
-int find_help_tags(char_u *arg, int *num_matches, char_u ***matches, int keep_lang)
+// Find all help tags matching "arg", sort them and return in matches[], with
+// the number of matches in num_matches.
+// The matches will be sorted with a "best" match algorithm.
+// When "keep_lang" is true try keeping the language of the current buffer.
+int find_help_tags(const char_u *arg, int *num_matches, char_u ***matches,
+                   bool keep_lang)
 {
-  char_u      *s, *d;
   int i;
-  static char *(mtable[]) = {"*", "g*", "[*", "]*",
-                             "/*", "/\\*", "\"*", "**",
-                             "/\\(\\)", "/\\%(\\)",
-                             "?", ":?", "?<CR>", "g?", "g?g?", "g??",
-                             "/\\?", "/\\z(\\)", "\\=", ":s\\=",
-                             "[count]", "[quotex]",
-                             "[range]", ":[range]",
-                             "[pattern]", "\\|", "\\%$",
-                             "s/\\~", "s/\\U", "s/\\L",
-                             "s/\\1", "s/\\2", "s/\\3", "s/\\9"};
-  static char *(rtable[]) = {"star", "gstar", "[star", "]star",
-                             "/star", "/\\\\star", "quotestar", "starstar",
-                             "/\\\\(\\\\)", "/\\\\%(\\\\)",
-                             "?", ":?", "?<CR>", "g?", "g?g?", "g??",
-                             "/\\\\?", "/\\\\z(\\\\)", "\\\\=", ":s\\\\=",
-                             "\\[count]", "\\[quotex]",
-                             "\\[range]", ":\\[range]",
-                             "\\[pattern]", "\\\\bar", "/\\\\%\\$",
-                             "s/\\\\\\~", "s/\\\\U", "s/\\\\L",
-                             "s/\\\\1", "s/\\\\2", "s/\\\\3", "s/\\\\9"};
-  int flags;
+  static const char *(mtable[]) = {
+      "*", "g*", "[*", "]*",
+      "/*", "/\\*", "\"*", "**",
+      "/\\(\\)", "/\\%(\\)",
+      "?", ":?", "?<CR>", "g?", "g?g?", "g??",
+      "-?", "q?", "v_g?",
+      "/\\?", "/\\z(\\)", "\\=", ":s\\=",
+      "[count]", "[quotex]",
+      "[range]", ":[range]",
+      "[pattern]", "\\|", "\\%$",
+      "s/\\~", "s/\\U", "s/\\L",
+      "s/\\1", "s/\\2", "s/\\3", "s/\\9"
+  };
+  static const char *(rtable[]) = {
+      "star", "gstar", "[star", "]star",
+      "/star", "/\\\\star", "quotestar", "starstar",
+      "/\\\\(\\\\)", "/\\\\%(\\\\)",
+      "?", ":?", "?<CR>", "g?", "g?g?", "g??",
+      "-?", "q?", "v_g?",
+      "/\\\\?", "/\\\\z(\\\\)", "\\\\=", ":s\\\\=",
+      "\\[count]", "\\[quotex]",
+      "\\[range]", ":\\[range]",
+      "\\[pattern]", "\\\\bar", "/\\\\%\\$",
+      "s/\\\\\\~", "s/\\\\U", "s/\\\\L",
+      "s/\\\\1", "s/\\\\2", "s/\\\\3", "s/\\\\9"
+  };
+  static const char *(expr_table[]) = {
+      "!=?", "!~?", "<=?", "<?", "==?", "=~?",
+      ">=?", ">?", "is?", "isnot?"
+  };
+  char_u *d = IObuff;       // assume IObuff is long enough!
 
-  d = IObuff;               /* assume IObuff is long enough! */
-
-  /*
-   * Recognize a few exceptions to the rule.	Some strings that contain '*'
-   * with "star".  Otherwise '*' is recognized as a wildcard.
-   */
-  for (i = (int)ARRAY_SIZE(mtable); --i >= 0; )
-    if (STRCMP(arg, mtable[i]) == 0) {
-      STRCPY(d, rtable[i]);
-      break;
+  if (STRNICMP(arg, "expr-", 5) == 0) {
+    // When the string starting with "expr-" and containing '?' and matches
+    // the table, it is taken literally.  Otherwise '?' is recognized as a
+    // wildcard.
+    for (i = (int)ARRAY_SIZE(expr_table); --i >= 0; ) {
+      if (STRCMP(arg + 5, expr_table[i]) == 0) {
+        STRCPY(d, arg);
+        break;
+      }
     }
+  } else {
+    // Recognize a few exceptions to the rule.  Some strings that contain
+    // '*' with "star".  Otherwise '*' is recognized as a wildcard.
+    for (i = (int)ARRAY_SIZE(mtable); --i >= 0; ) {
+      if (STRCMP(arg, mtable[i]) == 0) {
+        STRCPY(d, rtable[i]);
+        break;
+      }
+    }
+  }
 
   if (i < 0) {  /* no match in table */
     /* Replace "\S" with "/\\S", etc.  Otherwise every tag is matched.
@@ -4749,7 +4719,7 @@ int find_help_tags(char_u *arg, int *num_matches, char_u ***matches, int keep_la
       if (*arg == '(' && arg[1] == '\'') {
           arg++;
       }
-      for (s = arg; *s; s++) {
+      for (const char_u *s = arg; *s; s++) {
         // Replace "|" with "bar" and '"' with "quote" to match the name of
         // the tags for these commands.
         // Replace "*" with ".*" and "?" with "." to match command line
@@ -4858,9 +4828,10 @@ int find_help_tags(char_u *arg, int *num_matches, char_u ***matches, int keep_la
 
   *matches = (char_u **)"";
   *num_matches = 0;
-  flags = TAG_HELP | TAG_REGEXP | TAG_NAMES | TAG_VERBOSE;
-  if (keep_lang)
+  int flags = TAG_HELP | TAG_REGEXP | TAG_NAMES | TAG_VERBOSE;
+  if (keep_lang) {
     flags |= TAG_KEEP_LANG;
+  }
   if (find_tags(IObuff, num_matches, matches, flags, (int)MAXCOL, NULL) == OK
       && *num_matches > 0) {
     /* Sort the matches found on the heuristic number that is after the
@@ -5017,11 +4988,9 @@ void fix_help_buffer(void)
                 const char_u *const f1 = fnames[i1];
                 const char_u *const f2 = fnames[i2];
                 const char_u *const t1 = path_tail(f1);
-                if (fnamencmp(f1, f2, t1 - f1) != 0) {
-                  continue;
-                }
+                const char_u *const t2 = path_tail(f2);
                 const char_u *const e1 = STRRCHR(t1, '.');
-                const char_u *const e2 = STRRCHR(path_tail(f2), '.');
+                const char_u *const e2 = STRRCHR(t2, '.');
                 if (e1 == NULL || e2 == NULL) {
                   continue;
                 }
@@ -5032,8 +5001,10 @@ void fix_help_buffer(void)
                   fnames[i1] = NULL;
                   continue;
                 }
-                if (fnamencmp(f1, f2, e1 - f1) != 0)
+                if (e1 - f1 != e2 - f2
+                    || fnamencmp(f1, f2, e1 - f1) != 0) {
                   continue;
+                }
                 if (fnamecmp(e1, ".txt") == 0
                     && fnamecmp(e2, fname + 4) == 0) {
                   /* use .abx instead of .txt */
@@ -5491,8 +5462,8 @@ static int      next_sign_typenr = 1;
 void ex_helpclose(exarg_T *eap)
 {
   FOR_ALL_WINDOWS_IN_TAB(win, curtab) {
-    if (win->w_buffer->b_help) {
-      win_close(win, FALSE);
+    if (bt_help(win->w_buffer)) {
+      win_close(win, false);
       return;
     }
   }

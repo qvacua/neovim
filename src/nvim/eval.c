@@ -496,7 +496,7 @@ typedef enum {
 #define FNE_CHECK_START 2       /* find_name_end(): check name starts with
                                    valid character */
 
-static uint64_t last_timer_id = 0;
+static uint64_t last_timer_id = 1;
 static PMap(uint64_t) *timers = NULL;
 
 /// Dummy va_list for passing to vim_snprintf
@@ -1912,6 +1912,7 @@ static char_u *ex_let_one(char_u *arg, typval_T *const tv,
         if ((opt_type == 1 && *op == '.')
             || (opt_type == 0 && *op != '.')) {
           EMSG2(_(e_letwrong), op);
+          s = NULL;  // don't set the value
         } else {
           if (opt_type == 1) {  // number
             if (*op == '+') {
@@ -2076,7 +2077,11 @@ static char_u *get_lval(char_u *const name, typval_T *const rettv,
     return p;
   }
 
-  v = find_var(lp->ll_name, lp->ll_name_len, &ht, flags & GLV_NO_AUTOLOAD);
+  // Only pass &ht when we would write to the variable, it prevents autoload
+  // as well.
+  v = find_var(lp->ll_name, lp->ll_name_len,
+               (flags & GLV_READ_ONLY) ? NULL : &ht,
+               flags & GLV_NO_AUTOLOAD);
   if (v == NULL && !quiet) {
     emsgf(_("E121: Undefined variable: %.*s"),
           (int)lp->ll_name_len, lp->ll_name);
@@ -4718,10 +4723,11 @@ static int get_string_tv(char_u **arg, typval_T *rettv, int evaluate)
           ++p;
           /* For "\u" store the number according to
            * 'encoding'. */
-          if (c != 'X')
-            name += (*mb_char2bytes)(nr, name);
-          else
+          if (c != 'X') {
+            name += utf_char2bytes(nr, name);
+          } else {
             *name++ = nr;
+          }
         }
         break;
 
@@ -8872,9 +8878,14 @@ static void f_foldtextresult(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   char_u buf[FOLD_TEXT_LEN];
   foldinfo_T foldinfo;
   int fold_count;
+  static bool entered = false;
 
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;
+  if (entered) {
+    return;  // reject recursive use
+  }
+  entered = true;
   linenr_T lnum = tv_get_lnum(argvars);
   // Treat illegal types and illegal string values for {lnum} the same.
   if (lnum < 0) {
@@ -8888,6 +8899,8 @@ static void f_foldtextresult(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     }
     rettv->vval.v_string = text;
   }
+
+  entered = false;
 }
 
 /*
@@ -9477,10 +9490,9 @@ static void f_getchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       temp[i++] = K_SPECIAL;
       temp[i++] = K_SECOND(n);
       temp[i++] = K_THIRD(n);
-    } else if (has_mbyte)
-      i += (*mb_char2bytes)(n, temp + i);
-    else
-      temp[i++] = n;
+    } else {
+      i += utf_char2bytes(n, temp + i);
+    }
     temp[i++] = NUL;
     rettv->v_type = VAR_STRING;
     rettv->vval.v_string = vim_strsave(temp);
@@ -9943,7 +9955,7 @@ static void get_qf_loc_list(int is_qf, win_T *wp, typval_T *what_arg,
   if (what_arg->v_type == VAR_UNKNOWN) {
     tv_list_alloc_ret(rettv, kListLenMayKnow);
     if (is_qf || wp != NULL) {
-      (void)get_errorlist(wp, -1, rettv->vval.v_list);
+      (void)get_errorlist(NULL, wp, -1, rettv->vval.v_list);
     }
   } else {
     tv_dict_alloc_ret(rettv);
@@ -10010,7 +10022,7 @@ static void f_getmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     if (cur->conceal_char) {
       char buf[MB_MAXBYTES + 1];
 
-      buf[(*mb_char2bytes)((int)cur->conceal_char, (char_u *)buf)] = NUL;
+      buf[utf_char2bytes((int)cur->conceal_char, (char_u *)buf)] = NUL;
       tv_dict_add_str(dict, S_LEN("conceal"), buf);
     }
 
@@ -12141,8 +12153,12 @@ static void get_maparg(typval_T *argvars, typval_T *rettv, int exact)
   if (!get_dict) {
     // Return a string.
     if (rhs != NULL) {
-      rettv->vval.v_string = (char_u *)str2special_save(
-          (const char *)rhs, false, false);
+      if (*rhs == NUL) {
+        rettv->vval.v_string = vim_strsave((char_u *)"<Nop>");
+      } else {
+        rettv->vval.v_string = (char_u *)str2special_save(
+            (char *)rhs, false, false);
+      }
     }
 
   } else {
@@ -18318,9 +18334,9 @@ varnumber_T get_vim_var_nr(int idx) FUNC_ATTR_PURE
   return vimvars[idx].vv_nr;
 }
 
-/*
- * Get string v: variable value.  Uses a static buffer, can only be used once.
- */
+// Get string v: variable value.  Uses a static buffer, can only be used once.
+// If the String variable has never been set, return an empty string.
+// Never returns NULL;
 char_u *get_vim_var_str(int idx) FUNC_ATTR_PURE FUNC_ATTR_NONNULL_RET
 {
   return (char_u *)tv_get_string(&vimvars[idx].vv_tv);
@@ -18349,12 +18365,7 @@ void set_vim_var_char(int c)
 {
   char buf[MB_MAXBYTES + 1];
 
-  if (has_mbyte) {
-    buf[(*mb_char2bytes)(c, (char_u *) buf)] = NUL;
-  } else {
-    buf[0] = c;
-    buf[1] = NUL;
-  }
+  buf[utf_char2bytes(c, (char_u *)buf)] = NUL;
   set_vim_var_string(VV_CHAR, buf, -1);
 }
 
@@ -19812,7 +19823,7 @@ void ex_function(exarg_T *eap)
   // s:func      script-local function name
   // g:func      global function name, same as "func"
   p = eap->arg;
-  name = trans_function_name(&p, eap->skip, 0, &fudi, NULL);
+  name = trans_function_name(&p, eap->skip, TFN_NO_AUTOLOAD, &fudi, NULL);
   paren = (vim_strchr(p, '(') != NULL);
   if (name == NULL && (fudi.fd_dict == NULL || !paren) && !eap->skip) {
     /*
@@ -20356,7 +20367,7 @@ trans_function_name(
   }
 
   // Note that TFN_ flags use the same values as GLV_ flags.
-  end = get_lval((char_u *)start, NULL, &lv, false, skip, flags,
+  end = get_lval((char_u *)start, NULL, &lv, false, skip, flags | GLV_READ_ONLY,
                  lead > 2 ? 0 : FNE_CHECK_START);
   if (end == start) {
     if (!skip)

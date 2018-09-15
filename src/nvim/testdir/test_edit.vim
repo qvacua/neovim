@@ -314,6 +314,33 @@ func! Test_edit_11()
   bw!
 endfunc
 
+func! Test_edit_11_indentexpr()
+  " Test that indenting kicks in
+  new
+  " Use indentexpr instead of cindenting
+  func! Do_Indent()
+    let pline=prevnonblank(v:lnum)
+    if empty(getline(v:lnum))
+      if getline(pline) =~ 'if\|then'
+        return shiftwidth()
+      else
+        return 0
+      endif
+    else
+        return 0
+    endif
+  endfunc
+  setl indentexpr=Do_Indent() indentkeys+=0=then,0=fi
+  call setline(1, ['if [ $this ]'])
+  call cursor(1, 1)
+  call feedkeys("othen\<cr>that\<cr>fi", 'tnix')
+  call assert_equal(['if [ $this ]', "then", "\<tab>that", "fi"], getline(1, '$'))
+  set cinkeys&vim indentkeys&vim
+  set nocindent indentexpr=
+  delfu Do_Indent
+  bw!
+endfunc
+
 func! Test_edit_12()
   " Test changing indent in replace mode
   new
@@ -1311,6 +1338,14 @@ func! Test_edit_rightleft()
   bw!
 endfunc
 
+func Test_edit_backtick()
+  next a\`b c
+  call assert_equal('a`b', expand('%'))
+  next
+  call assert_equal('c', expand('%'))
+  call assert_equal('a\`b c', expand('##'))
+endfunc
+
 func Test_edit_quit()
   edit foo.txt
   split
@@ -1362,4 +1397,19 @@ func Test_edit_complete_very_long_name()
     exe 'winpos ' . winposx . ' ' . winposy
   endif
   set swapfile&
+endfunc
+
+func Test_edit_alt()
+  " Keeping the cursor line didn't happen when the first line has indent.
+  new
+  call setline(1, ['  one', 'two', 'three'])
+  w XAltFile
+  $
+  call assert_equal(3, line('.'))
+  e Xother
+  e #
+  call assert_equal(3, line('.'))
+
+  bwipe XAltFile
+  call delete('XAltFile')
 endfunc

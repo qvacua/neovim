@@ -315,7 +315,7 @@ static void add_char_buff(buffheader_T *buf, int c)
   if (IS_SPECIAL(c)) {
     len = 1;
   } else {
-    len = mb_char2bytes(c, bytes);
+    len = utf_char2bytes(c, bytes);
   }
 
   for (int i = 0; i < len; i++) {
@@ -434,9 +434,8 @@ void flush_buffers(int flush_typeahead)
      * of an escape sequence.
      * In an xterm we get one char at a time and we have to get them all.
      */
-    while (inchar(typebuf.tb_buf, typebuf.tb_buflen - 1, 10L,
-               typebuf.tb_change_cnt) != 0)
-      ;
+    while (inchar(typebuf.tb_buf, typebuf.tb_buflen - 1, 10L) != 0) {
+    }
     typebuf.tb_off = MAXMAPLEN;
     typebuf.tb_len = 0;
     // Reset the flag that text received from a client or from feedkeys()
@@ -979,7 +978,7 @@ void ins_char_typebuf(int c)
     buf[2] = (char_u)K_THIRD(c);
     buf[3] = NUL;
   } else {
-    buf[(*mb_char2bytes)(c, buf)] = NUL;
+    buf[utf_char2bytes(c, buf)] = NUL;
   }
   (void)ins_typebuf(buf, KeyNoremap, 0, !KeyTyped, cmd_silent);
 }
@@ -1671,7 +1670,7 @@ static int vgetorpeek(int advance)
     }
     if (c != NUL && !got_int) {
       if (advance) {
-        // KeyTyped = FALSE;  When the command that stuffed something
+        // KeyTyped = false;  When the command that stuffed something
         // was typed, behave like the stuffed command was typed.
         // needed for CTRL-W CTRL-] to open a fold, for example.
         KeyStuffed = true;
@@ -1697,22 +1696,20 @@ static int vgetorpeek(int advance)
           os_breakcheck();                      /* check for CTRL-C */
         keylen = 0;
         if (got_int) {
-          /* flush all input */
-          c = inchar(typebuf.tb_buf, typebuf.tb_buflen - 1, 0L,
-              typebuf.tb_change_cnt);
-          /*
-           * If inchar() returns TRUE (script file was active) or we
-           * are inside a mapping, get out of insert mode.
-           * Otherwise we behave like having gotten a CTRL-C.
-           * As a result typing CTRL-C in insert mode will
-           * really insert a CTRL-C.
-           */
+          // flush all input
+          c = inchar(typebuf.tb_buf, typebuf.tb_buflen - 1, 0L);
+          // If inchar() returns TRUE (script file was active) or we
+          // are inside a mapping, get out of insert mode.
+          // Otherwise we behave like having gotten a CTRL-C.
+          // As a result typing CTRL-C in insert mode will
+          // really insert a CTRL-C.
           if ((c || typebuf.tb_maplen)
-              && (State & (INSERT + CMDLINE)))
+              && (State & (INSERT + CMDLINE))) {
             c = ESC;
-          else
+          } else {
             c = Ctrl_C;
-          flush_buffers(TRUE);                  /* flush all typeahead */
+          }
+          flush_buffers(true);                  // flush all typeahead
 
           if (advance) {
             /* Also record this character, it might be needed to
@@ -2075,18 +2072,17 @@ static int vgetorpeek(int advance)
         c = 0;
         new_wcol = curwin->w_wcol;
         new_wrow = curwin->w_wrow;
-        if (       advance
-                   && typebuf.tb_len == 1
-                   && typebuf.tb_buf[typebuf.tb_off] == ESC
-                   && !no_mapping
-                   && ex_normal_busy == 0
-                   && typebuf.tb_maplen == 0
-                   && (State & INSERT)
-                   && (p_timeout
-                       || (keylen == KEYLEN_PART_KEY && p_ttimeout))
-                   && (c = inchar(typebuf.tb_buf + typebuf.tb_off
-                           + typebuf.tb_len, 3, 25L,
-                           typebuf.tb_change_cnt)) == 0) {
+        if (advance
+            && typebuf.tb_len == 1
+            && typebuf.tb_buf[typebuf.tb_off] == ESC
+            && !no_mapping
+            && ex_normal_busy == 0
+            && typebuf.tb_maplen == 0
+            && (State & INSERT)
+            && (p_timeout
+                || (keylen == KEYLEN_PART_KEY && p_ttimeout))
+            && (c = inchar(typebuf.tb_buf + typebuf.tb_off + typebuf.tb_len,
+                           3, 25L)) == 0) {
           colnr_T col = 0, vcol;
           char_u      *ptr;
 
@@ -2258,6 +2254,11 @@ static int vgetorpeek(int advance)
         /*
          * get a character: 3. from the user - get it
          */
+        if (typebuf.tb_len == 0) {
+          // timedout may have been set while waiting for a mapping
+          // that has a <Nop> RHS.
+          timedout = false;
+        }
         wait_tb_len = typebuf.tb_len;
         c = inchar(typebuf.tb_buf + typebuf.tb_off + typebuf.tb_len,
             typebuf.tb_buflen - typebuf.tb_off - typebuf.tb_len - 1,
@@ -2269,7 +2270,7 @@ static int vgetorpeek(int advance)
                ? -1L
                : ((keylen == KEYLEN_PART_KEY && p_ttm >= 0)
                   ? p_ttm
-                  : p_tm)), typebuf.tb_change_cnt);
+                  : p_tm)));
 
         if (i != 0)
           pop_showcmd();
@@ -2350,16 +2351,15 @@ static int vgetorpeek(int advance)
  *  Return the number of obtained characters.
  *  Return -1 when end of input script reached.
  */
-int 
-inchar (
+int inchar(
     char_u *buf,
     int maxlen,
-    long wait_time,                     /* milli seconds */
-    int tb_change_cnt
+    long wait_time                      // milli seconds
 )
 {
   int len = 0;  // Init for GCC.
   int retesc = false;  // Return ESC with gotint.
+  const int tb_change_cnt = typebuf.tb_change_cnt;
 
   if (wait_time == -1L || wait_time > 100L) {
     // flush output before waiting
@@ -2430,8 +2430,17 @@ inchar (
     len = os_inchar(buf, maxlen / 3, (int)wait_time, tb_change_cnt);
   }
 
+  // If the typebuf was changed further down, it is like nothing was added by
+  // this call.
   if (typebuf_changed(tb_change_cnt)) {
     return 0;
+  }
+
+  // Note the change in the typeahead buffer, this matters for when
+  // vgetorpeek() is called recursively, e.g. using getchar(1) in a timer
+  // function.
+  if (len > 0 && ++typebuf.tb_change_cnt == 0) {
+    typebuf.tb_change_cnt = 1;
   }
 
   return fix_input_buffer(buf, len);
@@ -3646,16 +3655,14 @@ int check_abbr(int c, char_u *ptr, int col, int mincol)
           tb[j++] = (char_u)K_SECOND(c);
           tb[j++] = (char_u)K_THIRD(c);
         } else {
-          if (c < ABBR_OFF && (c < ' ' || c > '~'))
-            tb[j++] = Ctrl_V;                   /* special char needs CTRL-V */
-          if (has_mbyte) {
-            /* if ABBR_OFF has been added, remove it here */
-            if (c >= ABBR_OFF)
-              c -= ABBR_OFF;
-            j += (*mb_char2bytes)(c, tb + j);
-          } else {
-            tb[j++] = (char_u)c;
+          if (c < ABBR_OFF && (c < ' ' || c > '~')) {
+            tb[j++] = Ctrl_V;                   // special char needs CTRL-V
           }
+          // if ABBR_OFF has been added, remove it here.
+          if (c >= ABBR_OFF) {
+            c -= ABBR_OFF;
+          }
+          j += utf_char2bytes(c, tb + j);
         }
         tb[j] = NUL;
         /* insert the last typed char */
@@ -4308,8 +4315,14 @@ char_u * getcmdkeycmd(int promptc, void *cookie, int indent)
       EMSG(e_cmdmap_repeated);
       aborted = true;
     } else if (IS_SPECIAL(c1)) {
-      EMSG2(e_cmdmap_key, get_special_key_name(c1, cmod));
-      aborted = true;
+      if (c1 == K_SNR) {
+        ga_append(&line_ga, (char)K_SPECIAL);
+        ga_append(&line_ga, (char)KS_EXTRA);
+        ga_append(&line_ga, (char)KE_SNR);
+      } else {
+        EMSG2(e_cmdmap_key, get_special_key_name(c1, cmod));
+        aborted = true;
+      }
     } else {
       ga_append(&line_ga, (char)c1);
     }

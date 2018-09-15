@@ -4771,6 +4771,10 @@ static void nv_ident(cmdarg_T *cap)
   assert(*kp != NUL);  // option.c:do_set() should default to ":help" if empty.
   bool kp_ex = (*kp == ':');  // 'keywordprg' is an ex command
   bool kp_help = (STRCMP(kp, ":he") == 0 || STRCMP(kp, ":help") == 0);
+  if (kp_help && *skipwhite(ptr) == NUL) {
+    EMSG(_(e_noident));   // found white space only
+    return;
+  }
   size_t buf_size = n * 2 + 30 + STRLEN(kp);
   char *buf = xmalloc(buf_size);
   buf[0] = NUL;
@@ -5038,7 +5042,10 @@ static void nv_scroll(cmdarg_T *cap)
       curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
   }
 
-  cursor_correct();     /* correct for 'so' */
+  // Correct for 'so', except when an operator is pending.
+  if (cap->oap->op_type == OP_NOP) {
+    cursor_correct();
+  }
   beginline(BL_SOL | BL_FIX);
 }
 
@@ -6290,7 +6297,7 @@ static void nv_gomark(cmdarg_T *cap)
   pos_T       *pos;
   int c;
   pos_T old_cursor = curwin->w_cursor;
-  int old_KeyTyped = KeyTyped;              /* getting file may reset it */
+  const bool old_KeyTyped = KeyTyped;       // getting file may reset it
 
   if (cap->cmdchar == 'g')
     c = cap->extra_char;
@@ -6327,7 +6334,7 @@ static void nv_pcmark(cmdarg_T *cap)
 {
   pos_T       *pos;
   linenr_T lnum = curwin->w_cursor.lnum;
-  int old_KeyTyped = KeyTyped;              /* getting file may reset it */
+  const bool old_KeyTyped = KeyTyped;       // getting file may reset it
 
   if (!checkclearopq(cap->oap)) {
     if (cap->cmdchar == 'g')
@@ -6496,8 +6503,8 @@ void may_start_select(int c)
  */
 static void n_start_visual_mode(int c)
 {
-  /* Check for redraw before changing the state. */
-  conceal_check_cursur_line();
+  // Check for redraw before changing the state.
+  conceal_check_cursor_line();
 
   VIsual_mode = c;
   VIsual_active = true;
@@ -6514,8 +6521,8 @@ static void n_start_visual_mode(int c)
   foldAdjustVisual();
 
   setmouse();
-  /* Check for redraw after changing the state. */
-  conceal_check_cursur_line();
+  // Check for redraw after changing the state.
+  conceal_check_cursor_line();
 
   if (p_smd && msg_silent == 0)
     redraw_cmdline = true;      /* show visual mode later */

@@ -400,7 +400,7 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
    */
   if (!(flags & DOCMD_KEYTYPED)
       && !getline_equal(fgetline, cookie, getexline))
-    KeyTyped = FALSE;
+    KeyTyped = false;
 
   /*
    * Continue executing command lines:
@@ -973,8 +973,8 @@ static char_u *get_loop_line(int c, void *cookie, int indent)
     return line;
   }
 
-  KeyTyped = FALSE;
-  ++cp->current_line;
+  KeyTyped = false;
+  cp->current_line++;
   wp = (wcmd_T *)(cp->lines_gap->ga_data) + cp->current_line;
   sourcing_lnum = wp->lnum;
   return vim_strsave(wp->line);
@@ -5188,9 +5188,10 @@ static void ex_command(exarg_T *eap)
   while (*p == '-') {
     ++p;
     end = skiptowhite(p);
-    if (uc_scan_attr(p, end - p, &argt, &def, &flags, &compl, &compl_arg, &addr_type_arg)
-        == FAIL)
+    if (uc_scan_attr(p, end - p, &argt, &def, &flags, &compl, &compl_arg,
+                     &addr_type_arg) == FAIL) {
       return;
+    }
     p = skipwhite(end);
   }
 
@@ -5221,9 +5222,10 @@ static void ex_command(exarg_T *eap)
              || (name_len <= 4 && STRNCMP(name, "Next", name_len) == 0)) {
     EMSG(_("E841: Reserved name, cannot be used for user defined command"));
     return;
-  } else
+  } else {
     uc_add_command(name, end - name, p, argt, def, flags, compl, compl_arg,
                    addr_type_arg, eap->forceit);
+  }
 }
 
 /*
@@ -5397,8 +5399,18 @@ uc_check_code(
   char_u      *p = code + 1;
   size_t l = len - 2;
   int quote = 0;
-  enum { ct_ARGS, ct_BANG, ct_COUNT, ct_LINE1, ct_LINE2, ct_MODS,
-  ct_REGISTER, ct_LT, ct_NONE } type = ct_NONE;
+  enum {
+    ct_ARGS,
+    ct_BANG,
+    ct_COUNT,
+    ct_LINE1,
+    ct_LINE2,
+    ct_RANGE,
+    ct_MODS,
+    ct_REGISTER,
+    ct_LT,
+    ct_NONE
+  } type = ct_NONE;
 
   if ((vim_strchr((char_u *)"qQfF", *p) != NULL) && p[1] == '-') {
     quote = (*p == 'q' || *p == 'Q') ? 1 : 2;
@@ -5419,6 +5431,8 @@ uc_check_code(
     type = ct_LINE1;
   } else if (STRNICMP(p, "line2>", l) == 0) {
     type = ct_LINE2;
+  } else if (STRNICMP(p, "range>", l) == 0) {
+    type = ct_RANGE;
   } else if (STRNICMP(p, "lt>", l) == 0) {
     type = ct_LT;
   } else if (STRNICMP(p, "reg>", l) == 0 || STRNICMP(p, "register>", l) == 0) {
@@ -5506,11 +5520,13 @@ uc_check_code(
 
   case ct_LINE1:
   case ct_LINE2:
+  case ct_RANGE:
   case ct_COUNT:
   {
     char num_buf[20];
     long num = (type == ct_LINE1) ? eap->line1 :
                (type == ct_LINE2) ? eap->line2 :
+               (type == ct_RANGE) ? eap->addr_count :
                (eap->addr_count > 0) ? eap->line2 : cmd->uc_def;
     size_t num_len;
 
@@ -5964,9 +5980,35 @@ void not_exiting(void)
   exiting = FALSE;
 }
 
-/*
- * ":quit": quit current window, quit Vim if the last window is closed.
- */
+static bool before_quit_autocmds(win_T *wp, bool quit_all, int forceit)
+{
+  apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer);
+
+  // Bail out when autocommands closed the window.
+  // Refuse to quit when the buffer in the last window is being closed (can
+  // only happen in autocommands).
+  if (!win_valid(wp)
+      || curbuf_locked()
+      || (wp->w_buffer->b_nwindows == 1 && wp->w_buffer->b_locked > 0)) {
+    return true;
+  }
+
+  if (quit_all
+      || (check_more(false, forceit) == OK && only_one_window())) {
+    apply_autocmds(EVENT_EXITPRE, NULL, NULL, false, curbuf);
+    // Refuse to quit when locked or when the buffer in the last window is
+    // being closed (can only happen in autocommands).
+    if (curbuf_locked()
+        || (curbuf->b_nwindows == 1 && curbuf->b_locked > 0)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ":quit": quit current window, quit Vim if the last window is closed.
+// ":{nr}quit": quit window {nr}
 static void ex_quit(exarg_T *eap)
 {
   if (cmdwin_type != 0) {
@@ -5996,11 +6038,9 @@ static void ex_quit(exarg_T *eap)
   if (curbuf_locked()) {
     return;
   }
-  apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer);
-  // Refuse to quit when locked or when the buffer in the last window is
-  // being closed (can only happen in autocommands).
-  if (!win_valid(wp)
-      || (wp->w_buffer->b_nwindows == 1 && wp->w_buffer->b_locked > 0)) {
+
+  // Trigger QuitPre and maybe ExitPre
+  if (before_quit_autocmds(wp, false, eap->forceit)) {
     return;
   }
 
@@ -6025,6 +6065,7 @@ static void ex_quit(exarg_T *eap)
     if (only_one_window() && (ONE_WINDOW || eap->addr_count == 0)) {
       getout(0);
     }
+    not_exiting();
     // close window; may free buffer
     win_close(wp, !buf_hide(wp->w_buffer) || eap->forceit);
   }
@@ -6057,10 +6098,8 @@ static void ex_quit_all(exarg_T *eap)
     text_locked_msg();
     return;
   }
-  apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, curbuf);
-  // Refuse to quit when locked or when the buffer in the last window is
-  // being closed (can only happen in autocommands).
-  if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_locked > 0)) {
+
+  if (before_quit_autocmds(curwin, true, eap->forceit)) {
     return;
   }
 
@@ -6319,9 +6358,7 @@ static void ex_hide(exarg_T *eap)
     }
 }
 
-/*
- * ":stop" and ":suspend": Suspend Vim.
- */
+/// ":stop" and ":suspend": Suspend Vim.
 static void ex_stop(exarg_T *eap)
 {
 #ifdef CUSTOM_UI
@@ -6344,15 +6381,12 @@ static void ex_stop(exarg_T *eap)
     ui_flush();
     maketitle();
     resettitle();  // force updating the title
-    redraw_later_clear();
     ui_refresh();  // may have resized window
     apply_autocmds(EVENT_VIMRESUME, NULL, NULL, false, NULL);
   }
 }
 
-/*
- * ":exit", ":xit" and ":wq": Write file and exit Vim.
- */
+// ":exit", ":xit" and ":wq": Write file and quite the current window.
 static void ex_exit(exarg_T *eap)
 {
   if (cmdwin_type != 0) {
@@ -6364,10 +6398,8 @@ static void ex_exit(exarg_T *eap)
     text_locked_msg();
     return;
   }
-  apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, curbuf);
-  // Refuse to quit when locked or when the buffer in the last window is
-  // being closed (can only happen in autocommands).
-  if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_locked > 0)) {
+
+  if (before_quit_autocmds(curwin, false, eap->forceit)) {
     return;
   }
 
@@ -6386,6 +6418,7 @@ static void ex_exit(exarg_T *eap)
       // quit last window, exit Vim
       getout(0);
     }
+    not_exiting();
     // Quit current window, may free the buffer.
     win_close(curwin, !buf_hide(curwin->w_buffer));
   }
@@ -8721,7 +8754,7 @@ static char_u *arg_all(void)
 #ifndef BACKSLASH_IN_FILENAME
             || *p == '\\'
 #endif
-            ) {
+            || *p == '`') {
           // insert a backslash
           if (retval != NULL) {
             retval[len] = '\\';
@@ -9245,6 +9278,18 @@ static int ses_do_win(win_T *wp)
   return true;
 }
 
+static int put_view_curpos(FILE *fd, const win_T *wp, char *spaces)
+{
+  int r;
+
+  if (wp->w_curswant == MAXCOL) {
+    r = fprintf(fd, "%snormal! $", spaces);
+  } else {
+    r = fprintf(fd, "%snormal! 0%d|", spaces, wp->w_virtcol + 1);
+  }
+  return r < 0 || put_eol(fd) == FAIL ? FAIL : OK;
+}
+
 /*
  * Write commands to "fd" to restore the view of a window.
  * Caller must make sure 'scrolloff' is zero.
@@ -9411,14 +9456,11 @@ put_view(
                 (int64_t)(wp->w_virtcol + 1)) < 0
             || put_eol(fd) == FAIL
             || put_line(fd, "else") == FAIL
-            || fprintf(fd, "  normal! 0%d|", wp->w_virtcol + 1) < 0
-            || put_eol(fd) == FAIL
+            || put_view_curpos(fd, wp, "  ") == FAIL
             || put_line(fd, "endif") == FAIL)
           return FAIL;
-      } else {
-        if (fprintf(fd, "normal! 0%d|", wp->w_virtcol + 1) < 0
-            || put_eol(fd) == FAIL)
-          return FAIL;
+      } else if (put_view_curpos(fd, wp, "") == FAIL) {
+        return FAIL;
       }
     }
   }
