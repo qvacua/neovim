@@ -65,6 +65,7 @@
 #include "nvim/msgpack_rpc/helpers.h"
 #include "nvim/msgpack_rpc/server.h"
 #include "nvim/msgpack_rpc/channel.h"
+#include "nvim/api/ui.h"
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/handle.h"
@@ -161,6 +162,7 @@ bool event_teardown(void)
   }
 
   multiqueue_process_events(main_loop.events);
+  loop_poll_events(&main_loop, 0);  // Drain thread_events, fast_events.
   input_stop();
   channel_teardown();
   process_teardown(&main_loop);
@@ -303,6 +305,7 @@ int main(int argc, char **argv)
   // Read ex-commands if invoked with "-es".
   //
   bool reading_tty = !headless_mode
+                     && !embedded_mode
                      && !silent_mode
                      && (params.input_isatty || params.output_isatty
                          || params.err_isatty);
@@ -341,6 +344,22 @@ int main(int argc, char **argv)
   // Allows for setting 'loadplugins' there.
   if (params.use_vimrc != NULL && strequal(params.use_vimrc, "NONE")) {
     p_lpl = false;
+  }
+
+  // give embedders a chance to set up nvim, by processing a request before
+  // startup. This allows an external UI to show messages and prompts from
+  // --cmd and buffer loading (e.g. swap files)
+  bool early_ui = false;
+  if (embedded_mode && !headless_mode) {
+    TIME_MSG("waiting for embedder to make request");
+    remote_ui_wait_for_attach();
+    TIME_MSG("done waiting for embedder");
+
+    // prepare screen now, so external UIs can display messages
+    starting = NO_BUFFERS;
+    screenclear();
+    early_ui = true;
+    TIME_MSG("initialized screen early for embedder");
   }
 
   // Execute --cmd arguments.
@@ -448,7 +467,7 @@ int main(int argc, char **argv)
     wait_return(true);
   }
 
-  if (!headless_mode && !silent_mode) {
+  if (!headless_mode && !embedded_mode && !silent_mode) {
     input_stop();  // Stop reading input, let the UI take over.
     ui_builtin_start();
   }
@@ -460,8 +479,10 @@ int main(int argc, char **argv)
 
   setmouse();  // may start using the mouse
 
-  if (exmode_active) {
-    must_redraw = CLEAR;  // Don't clear the screen when starting in Ex mode.
+  if (exmode_active || early_ui) {
+    // Don't clear the screen when starting in Ex mode, or when an
+    // embedding UI might have displayed messages
+    must_redraw = CLEAR;
   } else {
     screenclear();  // clear screen
     TIME_MSG("clearing screen");
@@ -832,7 +853,6 @@ static void command_line_scan(mparm_T *parmp)
             headless_mode = true;
           } else if (STRICMP(argv[0] + argv_idx, "embed") == 0) {
             embedded_mode = true;
-            headless_mode = true;
             const char *err;
             if (!channel_from_stdio(true, CALLBACK_READER_INIT, &err)) {
               abort();
@@ -914,7 +934,8 @@ static void command_line_scan(mparm_T *parmp)
         }
         case 'M': {  // "-M"  no changes or writing of files
           reset_modifiable();
-        } // FALLTHROUGH
+          FALLTHROUGH;
+        }
         case 'm': {  // "-m"  no writing of files
           p_write = false;
           break;
@@ -1029,7 +1050,8 @@ static void command_line_scan(mparm_T *parmp)
             argv_idx = -1;
             break;
           }
-        } // FALLTHROUGH
+          FALLTHROUGH;
+        }
         case 'S':    // "-S {file}" execute Vim script
         case 'i':    // "-i {shada}" use for ShaDa file
         case 'u':    // "-u {vimrc}" vim inits file
@@ -1173,7 +1195,8 @@ scripterror:
               argv_idx = -1;
               break;
             }
-          } // FALLTHROUGH
+            FALLTHROUGH;
+          }
           case 'W': {  // "-W {scriptout}" overwrite script file
             if (scriptout != NULL) {
               goto scripterror;

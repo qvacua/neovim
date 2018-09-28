@@ -350,6 +350,7 @@ static void handle_request(Channel *channel, msgpack_object *request)
     }
   } else {
     multiqueue_put(channel->events, on_request_event, 1, evdata);
+    DLOG("RPC: scheduled %.*s", method->via.bin.size, method->via.bin.ptr);
   }
 }
 
@@ -743,4 +744,3 @@ static void log_msg_close(FILE *f, msgpack_object msg)
   log_unlock();
 }
 #endif
-

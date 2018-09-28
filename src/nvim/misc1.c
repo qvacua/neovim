@@ -1752,6 +1752,10 @@ del_lines (
 
 int gchar_pos(pos_T *pos)
 {
+  // When searching columns is sometimes put at the end of a line.
+  if (pos->col == MAXCOL) {
+    return NUL;
+  }
   return utf_ptr2char(ml_get_pos(pos));
 }
 
@@ -2394,10 +2398,6 @@ int get_keystroke(void)
     }
     buf[len >= buflen ? buflen - 1 : len] = NUL;
     n = utf_ptr2char(buf);
-#ifdef UNIX
-    if (n == intr_char)
-      n = ESC;
-#endif
     break;
   }
   xfree(buf);
@@ -2718,7 +2718,7 @@ int call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 
   if (p_verbose > 3) {
     verbose_enter();
-    smsg(_("Calling shell to execute: \"%s\""), cmd == NULL ? p_sh : cmd);
+    smsg(_("Executing command: \"%s\""), cmd == NULL ? p_sh : cmd);
     msg_putchar('\n');
     verbose_leave();
   }

@@ -884,7 +884,15 @@ void handle_swap_exists(bufref_T *old_curbuf)
       buf = old_curbuf->br_buf;
     }
     if (buf != NULL) {
+      int old_msg_silent = msg_silent;
+
+      if (shortmess(SHM_FILEINFO)) {
+        msg_silent = 1;  // prevent fileinfo message
+      }
       enter_buffer(buf);
+      // restore msg_silent, so that the command line will be shown
+      msg_silent = old_msg_silent;
+
       if (old_tw != curbuf->b_p_tw) {
         check_colorcolumn(curwin);
       }
@@ -3723,7 +3731,7 @@ int build_stl_str_hl(
 
     case STL_OFFSET_X:
       base = kNumBaseHexadecimal;
-      // fallthrough
+      FALLTHROUGH;
     case STL_OFFSET:
     {
       long l = ml_find_line_or_offset(wp->w_buffer, wp->w_cursor.lnum, NULL);
@@ -3734,7 +3742,7 @@ int build_stl_str_hl(
     }
     case STL_BYTEVAL_X:
       base = kNumBaseHexadecimal;
-      // fallthrough
+      FALLTHROUGH;
     case STL_BYTEVAL:
       num = byteval;
       if (num == NL)
@@ -5375,6 +5383,45 @@ void bufhl_add_hl_pos_offset(buf_T *buf,
   }
 }
 
+int bufhl_add_virt_text(buf_T *buf,
+                        int src_id,
+                        linenr_T lnum,
+                        VirtText virt_text)
+{
+  static int next_src_id = 1;
+  if (src_id == 0) {
+    src_id = next_src_id++;
+  }
+
+  BufhlLine *lineinfo = bufhl_tree_ref(&buf->b_bufhl_info, lnum, true);
+
+  bufhl_clear_virttext(&lineinfo->virt_text);
+  if (kv_size(virt_text) > 0) {
+    lineinfo->virt_text_src = src_id;
+    lineinfo->virt_text = virt_text;
+  } else {
+    lineinfo->virt_text_src = 0;
+    // currently not needed, but allow a future caller with
+    // 0 size and non-zero capacity
+    kv_destroy(virt_text);
+  }
+
+  if (0 < lnum && lnum <= buf->b_ml.ml_line_count) {
+    changed_lines_buf(buf, lnum, lnum+1, 0);
+    redraw_buf_later(buf, VALID);
+  }
+  return src_id;
+}
+
+static void bufhl_clear_virttext(VirtText *text)
+{
+  for (size_t i = 0; i < kv_size(*text); i++) {
+    xfree(kv_A(*text, i).text);
+  }
+  kv_destroy(*text);
+  *text = (VirtText)KV_INITIAL_VALUE;
+}
+
 /// Clear bufhl highlights from a given source group and range of lines.
 ///
 /// @param buf The buffer to remove highlights from
@@ -5430,6 +5477,7 @@ void bufhl_clear_line_range(buf_T *buf,
 static BufhlLineStatus bufhl_clear_line(BufhlLine *lineinfo, int src_id,
                                         linenr_T lnum)
 {
+  BufhlLineStatus changed = kBLSUnchanged;
   size_t oldsize = kv_size(lineinfo->items);
   if (src_id < 0) {
     kv_size(lineinfo->items) = 0;
@@ -5445,13 +5493,24 @@ static BufhlLineStatus bufhl_clear_line(BufhlLine *lineinfo, int src_id,
     }
     kv_size(lineinfo->items) = newidx;
   }
+  if (kv_size(lineinfo->items) != oldsize) {
+    changed = kBLSChanged;
+  }
 
-  if (kv_size(lineinfo->items) == 0) {
+  if (kv_size(lineinfo->virt_text) != 0
+      && (src_id < 0 || src_id == lineinfo->virt_text_src)) {
+    bufhl_clear_virttext(&lineinfo->virt_text);
+    lineinfo->virt_text_src = 0;
+    changed = kBLSChanged;
+  }
+
+  if (kv_size(lineinfo->items) == 0 && kv_size(lineinfo->virt_text) == 0) {
     kv_destroy(lineinfo->items);
     return kBLSDeleted;
   }
-  return kv_size(lineinfo->items) != oldsize ? kBLSChanged : kBLSUnchanged;
+  return changed;
 }
+
 
 /// Remove all highlights and free the highlight data
 void bufhl_clear_all(buf_T *buf)
@@ -5527,8 +5586,8 @@ bool bufhl_start_line(buf_T *buf, linenr_T lnum, BufhlLineInfo *info)
     return false;
   }
   info->valid_to = -1;
-  info->entries = lineinfo->items;
-  return kv_size(info->entries) > 0;
+  info->line = lineinfo;
+  return true;
 }
 
 /// get highlighting at column col
@@ -5548,8 +5607,8 @@ int bufhl_get_attr(BufhlLineInfo *info, colnr_T col)
   }
   int attr = 0;
   info->valid_to = MAXCOL;
-  for (size_t i = 0; i < kv_size(info->entries); i++) {
-    BufhlItem entry = kv_A(info->entries, i);
+  for (size_t i = 0; i < kv_size(info->line->items); i++) {
+    BufhlItem entry = kv_A(info->line->items, i);
     if (entry.start <= col && col <= entry.stop) {
       int entry_attr = syn_id2attr(entry.hl_id);
       attr = hl_combine_attr(attr, entry_attr);

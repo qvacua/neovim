@@ -1269,7 +1269,8 @@ static void normal_redraw(NormalState *s)
     xfree(p);
   }
 
-  if (need_fileinfo) {  // show file info after redraw
+  // show fileinfo after redraw
+  if (need_fileinfo && !shortmess(SHM_FILEINFO)) {
     fileinfo(false, true, false);
     need_fileinfo = false;
   }
@@ -1867,7 +1868,7 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
       } else {
         bangredo = true;  // do_bang() will put cmd in redo buffer.
       }
-      // fallthrough
+      FALLTHROUGH;
 
     case OP_INDENT:
     case OP_COLON:
@@ -4202,12 +4203,12 @@ dozet:
       else
         curwin->w_cursor.lnum = curwin->w_botline;
     }
-  /* FALLTHROUGH */
+    FALLTHROUGH;
   case NL:
   case CAR:
   case K_KENTER:
     beginline(BL_WHITE | BL_FIX);
-  /* FALLTHROUGH */
+    FALLTHROUGH;
 
   case 't':   scroll_cursor_top(0, true);
     redraw_later(VALID);
@@ -4216,7 +4217,7 @@ dozet:
 
   /* "z." and "zz": put cursor in middle of screen */
   case '.':   beginline(BL_WHITE | BL_FIX);
-  /* FALLTHROUGH */
+  FALLTHROUGH;
 
   case 'z':   scroll_cursor_halfway(true);
     redraw_later(VALID);
@@ -4234,10 +4235,10 @@ dozet:
       curwin->w_cursor.lnum = 1;
     else
       curwin->w_cursor.lnum = curwin->w_topline - 1;
-  /* FALLTHROUGH */
+    FALLTHROUGH;
   case '-':
     beginline(BL_WHITE | BL_FIX);
-  /* FALLTHROUGH */
+    FALLTHROUGH;
 
   case 'b':   scroll_cursor_bot(0, true);
     redraw_later(VALID);
@@ -4247,7 +4248,7 @@ dozet:
   /* "zH" - scroll screen right half-page */
   case 'H':
     cap->count1 *= curwin->w_width / 2;
-  /* FALLTHROUGH */
+    FALLTHROUGH;
 
   /* "zh" - scroll screen to the right */
   case 'h':
@@ -4263,7 +4264,7 @@ dozet:
 
   /* "zL" - scroll screen left half-page */
   case 'L':   cap->count1 *= curwin->w_width / 2;
-  /* FALLTHROUGH */
+    FALLTHROUGH;
 
   /* "zl" - scroll screen to the left */
   case 'l':
@@ -4480,7 +4481,7 @@ dozet:
       break;
     }
     undo = true;
-  /*FALLTHROUGH*/
+    FALLTHROUGH;
 
   case 'g':     /* "zg": add good word to word list */
   case 'w':     /* "zw": add wrong word to word list */
@@ -6667,7 +6668,7 @@ static void nv_g_cmd(cmdarg_T *cap)
    */
   case K_BS:
     cap->nchar = Ctrl_H;
-  /* FALLTHROUGH */
+    FALLTHROUGH;
   case 'h':
   case 'H':
   case Ctrl_H:
@@ -6733,7 +6734,7 @@ static void nv_g_cmd(cmdarg_T *cap)
    */
   case '^':
     flag = true;
-  /* FALLTHROUGH */
+    FALLTHROUGH;
 
   case '0':
   case 'm':
@@ -6911,7 +6912,7 @@ static void nv_g_cmd(cmdarg_T *cap)
   /* "g'm" and "g`m": jump to mark without setting pcmark */
   case '\'':
     cap->arg = true;
-  /*FALLTHROUGH*/
+    FALLTHROUGH;
   case '`':
     nv_gomark(cap);
     break;
@@ -6969,7 +6970,7 @@ static void nv_g_cmd(cmdarg_T *cap)
   case 'q':
   case 'w':
     oap->cursor_start = curwin->w_cursor;
-  /*FALLTHROUGH*/
+    FALLTHROUGH;
   case '~':
   case 'u':
   case 'U':

@@ -424,6 +424,7 @@ void ex_sort(exarg_T *eap)
 
   sort_abort = sort_ic = sort_rx = sort_nr = sort_flt = 0;
   size_t format_found = 0;
+  bool change_occurred = false;   // Buffer contents changed.
 
   for (p = eap->arg; *p != NUL; ++p) {
     if (ascii_iswhite(*p)) {
@@ -584,8 +585,16 @@ void ex_sort(exarg_T *eap)
 
   // Insert the lines in the sorted order below the last one.
   lnum = eap->line2;
-  for (i = 0; i < count; ++i) {
-    s = ml_get(nrs[eap->forceit ? count - i - 1 : i].lnum);
+  for (i = 0; i < count; i++) {
+    const linenr_T get_lnum = nrs[eap->forceit ? count - i - 1 : i].lnum;
+
+    // If the original line number of the line being placed is not the same
+    // as "lnum" (accounting for offset), we know that the buffer changed.
+    if (get_lnum + ((linenr_T)count - 1) != lnum) {
+      change_occurred = true;
+    }
+
+    s = ml_get(get_lnum);
     if (!unique || i == 0
         || (sort_ic ? STRICMP(s, sortbuf1) : STRCMP(s, sortbuf1)) != 0) {
       // Copy the line into a buffer, it may become invalid in
@@ -614,10 +623,13 @@ void ex_sort(exarg_T *eap)
   if (deleted > 0) {
     mark_adjust(eap->line2 - deleted, eap->line2, (long)MAXLNUM, -deleted,
                 false);
+    msgmore(-deleted);
   } else if (deleted < 0) {
     mark_adjust(eap->line2, MAXLNUM, -deleted, 0L, false);
   }
-  changed_lines(eap->line1, 0, eap->line2 + 1, -deleted, true);
+  if (change_occurred || deleted != 0) {
+    changed_lines(eap->line1, 0, eap->line2 + 1, -deleted, true);
+  }
 
   curwin->w_cursor.lnum = eap->line1;
   beginline(BL_WHITE | BL_FIX);
@@ -3632,12 +3644,8 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               }
             }
 
-            need_wait_return = FALSE;             /* no hit-return prompt */
-            if (typed == 'q' || typed == ESC || typed == Ctrl_C
-#ifdef UNIX
-                || typed == intr_char
-#endif
-                ) {
+            need_wait_return = false;             // no hit-return prompt
+            if (typed == 'q' || typed == ESC || typed == Ctrl_C) {
               got_quit = true;
               break;
             }

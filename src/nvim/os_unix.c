@@ -149,6 +149,8 @@ void mch_exit(int r)
     stream_set_blocking(input_global_fd(), true);  // normalize stream (#2598)
   }
 
+  ILOG("Nvim exit: %d", r);
+
 #ifdef EXITFREE
   free_all_mem();
 #endif

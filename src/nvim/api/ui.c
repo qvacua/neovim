@@ -58,6 +58,21 @@ void remote_ui_disconnect(uint64_t channel_id)
   xfree(ui);
 }
 
+/// Wait until ui has connected on stdio channel.
+void remote_ui_wait_for_attach(void)
+  FUNC_API_NOEXPORT
+{
+  Channel *channel = find_channel(CHAN_STDIO);
+  if (!channel) {
+    // this function should only be called in --embed mode, stdio channel
+    // can be assumed.
+    abort();
+  }
+
+  LOOP_PROCESS_EVENTS_UNTIL(&main_loop, channel->events, -1,
+                            pmap_has(uint64_t)(connected_uis, CHAN_STDIO));
+}
+
 void nvim_ui_attach(uint64_t channel_id, Integer width, Integer height,
                     Dictionary options, Error *err)
   FUNC_API_SINCE(1) FUNC_API_REMOTE_ONLY
@@ -207,9 +222,8 @@ static void ui_set_option(UI *ui, bool init, String name, Object value,
     if (strequal(name.data, ui_ext_names[i])
         || (i == kUIPopupmenu && is_popupmenu)) {
       if (value.type != kObjectTypeBoolean) {
-        snprintf((char *)IObuff, IOSIZE, "%s must be a Boolean",
-                 name.data);
-        api_set_error(error, kErrorTypeValidation, (char *)IObuff);
+        api_set_error(error, kErrorTypeValidation, "%s must be a Boolean",
+                      name.data);
         return;
       }
       bool boolval = value.data.boolean;
