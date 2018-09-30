@@ -6540,6 +6540,13 @@ void alist_expand(int *fnum_list, int fnum_len)
 void alist_set(alist_T *al, int count, char_u **files, int use_curbuf, int *fnum_list, int fnum_len)
 {
   int i;
+  static int recursive = 0;
+
+  if (recursive) {
+    EMSG(_(e_au_recursive));
+    return;
+  }
+  recursive++;
 
   alist_clear(al);
   ga_grow(&al->al_ga, count);
@@ -6564,8 +6571,10 @@ void alist_set(alist_T *al, int count, char_u **files, int use_curbuf, int *fnum
     xfree(files);
   }
 
-  if (al == &global_alist)
-    arg_had_last = FALSE;
+  if (al == &global_alist) {
+    arg_had_last = false;
+  }
+  recursive--;
 }
 
 /*
