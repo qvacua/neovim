@@ -167,12 +167,6 @@ void redraw_win_later(win_T *wp, int type)
   }
 }
 
-/// Forces a complete redraw later.  Also resets the highlighting.
-void redraw_later_clear(void)
-{
-  redraw_all_later(CLEAR);
-}
-
 /*
  * Mark all windows to be redrawn later.
  */
@@ -845,14 +839,6 @@ static void win_update(win_T *wp)
       type = VALID;
   }
 
-  // Trick: we want to avoid clearing the screen twice.  screenclear() will
-  // set "screen_cleared" to kTrue.  The special value kNone (which is still
-  // non-zero and thus not kFalse) will indicate that screenclear() was not
-  // called.
-  if (screen_cleared) {
-    screen_cleared = kNone;
-  }
-
   /*
    * If there are no changes on the screen that require a complete redraw,
    * handle three cases:
@@ -898,15 +884,14 @@ static void win_update(win_T *wp)
         if (wp->w_lines[0].wl_lnum != wp->w_topline)
           i += diff_check_fill(wp, wp->w_lines[0].wl_lnum)
                - wp->w_old_topfill;
-        if (i < wp->w_height - 2) {             /* less than a screen off */
-          /*
-           * Try to insert the correct number of lines.
-           * If not the last window, delete the lines at the bottom.
-           * win_ins_lines may fail when the terminal can't do it.
-           */
-          if (i > 0)
-            check_for_delay(FALSE);
-          if (win_ins_lines(wp, 0, i, FALSE, wp == firstwin) == OK) {
+        if (i < wp->w_height - 2) {  // less than a screen off
+          // Try to insert the correct number of lines.
+          // If not the last window, delete the lines at the bottom.
+          // win_ins_lines may fail when the terminal can't do it.
+          if (i > 0) {
+            check_for_delay(false);
+          }
+          if (win_ins_lines(wp, 0, i, false) == OK) {
             if (wp->w_lines_valid != 0) {
               /* Need to update rows that are new, stop at the
                * first one that scrolled down. */
@@ -964,11 +949,12 @@ static void win_update(win_T *wp)
         /* ... but don't delete new filler lines. */
         row -= wp->w_topfill;
         if (row > 0) {
-          check_for_delay(FALSE);
-          if (win_del_lines(wp, 0, row, FALSE, wp == firstwin) == OK)
+          check_for_delay(false);
+          if (win_del_lines(wp, 0, row, false) == OK) {
             bot_start = wp->w_height - row;
-          else
-            mid_start = 0;                      /* redraw all lines */
+          } else {
+            mid_start = 0;                      // redraw all lines
+          }
         }
         if ((row == 0 || bot_start < 999) && wp->w_lines_valid != 0) {
           /*
@@ -1006,31 +992,9 @@ static void win_update(win_T *wp)
       }
     }
 
-    /* When starting redraw in the first line, redraw all lines.  When
-     * there is only one window it's probably faster to clear the screen
-     * first. */
+    // When starting redraw in the first line, redraw all lines.
     if (mid_start == 0) {
       mid_end = wp->w_height;
-      if (ONE_WINDOW) {
-        // Clear the screen when it was not done by win_del_lines() or
-        // win_ins_lines() above, "screen_cleared" is kFalse or kNone
-        // then.
-        if (screen_cleared != kTrue) {
-          screenclear();
-        }
-        // The screen was cleared, redraw the tab pages line.
-        if (redraw_tabline) {
-          draw_tabline();
-        }
-      }
-    }
-
-    /* When win_del_lines() or win_ins_lines() caused the screen to be
-     * cleared (only happens for the first window) or when screenclear()
-     * was called directly above, "must_redraw" will have been set to
-     * NOT_VALID, need to reset it here to avoid redrawing twice. */
-    if (screen_cleared == kTrue) {
-      must_redraw = 0;
     }
   } else {
     /* Not VALID or INVERTED: redraw all lines. */
@@ -1338,31 +1302,31 @@ static void win_update(win_T *wp)
              * remaining text or scrolling fails, must redraw the
              * rest.  If scrolling works, must redraw the text
              * below the scrolled text. */
-            if (row - xtra_rows >= wp->w_height - 2)
+            if (row - xtra_rows >= wp->w_height - 2) {
               mod_bot = MAXLNUM;
-            else {
-              check_for_delay(FALSE);
-              if (win_del_lines(wp, row,
-                      -xtra_rows, FALSE, FALSE) == FAIL)
+            } else {
+              check_for_delay(false);
+              if (win_del_lines(wp, row, -xtra_rows, false) == FAIL) {
                 mod_bot = MAXLNUM;
-              else
-                bot_start = wp->w_height + xtra_rows;
+              } else {
+                  bot_start = wp->w_height + xtra_rows;
+              }
             }
           } else if (xtra_rows > 0) {
             /* May scroll text down.  If there is not enough
              * remaining text of scrolling fails, must redraw the
              * rest. */
-            if (row + xtra_rows >= wp->w_height - 2)
+            if (row + xtra_rows >= wp->w_height - 2) {
               mod_bot = MAXLNUM;
-            else {
-              check_for_delay(FALSE);
-              if (win_ins_lines(wp, row + old_rows,
-                      xtra_rows, FALSE, FALSE) == FAIL)
+            } else {
+              check_for_delay(false);
+              if (win_ins_lines(wp, row + old_rows, xtra_rows, false) == FAIL) {
                 mod_bot = MAXLNUM;
-              else if (top_end > row + old_rows)
-                /* Scrolled the part at the top that requires
-                 * updating down. */
+              } else if (top_end > row + old_rows) {
+                // Scrolled the part at the top that requires
+                // updating down.
                 top_end += xtra_rows;
+              }
             }
           }
 
@@ -2175,11 +2139,11 @@ win_line (
 
   int n_skip = 0;                       /* nr of chars to skip for 'nowrap' */
 
-  int fromcol, tocol;                   /* start/end of inverting */
-  int fromcol_prev = -2;                /* start of inverting after cursor */
-  int noinvcur = FALSE;                 /* don't invert the cursor */
-  pos_T       *top, *bot;
-  int lnum_in_visual_area = FALSE;
+  int fromcol = 0, tocol = 0;           // start/end of inverting
+  int fromcol_prev = -2;                // start of inverting after cursor
+  int noinvcur = false;                 // don't invert the cursor
+  pos_T *top, *bot;
+  int lnum_in_visual_area = false;
   pos_T pos;
   long v;
 
@@ -2474,7 +2438,7 @@ win_line (
     if (ae.rgb_fg_color == -1 && ae.cterm_fg_color == 0) {
       line_attr_lowprio = cul_attr;
     } else {
-      if (line_attr != 0 && !(State & INSERT) && bt_quickfix(wp->w_buffer)
+      if (!(State & INSERT) && bt_quickfix(wp->w_buffer)
           && qf_current_entry(wp) == lnum) {
         line_attr = hl_combine_attr(cul_attr, line_attr);
       } else {
@@ -2486,7 +2450,7 @@ win_line (
   // If this line has a sign with line highlighting set line_attr.
   v = buf_getsigntype(wp->w_buffer, lnum, SIGN_LINEHL);
   if (v != 0) {
-    line_attr = sign_get_attr((int)v, true);
+    line_attr = sign_get_attr((int)v, SIGN_LINEHL);
   }
 
   // Highlight the current line in the quickfix window.
@@ -2794,7 +2758,7 @@ win_line (
                           p_extra = extra;
                           p_extra[n_extra] = NUL;
                       }
-                      char_attr = sign_get_attr(text_sign, FALSE);
+                      char_attr = sign_get_attr(text_sign, SIGN_TEXT);
                   }
               }
           }
@@ -2841,12 +2805,17 @@ win_line (
             c_extra = ' ';
           n_extra = number_width(wp) + 1;
           char_attr = win_hl_attr(wp, HLF_N);
-          // When 'cursorline' is set highlight the line number of
-          // the current line differently.
-          // TODO(vim): Can we use CursorLine instead of CursorLineNr
-          // when CursorLineNr isn't set?
-          if ((wp->w_p_cul || wp->w_p_rnu)
-              && lnum == wp->w_cursor.lnum) {
+
+          int num_sign = buf_getsigntype(wp->w_buffer, lnum, SIGN_NUMHL);
+          if (num_sign != 0) {
+            // :sign defined with "numhl" highlight.
+            char_attr = sign_get_attr(num_sign, SIGN_NUMHL);
+          } else if ((wp->w_p_cul || wp->w_p_rnu)
+                     && lnum == wp->w_cursor.lnum) {
+            // When 'cursorline' is set highlight the line number of
+            // the current line differently.
+            // TODO(vim): Can we use CursorLine instead of CursorLineNr
+            // when CursorLineNr isn't set?
             char_attr = win_hl_attr(wp, HLF_CLN);
           }
         }
@@ -5944,7 +5913,6 @@ void screenalloc(bool doclear)
   int new_row, old_row;
   int len;
   static bool entered = false;  // avoid recursiveness
-  static bool done_outofmem_msg = false;
   int retry_count = 0;
 
 retry:
@@ -6014,67 +5982,39 @@ retry:
     win_alloc_lines(aucmd_win);
   }
 
-  if (new_ScreenLines == NULL
-      || new_ScreenAttrs == NULL
-      || new_LineOffset == NULL
-      || new_LineWraps == NULL
-      || new_tab_page_click_defs == NULL) {
-    if (ScreenLines != NULL || !done_outofmem_msg) {
-      // Guess the size.
-      do_outofmem_msg((Rows + 1) * Columns);
+  for (new_row = 0; new_row < Rows; new_row++) {
+    new_LineOffset[new_row] = new_row * Columns;
+    new_LineWraps[new_row] = false;
 
-      // Remember we did this to avoid getting outofmem messages over
-      // and over again.
-      done_outofmem_msg = true;
-    }
-    xfree(new_ScreenLines);
-    new_ScreenLines = NULL;
-    xfree(new_ScreenAttrs);
-    new_ScreenAttrs = NULL;
-    xfree(new_LineOffset);
-    new_LineOffset = NULL;
-    xfree(new_LineWraps);
-    new_LineWraps = NULL;
-    xfree(new_tab_page_click_defs);
-    new_tab_page_click_defs = NULL;
-  } else {
-    done_outofmem_msg = FALSE;
-
-    for (new_row = 0; new_row < Rows; ++new_row) {
-      new_LineOffset[new_row] = new_row * Columns;
-      new_LineWraps[new_row] = FALSE;
-
-      /*
-       * If the screen is not going to be cleared, copy as much as
-       * possible from the old screen to the new one and clear the rest
-       * (used when resizing the window at the "--more--" prompt or when
-       * executing an external command, for the GUI).
-       */
-      if (!doclear) {
-        for (int col = 0; col < Columns; col++) {
-          schar_from_ascii(new_ScreenLines[new_row * Columns + col], ' ');
+    // If the screen is not going to be cleared, copy as much as
+    // possible from the old screen to the new one and clear the rest
+    // (used when resizing the window at the "--more--" prompt or when
+    // executing an external command, for the GUI).
+    if (!doclear) {
+      for (int col = 0; col < Columns; col++) {
+        schar_from_ascii(new_ScreenLines[new_row * Columns + col], ' ');
+      }
+      memset(new_ScreenAttrs + new_row * Columns,
+             0, (size_t)Columns * sizeof(*new_ScreenAttrs));
+      old_row = new_row + (screen_Rows - Rows);
+      if (old_row >= 0 && ScreenLines != NULL) {
+        if (screen_Columns < Columns) {
+          len = screen_Columns;
+        } else {
+          len = Columns;
         }
-        memset(new_ScreenAttrs + new_row * Columns,
-               0, (size_t)Columns * sizeof(*new_ScreenAttrs));
-        old_row = new_row + (screen_Rows - Rows);
-        if (old_row >= 0 && ScreenLines != NULL) {
-          if (screen_Columns < Columns)
-            len = screen_Columns;
-          else
-            len = Columns;
 
-          memmove(new_ScreenLines + new_LineOffset[new_row],
-                  ScreenLines + LineOffset[old_row],
-                  (size_t)len * sizeof(schar_T));
-          memmove(new_ScreenAttrs + new_LineOffset[new_row],
-                  ScreenAttrs + LineOffset[old_row],
-                  (size_t)len * sizeof(new_ScreenAttrs[0]));
-        }
+        memmove(new_ScreenLines + new_LineOffset[new_row],
+                ScreenLines + LineOffset[old_row],
+                (size_t)len * sizeof(schar_T));
+        memmove(new_ScreenAttrs + new_LineOffset[new_row],
+                ScreenAttrs + LineOffset[old_row],
+                (size_t)len * sizeof(new_ScreenAttrs[0]));
       }
     }
-    /* Use the last line of the screen for the current line. */
-    current_ScreenLine = new_ScreenLines + Rows * Columns;
   }
+  // Use the last line of the screen for the current line.
+  current_ScreenLine = new_ScreenLines + Rows * Columns;
 
   free_screenlines();
 
@@ -6161,19 +6101,19 @@ static void screenclear2(void)
   ui_call_grid_clear(1);  // clear the display
   clear_cmdline = false;
   mode_displayed = false;
-  screen_cleared = kTrue;   // can use contents of ScreenLines now
 
-  win_rest_invalid(firstwin);
-  redraw_cmdline = TRUE;
-  redraw_tabline = TRUE;
-  if (must_redraw == CLEAR)     /* no need to clear again */
-    must_redraw = NOT_VALID;
+  redraw_all_later(NOT_VALID);
+  redraw_cmdline = true;
+  redraw_tabline = true;
+  if (must_redraw == CLEAR) {
+    must_redraw = NOT_VALID;  // no need to clear again
+  }
   compute_cmdrow();
-  msg_row = cmdline_row;        /* put cursor on last line for messages */
+  msg_row = cmdline_row;  // put cursor on last line for messages
   msg_col = 0;
-  msg_scrolled = 0;             /* can't scroll back */
-  msg_didany = FALSE;
-  msg_didout = FALSE;
+  msg_scrolled = 0;  // can't scroll back
+  msg_didany = false;
+  msg_didout = false;
 }
 
 /*
@@ -6224,13 +6164,13 @@ void setcursor(void)
 /// If 'mayclear' is TRUE the screen will be cleared if it is faster than
 /// scrolling.
 /// Returns FAIL if the lines are not inserted, OK for success.
-int win_ins_lines(win_T *wp, int row, int line_count, int invalid, int mayclear)
+int win_ins_lines(win_T *wp, int row, int line_count, int invalid)
 {
   if (wp->w_height < 5) {
     return FAIL;
   }
 
-  return win_do_lines(wp, row, line_count, invalid, mayclear, false);
+  return win_do_lines(wp, row, line_count, invalid, false);
 }
 
 /// Delete "line_count" window lines at "row" in window "wp".
@@ -6238,27 +6178,21 @@ int win_ins_lines(win_T *wp, int row, int line_count, int invalid, int mayclear)
 /// If "mayclear" is TRUE the screen will be cleared if it is faster than
 /// scrolling
 /// Return OK for success, FAIL if the lines are not deleted.
-int win_del_lines(win_T *wp, int row, int line_count, int invalid, int mayclear)
+int win_del_lines(win_T *wp, int row, int line_count, int invalid)
 {
-  return win_do_lines(wp, row, line_count, invalid, mayclear, true);
+  return win_do_lines(wp, row, line_count, invalid, true);
 }
 
 // Common code for win_ins_lines() and win_del_lines().
 // Returns OK or FAIL when the work has been done.
 static int win_do_lines(win_T *wp, int row, int line_count,
-                        int invalid, int mayclear, int del)
+                        int invalid, int del)
 {
   if (invalid) {
     wp->w_lines_valid = 0;
   }
 
   if (!redrawing() || line_count <= 0) {
-    return FAIL;
-  }
-
-  // only a few lines left: redraw is faster
-  if (mayclear && Rows - line_count < 5 && wp->w_width == Columns) {
-    screenclear();          /* will set wp->w_lines_valid to 0 */
     return FAIL;
   }
 
@@ -6285,19 +6219,6 @@ static int win_do_lines(win_T *wp, int row, int line_count,
                               wp->w_wincol, wp->w_width);
   }
   return retval;
-}
-
-/*
- * window 'wp' and everything after it is messed up, mark it for redraw
- */
-static void win_rest_invalid(win_T *wp)
-{
-  while (wp != NULL) {
-    redraw_win_later(wp, NOT_VALID);
-    wp->w_redr_status = TRUE;
-    wp = wp->w_next;
-  }
-  redraw_cmdline = TRUE;
 }
 
 /*

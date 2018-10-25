@@ -88,7 +88,7 @@ if(MINGW AND CMAKE_GENERATOR MATCHES "Ninja")
   if(NOT MAKE_PRG)
     message(FATAL_ERROR "GNU Make for mingw32 is required to build the dependecies.")
   else()
-    message(STATUS "Found GNU Make for mingw32 at ${MAKE_PRG}")
+    message(STATUS "Found GNU Make for mingw32: ${MAKE_PRG}")
   endif()
 endif()
 
@@ -96,6 +96,10 @@ if(CMAKE_C_COMPILER_ARG1)
   set(DEPS_C_COMPILER "${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1}")
 else()
   set(DEPS_C_COMPILER "${CMAKE_C_COMPILER}")
+endif()
+
+if(CMAKE_OSX_SYSROOT)
+  set(DEPS_C_COMPILER "${DEPS_C_COMPILER} -isysroot${CMAKE_OSX_SYSROOT}")
 endif()
 
 # Cross compiling: use these for dependencies built for the

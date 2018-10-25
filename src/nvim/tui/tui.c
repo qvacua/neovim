@@ -88,7 +88,6 @@ typedef struct {
   bool cont_received;
   UGrid grid;
   kvec_t(Rect) invalid_regions;
-  bool did_resize;
   int row, col;
   int out_fd;
   bool scroll_region_is_full_screen;
@@ -577,7 +576,7 @@ static void final_column_wrap(UI *ui)
 {
   TUIData *data = ui->data;
   UGrid *grid = &data->grid;
-  if (grid->col == ui->width) {
+  if (grid->row != -1 && grid->col == ui->width) {
     grid->col = 0;
     if (grid->row < MIN(ui->height, grid->height - 1)) {
       grid->row++;
@@ -646,6 +645,9 @@ static void cursor_goto(UI *ui, int row, int col)
     unibi_out(ui, unibi_cursor_home);
     ugrid_goto(grid, row, col);
     return;
+  }
+  if (grid->row == -1) {
+    goto safe_move;
   }
   if (0 == col ? col != grid->col :
       row != grid->row ? false :
@@ -725,6 +727,8 @@ static void cursor_goto(UI *ui, int row, int col)
       return;
     }
   }
+
+safe_move:
   unibi_goto(ui, row, col);
   ugrid_goto(grid, row, col);
 }
@@ -773,18 +777,7 @@ static void clear_region(UI *ui, int top, int bot, int left, int right,
       cursor_goto(ui, row, col);
       print_cell(ui, cell);
     });
-
-    if (data->did_resize && top == 0) {
-      // TODO(bfredl): the first line of the screen doesn't gets properly
-      // cleared after resize by the loop above, so redraw the final state
-      // after the next flush.
-      invalidate(ui, 0, bot, left, right);
-      data->did_resize = false;
-    }
   }
-
-  // restore cursor
-  cursor_goto(ui, data->row, data->col);
 }
 
 static void set_scroll_region(UI *ui, int top, int bot, int left, int right)
@@ -808,7 +801,7 @@ static void set_scroll_region(UI *ui, int top, int bot, int left, int right)
       unibi_out(ui, unibi_set_right_margin_parm);
     }
   }
-  unibi_goto(ui, grid->row, grid->col);
+  grid->row = -1;
 }
 
 static void reset_scroll_region(UI *ui, bool fullwidth)
@@ -836,7 +829,7 @@ static void reset_scroll_region(UI *ui, bool fullwidth)
     }
     unibi_out_ext(ui, data->unibi_ext.disable_lr_margin);
   }
-  unibi_goto(ui, grid->row, grid->col);
+  grid->row = -1;
 }
 
 static void tui_grid_resize(UI *ui, Integer g, Integer width, Integer height)
@@ -844,7 +837,6 @@ static void tui_grid_resize(UI *ui, Integer g, Integer width, Integer height)
   TUIData *data = ui->data;
   UGrid *grid = &data->grid;
   ugrid_resize(grid, (int)width, (int)height);
-  data->did_resize = true;
 
   // resize might not always be followed by a clear before flush
   // so clip the invalid region
@@ -864,6 +856,7 @@ static void tui_grid_resize(UI *ui, Integer g, Integer width, Integer height)
     }
   } else {  // Already handled the SIGWINCH signal; avoid double-resize.
     got_winch = false;
+    grid->row = -1;
   }
 }
 
@@ -880,9 +873,10 @@ static void tui_grid_clear(UI *ui, Integer g)
 static void tui_grid_cursor_goto(UI *ui, Integer grid, Integer row, Integer col)
 {
   TUIData *data = ui->data;
+
+  // cursor position is validated in tui_flush
   data->row = (int)row;
   data->col = (int)col;
-  cursor_goto(ui, (int)row, (int)col);
 }
 
 CursorShape tui_cursor_decode_shape(const char *shape_str)
@@ -1070,7 +1064,6 @@ static void tui_grid_scroll(UI *ui, Integer g, Integer startrow, Integer endrow,
     if (!data->scroll_region_is_full_screen) {
       reset_scroll_region(ui, fullwidth);
     }
-    cursor_goto(ui, data->row, data->col);
 
     if (!(data->bce || no_bg(ui, data->clear_attrs))) {
       // Scrolling will leave wrong background in the cleared area on non-BCE
@@ -1852,18 +1845,19 @@ static void augment_terminfo(TUIData *data, const char *term,
   data->unibi_ext.disable_mouse = (int)unibi_add_ext_str(
       ut, "ext.disable_mouse", "\x1b[?1002l\x1b[?1006l");
 
-  int ext_bool_Su = unibi_find_ext_bool(ut, "Su");
-  if (ext_bool_Su != -1 && unibi_get_ext_bool(ut, (size_t)ext_bool_Su)) {
+  int ext_bool_Su = unibi_find_ext_bool(ut, "Su");  // used by kitty
+  if (vte_version >= 5102
+      || (ext_bool_Su != -1 && unibi_get_ext_bool(ut, (size_t)ext_bool_Su))) {
       data->unibi_ext.enter_undercurl_mode = (int)unibi_add_ext_str(
           ut, "ext.enter_undercurl_mode", "\x1b[4:3m");
       data->unibi_ext.exit_undercurl_mode = (int)unibi_add_ext_str(
-          ut, "ext.exit_underline_mode", "\x1b[4:0m");
+          ut, "ext.exit_undercurl_mode", "\x1b[4:0m");
       if (has_colon_rgb) {
           data->unibi_ext.set_underline_color = (int)unibi_add_ext_str(
               ut, "ext.set_underline_color", "\x1b[58:2:%p1%d:%p2%d:%p3%dm");
       } else {
           data->unibi_ext.set_underline_color = (int)unibi_add_ext_str(
-              ut, "ext.set_underline_color", "\x1b[58:2:%p1%d:%p2%d:%p3%dm");
+              ut, "ext.set_underline_color", "\x1b[58;2;%p1%d;%p2%d;%p3%dm");
       }
   }
 }

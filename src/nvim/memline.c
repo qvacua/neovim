@@ -49,6 +49,7 @@
 #include "nvim/buffer.h"
 #include "nvim/cursor.h"
 #include "nvim/eval.h"
+#include "nvim/getchar.h"
 #include "nvim/fileio.h"
 #include "nvim/func_attr.h"
 #include "nvim/main.h"
@@ -1448,7 +1449,7 @@ static char *make_percent_swname(const char *dir, char *name)
 }
 
 #ifdef UNIX
-static int process_still_running;
+static bool process_still_running;
 #endif
 
 /*
@@ -1526,8 +1527,8 @@ static time_t swapfile_info(char_u *fname)
           msg_outnum(char_to_long(b0.b0_pid));
 #if defined(UNIX)
           if (kill((pid_t)char_to_long(b0.b0_pid), 0) == 0) {
-            MSG_PUTS(_(" (still running)"));
-            process_still_running = TRUE;
+            MSG_PUTS(_(" (STILL RUNNING)"));
+            process_still_running = true;
           }
 #endif
         }
@@ -3149,7 +3150,9 @@ attention_message (
   msg_outtrans(buf->b_fname);
   MSG_PUTS("\"\n");
   FileInfo file_info;
-  if (os_fileinfo((char *)buf->b_fname, &file_info)) {
+  if (!os_fileinfo((char *)buf->b_fname, &file_info)) {
+    MSG_PUTS(_("      CANNOT BE FOUND"));
+  } else {
     MSG_PUTS(_("             dated: "));
     x = file_info.stat.st_mtim.tv_sec;
     p = ctime(&x);  // includes '\n'
@@ -3346,7 +3349,7 @@ static char *findswapname(buf_T *buf, char **dirp, char *old_fname,
           int choice = 0;
 
 #ifdef UNIX
-          process_still_running = FALSE;
+          process_still_running = false;
 #endif
           /*
            * If there is a SwapExists autocommand and we can handle
@@ -3358,12 +3361,16 @@ static char *findswapname(buf_T *buf, char **dirp, char *old_fname,
             choice = do_swapexists(buf, (char_u *) fname);
 
           if (choice == 0) {
-            /* Show info about the existing swap file. */
-            attention_message(buf, (char_u *) fname);
+            // Show info about the existing swap file.
+            attention_message(buf, (char_u *)fname);
 
-            /* We don't want a 'q' typed at the more-prompt
-             * interrupt loading a file. */
-            got_int = FALSE;
+            // We don't want a 'q' typed at the more-prompt
+            // interrupt loading a file.
+            got_int = false;
+
+            // If vimrc has "simalt ~x" we don't want it to
+            // interfere with the prompt here.
+            flush_buffers(FLUSH_TYPEAHEAD);
           }
 
           if (swap_exists_action != SEA_NONE && choice == 0) {
