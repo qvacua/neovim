@@ -378,7 +378,7 @@ endif()
 option(PREFER_LUA "Prefer Lua over LuaJIT in the nvim executable." OFF)
 
 if(PREFER_LUA)
-  find_package(Lua REQUIRED)
+  find_package(Lua 5.1 REQUIRED)
   set(LUA_PREFERRED_INCLUDE_DIRS ${LUA_INCLUDE_DIR})
   set(LUA_PREFERRED_LIBRARIES ${LUA_LIBRARIES})
   # Passive (not REQUIRED): if LUAJIT_FOUND is not set, nvim-test is skipped.
@@ -424,7 +424,7 @@ if(FEAT_TUI)
     add_definitions(-DNVIM_UNIBI_HAS_VAR_FROM)
   endif()
 
-  find_package(LibTermkey REQUIRED)
+  find_package(LibTermkey 0.18 REQUIRED)
   include_directories(SYSTEM ${LIBTERMKEY_INCLUDE_DIRS})
 endif()
 
@@ -432,7 +432,7 @@ find_package(LibVterm REQUIRED)
 include_directories(SYSTEM ${LIBVTERM_INCLUDE_DIRS})
 
 if(WIN32)
-  find_package(Winpty REQUIRED)
+  find_package(Winpty 0.4.3 REQUIRED)
   include_directories(SYSTEM ${WINPTY_INCLUDE_DIRS})
 endif()
 

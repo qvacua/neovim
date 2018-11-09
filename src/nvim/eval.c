@@ -2728,6 +2728,12 @@ void ex_call(exarg_T *eap)
   lnum = eap->line1;
   for (; lnum <= eap->line2; lnum++) {
     if (eap->addr_count > 0) {  // -V560
+      if (lnum > curbuf->b_ml.ml_line_count) {
+        // If the function deleted lines or switched to another buffer
+        // the line number may become invalid.
+        EMSG(_(e_invrange));
+        break;
+      }
       curwin->w_cursor.lnum = lnum;
       curwin->w_cursor.col = 0;
       curwin->w_cursor.coladd = 0;
@@ -7232,7 +7238,7 @@ static void f_byte2line(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     rettv->vval.v_number = -1;
   } else {
     rettv->vval.v_number = (varnumber_T)ml_find_line_or_offset(curbuf, 0,
-                                                               &boff);
+                                                               &boff, false);
   }
 }
 
@@ -11721,7 +11727,7 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     if (new_cwd && strlen(new_cwd) > 0) {
       cwd = new_cwd;
       // The new cwd must be a directory.
-      if (!os_isdir((char_u *)cwd)) {
+      if (!os_isdir_executable((const char *)cwd)) {
         EMSG2(_(e_invarg2), "expected valid directory");
         shell_free_argv(argv);
         return;
@@ -12087,7 +12093,7 @@ static void f_line2byte(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   if (lnum < 1 || lnum > curbuf->b_ml.ml_line_count + 1) {
     rettv->vval.v_number = -1;
   } else {
-    rettv->vval.v_number = ml_find_line_or_offset(curbuf, lnum, NULL);
+    rettv->vval.v_number = ml_find_line_or_offset(curbuf, lnum, NULL, false);
   }
   if (rettv->vval.v_number >= 0) {
     rettv->vval.v_number++;
@@ -16766,7 +16772,7 @@ static void f_termopen(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     if (new_cwd && *new_cwd != NUL) {
       cwd = new_cwd;
       // The new cwd must be a directory.
-      if (!os_isdir((const char_u *)cwd)) {
+      if (!os_isdir_executable((const char *)cwd)) {
         EMSG2(_(e_invarg2), "expected valid directory");
         shell_free_argv(argv);
         return;
