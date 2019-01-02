@@ -8125,6 +8125,7 @@ static void f_execute(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   const int save_msg_silent = msg_silent;
   const int save_emsg_silent = emsg_silent;
   const bool save_emsg_noredir = emsg_noredir;
+  const bool save_redir_off = redir_off;
   garray_T *const save_capture_ga = capture_ga;
 
   if (check_secure()) {
@@ -8152,6 +8153,7 @@ static void f_execute(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   garray_T capture_local;
   ga_init(&capture_local, (int)sizeof(char), 80);
   capture_ga = &capture_local;
+  redir_off = false;
 
   if (argvars[0].v_type != VAR_LIST) {
     do_cmdline_cmd(tv_get_string(&argvars[0]));
@@ -8169,6 +8171,7 @@ static void f_execute(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   msg_silent = save_msg_silent;
   emsg_silent = save_emsg_silent;
   emsg_noredir = save_emsg_noredir;
+  redir_off = save_redir_off;
 
   ga_append(capture_ga, NUL);
   rettv->v_type = VAR_STRING;
@@ -10800,17 +10803,6 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   if (!n && eval_has_provider(name)) {
     n = true;
-  }
-
-  if (STRICMP(name, "ruby") == 0 && n == true) {
-    char *rubyhost = call_func_retstr("provider#ruby#Detect", 0, NULL, true);
-    if (rubyhost) {
-      if (*rubyhost == NUL) {
-        // Invalid rubyhost executable. Gem is probably not installed.
-        n = false;
-      }
-      xfree(rubyhost);
-    }
   }
 
   rettv->vval.v_number = n;
@@ -19253,7 +19245,8 @@ static void set_var(const char *name, const size_t name_len, typval_T *const tv,
         }
         return;
       } else if (v->di_tv.v_type != tv->v_type) {
-        internal_error("set_var()");
+        EMSG2(_("E963: setting %s to value with wrong type"), name);
+        return;
       }
     }
 
@@ -22769,7 +22762,18 @@ bool eval_has_provider(const char *name)
     CHECK_PROVIDER(python);
     return has_python;
   } else if (strequal(name, "ruby")) {
+    bool need_check_ruby = (has_ruby == -1);
     CHECK_PROVIDER(ruby);
+    if (need_check_ruby && has_ruby == 1) {
+      char *rubyhost = call_func_retstr("provider#ruby#Detect", 0, NULL, true);
+      if (rubyhost) {
+        if (*rubyhost == NUL) {
+          // Invalid rubyhost executable. Gem is probably not installed.
+          has_ruby = 0;
+        }
+        xfree(rubyhost);
+      }
+    }
     return has_ruby;
   }
 

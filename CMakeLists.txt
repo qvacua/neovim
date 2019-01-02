@@ -113,12 +113,12 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 3)
 set(NVIM_VERSION_PATCH 2)
-set(NVIM_VERSION_PRERELEASE "-dev") # for package maintainers
+set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
 set(NVIM_API_LEVEL 5)         # Bump this after any API change.
 set(NVIM_API_LEVEL_COMPAT 0)  # Adjust this after a _breaking_ API change.
-set(NVIM_API_PRERELEASE true)
+set(NVIM_API_PRERELEASE false)
 
 file(TO_CMAKE_PATH ${CMAKE_CURRENT_LIST_DIR}/.git FORCED_GIT_DIR)
 include(GetGitRevisionDescription)
@@ -698,7 +698,7 @@ if(LUACHECK_PRG)
       -P ${PROJECT_SOURCE_DIR}/cmake/RunLuacheck.cmake)
 
   add_custom_target(
-    blobcodelint
+    lintbuiltinlua
     COMMAND
       ${CMAKE_COMMAND}
         -DLUACHECK_PRG=${LUACHECK_PRG}
@@ -707,10 +707,21 @@ if(LUACHECK_PRG)
         -DREAD_GLOBALS=vim
         -P ${PROJECT_SOURCE_DIR}/cmake/RunLuacheck.cmake
   )
+  add_custom_target(
+    lintruntimelua
+    COMMAND
+      ${CMAKE_COMMAND}
+        -DLUACHECK_PRG=${LUACHECK_PRG}
+        -DLUAFILES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/runtime/lua
+        -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
+        -DREAD_GLOBALS=vim
+        -P ${PROJECT_SOURCE_DIR}/cmake/RunLuacheck.cmake
+  )
   # TODO(ZyX-I): Run linter for all lua code in src
   add_custom_target(
     lualint
-    DEPENDS blobcodelint
+    DEPENDS lintruntimelua
+    DEPENDS lintbuiltinlua
   )
 endif()
 

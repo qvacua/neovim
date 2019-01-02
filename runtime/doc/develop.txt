@@ -137,6 +137,13 @@ DOCUMENTATION						*dev-doc*
       "the user host terminal".
     - Use "tui-" to prefix help tags related to the host terminal, and "TUI"
       in prose if possible.
+- Docstrings: do not start parameter descriptions with "The" or "A" unless it
+  is critical to avoid ambiguity.
+      GOOD: >
+      /// @param dirname Path fragment before `pend`
+<      BAD: >
+      /// @param dirname The path fragment before `pend`
+<
 
 API							*dev-api*
 
@@ -181,6 +188,8 @@ Standard Features ~
 - Clients should call |nvim_set_client_info()| after connecting, so users and
   plugins can detect the client by handling the |ChanInfo| event. This
   avoids the need for special variables or other client hints.
+- Clients should handle |nvim_error_event| notifications, which will be sent
+  if an async request to nvim was rejected or caused an error.
 
 Package Naming ~
 
