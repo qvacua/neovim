@@ -2380,7 +2380,7 @@ static void set_var_lval(lval_T *lp, char_u *endp, typval_T *rettv,
     int ll_n1 = lp->ll_n1;
 
     // Check whether any of the list items is locked
-    for (listitem_T *ri = tv_list_first(rettv->vval.v_list);
+    for (ri = tv_list_first(rettv->vval.v_list);
          ri != NULL && ll_li != NULL; ) {
       if (tv_check_lock(TV_LIST_ITEM_TV(ll_li)->v_lock,
                         (const char *)lp->ll_name,
@@ -2476,9 +2476,9 @@ notify:
         assert(lp->ll_newkey != NULL);
         tv_dict_watcher_notify(dict, (char *)lp->ll_newkey, lp->ll_tv, NULL);
       } else {
-        dictitem_T *di = lp->ll_di;
-        assert(di->di_key != NULL);
-        tv_dict_watcher_notify(dict, (char *)di->di_key, lp->ll_tv, &oldtv);
+        dictitem_T *di_ = lp->ll_di;
+        assert(di_->di_key != NULL);
+        tv_dict_watcher_notify(dict, (char *)di_->di_key, lp->ll_tv, &oldtv);
         tv_clear(&oldtv);
       }
     }
@@ -5234,8 +5234,6 @@ bool garbage_collect(bool testing)
 /// @return true, if something was freed.
 static int free_unref_items(int copyID)
 {
-  dict_T *dd, *dd_next;
-  list_T *ll, *ll_next;
   bool did_free = false;
 
   // Let all "free" functions know that we are here. This means no
@@ -5273,14 +5271,16 @@ static int free_unref_items(int copyID)
   }
 
   // PASS 2: free the items themselves.
-  for (dd = gc_first_dict; dd != NULL; dd = dd_next) {
+  dict_T *dd_next;
+  for (dict_T *dd = gc_first_dict; dd != NULL; dd = dd_next) {
     dd_next = dd->dv_used_next;
     if ((dd->dv_copyID & COPYID_MASK) != (copyID & COPYID_MASK)) {
       tv_dict_free_dict(dd);
     }
   }
 
-  for (ll = gc_first_list; ll != NULL; ll = ll_next) {
+  list_T *ll_next;
+  for (list_T *ll = gc_first_list; ll != NULL; ll = ll_next) {
     ll_next = ll->lv_used_next;
     if ((ll->lv_copyID & COPYID_MASK) != (copyID & COPYID_MASK)
         && !tv_list_has_watchers(ll)) {
@@ -7103,7 +7103,7 @@ static void f_bufloaded(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 /*
  * Get buffer by number or pattern.
  */
-static buf_T *get_buf_tv(typval_T *tv, int curtab_only)
+static buf_T *tv_get_buf(typval_T *tv, int curtab_only)
 {
   char_u      *name = tv->vval.v_string;
   int save_magic;
@@ -7149,7 +7149,7 @@ static void f_bufname(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     return;
   }
   emsg_off++;
-  const buf_T *const buf = get_buf_tv(&argvars[0], false);
+  const buf_T *const buf = tv_get_buf(&argvars[0], false);
   emsg_off--;
   if (buf != NULL && buf->b_fname != NULL) {
     rettv->vval.v_string = (char_u *)xstrdup((char *)buf->b_fname);
@@ -7168,7 +7168,7 @@ static void f_bufnr(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     return;
   }
   emsg_off++;
-  const buf_T *buf = get_buf_tv(&argvars[0], false);
+  const buf_T *buf = tv_get_buf(&argvars[0], false);
   emsg_off--;
 
   // If the buffer isn't found and the second argument is not zero create a
@@ -7195,7 +7195,7 @@ static void buf_win_common(typval_T *argvars, typval_T *rettv, bool get_nr)
   }
 
   emsg_off++;
-  buf_T *buf = get_buf_tv(&argvars[0], true);
+  buf_T *buf = tv_get_buf(&argvars[0], true);
   if (buf == NULL) {  // no need to search if buffer was not found
     rettv->vval.v_number = -1;
     goto end;
@@ -9280,7 +9280,7 @@ static void f_getbufinfo(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     // Information about one buffer.  Argument specifies the buffer
     if (tv_check_num(&argvars[0])) {  // issue errmsg if type error
       emsg_off++;
-      argbuf = get_buf_tv(&argvars[0], false);
+      argbuf = tv_get_buf(&argvars[0], false);
       emsg_off--;
       if (argbuf == NULL) {
         return;
@@ -9376,7 +9376,7 @@ static void f_getbufline(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   if (tv_check_str_or_nr(&argvars[0])) {
     emsg_off++;
-    buf = get_buf_tv(&argvars[0], false);
+    buf = tv_get_buf(&argvars[0], false);
     emsg_off--;
   }
 
@@ -9404,7 +9404,7 @@ static void f_getbufvar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   const char *varname = tv_get_string_chk(&argvars[1]);
   emsg_off++;
-  buf_T *const buf = get_buf_tv(&argvars[0], false);
+  buf_T *const buf = tv_get_buf(&argvars[0], false);
 
   if (buf != NULL && varname != NULL) {
     // set curbuf to be our buf, temporarily
@@ -9521,6 +9521,7 @@ static void f_getchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     if (is_mouse_key(n)) {
       int row = mouse_row;
       int col = mouse_col;
+      int grid = mouse_grid;
       win_T       *win;
       linenr_T lnum;
       win_T       *wp;
@@ -9529,7 +9530,7 @@ static void f_getchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       if (row >= 0 && col >= 0) {
         /* Find the window at the mouse coordinates and compute the
          * text position. */
-        win = mouse_find_win(&row, &col);
+        win = mouse_find_win(&grid, &row, &col);
         if (win == NULL) {
           return;
         }
@@ -10707,6 +10708,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     "postscript",
     "printer",
     "profile",
+    "pythonx",
     "reltime",
     "quickfix",
     "rightleft",
@@ -11510,23 +11512,23 @@ static void dict_list(typval_T *const tv, typval_T *const rettv,
   tv_list_alloc_ret(rettv, tv_dict_len(tv->vval.v_dict));
 
   TV_DICT_ITER(tv->vval.v_dict, di, {
-    typval_T tv = { .v_lock = VAR_UNLOCKED };
+    typval_T tv_item = { .v_lock = VAR_UNLOCKED };
 
     switch (what) {
       case kDictListKeys: {
-        tv.v_type = VAR_STRING;
-        tv.vval.v_string = vim_strsave(di->di_key);
+        tv_item.v_type = VAR_STRING;
+        tv_item.vval.v_string = vim_strsave(di->di_key);
         break;
       }
       case kDictListValues: {
-        tv_copy(&di->di_tv, &tv);
+        tv_copy(&di->di_tv, &tv_item);
         break;
       }
       case kDictListItems: {
         // items()
         list_T *const sub_l = tv_list_alloc(2);
-        tv.v_type = VAR_LIST;
-        tv.vval.v_list = sub_l;
+        tv_item.v_type = VAR_LIST;
+        tv_item.vval.v_list = sub_l;
         tv_list_ref(sub_l);
 
         tv_list_append_owned_tv(sub_l, (typval_T) {
@@ -11541,7 +11543,7 @@ static void dict_list(typval_T *const tv, typval_T *const rettv,
       }
     }
 
-    tv_list_append_owned_tv(rettv->vval.v_list, tv);
+    tv_list_append_owned_tv(rettv->vval.v_list, tv_item);
   });
 }
 
@@ -13029,6 +13031,10 @@ static void f_pumvisible(typval_T *argvars, typval_T *rettv, FunPtr fptr)
  */
 static void f_pyeval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
+  if (p_pyx == 0) {
+      p_pyx = 2;
+  }
+
   script_host_eval("python", argvars, rettv);
 }
 
@@ -13037,7 +13043,22 @@ static void f_pyeval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
  */
 static void f_py3eval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
+  if (p_pyx == 0) {
+      p_pyx = 3;
+  }
+
   script_host_eval("python3", argvars, rettv);
+}
+
+// "pyxeval()" function
+static void f_pyxeval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  init_pyxversion();
+  if (p_pyx == 2) {
+    f_pyeval(argvars, rettv, NULL);
+  } else {
+    f_py3eval(argvars, rettv, NULL);
+  }
 }
 
 /*
@@ -14026,11 +14047,11 @@ static void f_screenattr(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   const int row = (int)tv_get_number_chk(&argvars[0], NULL) - 1;
   const int col = (int)tv_get_number_chk(&argvars[1], NULL) - 1;
-  if (row < 0 || row >= screen_Rows
-      || col < 0 || col >= screen_Columns) {
+  if (row < 0 || row >= default_grid.Rows
+      || col < 0 || col >= default_grid.Columns) {
     c = -1;
   } else {
-    c = ScreenAttrs[LineOffset[row] + col];
+    c = default_grid.attrs[default_grid.line_offset[row] + col];
   }
   rettv->vval.v_number = c;
 }
@@ -14045,12 +14066,12 @@ static void f_screenchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   const int row = tv_get_number_chk(&argvars[0], NULL) - 1;
   const int col = tv_get_number_chk(&argvars[1], NULL) - 1;
-  if (row < 0 || row >= screen_Rows
-      || col < 0 || col >= screen_Columns) {
+  if (row < 0 || row >= default_grid.Rows
+      || col < 0 || col >= default_grid.Columns) {
     c = -1;
   } else {
-    off = LineOffset[row] + col;
-    c = utf_ptr2char(ScreenLines[off]);
+    off = default_grid.line_offset[row] + col;
+    c = utf_ptr2char(default_grid.chars[off]);
   }
   rettv->vval.v_number = c;
 }
@@ -14474,7 +14495,7 @@ static void f_setbufvar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     return;
   }
   const char *varname = tv_get_string_chk(&argvars[1]);
-  buf_T *const buf = get_buf_tv(&argvars[0], false);
+  buf_T *const buf = tv_get_buf(&argvars[0], false);
   typval_T *varp = &argvars[2];
 
   if (buf != NULL && varname != NULL) {
@@ -14768,12 +14789,12 @@ static void f_setmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   list_T *const l = argvars[0].vval.v_list;
   // To some extent make sure that we are dealing with a list from
   // "getmatches()".
-  int i = 0;
+  int li_idx = 0;
   TV_LIST_ITER_CONST(l, li, {
     if (TV_LIST_ITEM_TV(li)->v_type != VAR_DICT
         || (d = TV_LIST_ITEM_TV(li)->vval.v_dict) == NULL) {
       emsgf(_("E474: List item %d is either not a dictionary "
-              "or an empty one"), i);
+              "or an empty one"), li_idx);
       return;
     }
     if (!(tv_dict_find(d, S_LEN("group")) != NULL
@@ -14781,10 +14802,11 @@ static void f_setmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
               || tv_dict_find(d, S_LEN("pos1")) != NULL)
           && tv_dict_find(d, S_LEN("priority")) != NULL
           && tv_dict_find(d, S_LEN("id")) != NULL)) {
-      emsgf(_("E474: List item %d is missing one of the required keys"), i);
+      emsgf(_("E474: List item %d is missing one of the required keys"),
+            li_idx);
       return;
     }
-    i++;
+    li_idx++;
   });
 
   clear_matches(curwin);
@@ -16406,7 +16428,9 @@ static void f_synconcealed(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     if ((syntax_flags & HL_CONCEAL) && curwin->w_p_cole < 3) {
       cchar = syn_get_sub_char();
       if (cchar == NUL && curwin->w_p_cole == 1) {
-        cchar = (lcs_conceal == NUL) ? ' ' : lcs_conceal;
+        cchar = (curwin->w_p_lcs_chars.conceal == NUL)
+          ? ' '
+          : curwin->w_p_lcs_chars.conceal;
       }
       if (cchar != NUL) {
         utf_char2bytes(cchar, str);
@@ -16777,10 +16801,10 @@ static void f_termopen(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     }
   }
 
-  uint16_t term_width = MAX(0, curwin->w_width - win_col_off(curwin));
+  uint16_t term_width = MAX(0, curwin->w_width_inner - win_col_off(curwin));
   Channel *chan = channel_job_start(argv, on_stdout, on_stderr, on_exit,
                                     true, false, false, cwd,
-                                    term_width, curwin->w_height,
+                                    term_width, curwin->w_height_inner,
                                     xstrdup("xterm-256color"),
                                     &rettv->vval.v_number);
   if (rettv->vval.v_number <= 0) {
@@ -19574,24 +19598,7 @@ void ex_echo(exarg_T *eap)
         msg_puts_attr(" ", echo_attr);
       }
       char *tofree = encode_tv2echo(&rettv, NULL);
-      const char *p = tofree;
-      if (p != NULL) {
-        for (; *p != NUL && !got_int; ++p) {
-          if (*p == '\n' || *p == '\r' || *p == TAB) {
-            if (*p != TAB && needclr) {
-              /* remove any text still there from the command */
-              msg_clr_eos();
-              needclr = false;
-            }
-            msg_putchar_attr((uint8_t)(*p), echo_attr);
-          } else {
-            int i = (*mb_ptr2len)((const char_u *)p);
-
-            (void)msg_outtrans_len_attr((char_u *)p, i, echo_attr);
-            p += i - 1;
-          }
-        }
-      }
+      msg_multiline_attr(tofree, echo_attr);
       xfree(tofree);
     }
     tv_clear(&rettv);
@@ -19884,13 +19891,15 @@ void ex_function(exarg_T *eap)
           if (FUNCLINE(fp, j) == NULL)
             continue;
           msg_putchar('\n');
-          msg_outnum((long)(j + 1));
-          if (j < 9)
+          msg_outnum((long)j + 1);
+          if (j < 9) {
             msg_putchar(' ');
-          if (j < 99)
+          }
+          if (j < 99) {
             msg_putchar(' ');
-          msg_prt_line(FUNCLINE(fp, j), FALSE);
-          ui_flush();                  /* show a line at a time */
+          }
+          msg_prt_line(FUNCLINE(fp, j), false);
+          ui_flush();                  // show a line at a time
           os_breakcheck();
         }
         if (!got_int) {
@@ -20136,7 +20145,9 @@ void ex_function(exarg_T *eap)
       arg = skipwhite(skiptowhite(p));
       if (arg[0] == '<' && arg[1] =='<'
           && ((p[0] == 'p' && p[1] == 'y'
-               && (!ASCII_ISALPHA(p[2]) || p[2] == 't'))
+               && (!ASCII_ISALNUM(p[2]) || p[2] == 't'
+                   || ((p[2] == '3' || p[2] == 'x')
+                       && !ASCII_ISALPHA(p[3]))))
               || (p[0] == 'p' && p[1] == 'e'
                   && (!ASCII_ISALPHA(p[2]) || p[2] == 'r'))
               || (p[0] == 't' && p[1] == 'c'

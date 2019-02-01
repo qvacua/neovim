@@ -62,12 +62,6 @@ static char *features[] = {
 "-iconv",
 #endif
 
-#ifdef HAVE_JEMALLOC
-"+jemalloc",
-#else
-"-jemalloc",
-#endif
-
 #ifdef FEAT_TUI
 "+tui",
 #else
@@ -1641,7 +1635,7 @@ static const int included_patches[] = {
   289,
   288,
   287,
-  // 286,
+  286,
   285,
   284,
   283,
@@ -1676,7 +1670,7 @@ static const int included_patches[] = {
   254,
   253,
   252,
-  // 251,
+  251,
   250,
   249,
   248,
@@ -2271,8 +2265,8 @@ static void do_intro_line(long row, char_u *mesg, int attr)
       }
     }
     assert(row <= INT_MAX && col <= INT_MAX);
-    screen_puts_len(p, l, (int)row, (int)col,
-                    *p == '<' ? HL_ATTR(HLF_8) : attr);
+    grid_puts_len(&default_grid, p, l, (int)row, (int)col,
+                  *p == '<' ? HL_ATTR(HLF_8) : attr);
     col += clen;
   }
 }

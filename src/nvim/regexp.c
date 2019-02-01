@@ -230,6 +230,7 @@
 #define UPPER           47      /*	Match uppercase char */
 #define NUPPER          48      /*	Match non-uppercase char */
 #define LAST_NL         NUPPER + ADD_NL
+// -V:WITH_NL:560
 #define WITH_NL(op)     ((op) >= FIRST_NL && (op) <= LAST_NL)
 
 #define MOPEN           80   // -89 Mark this point in input as start of
@@ -4920,7 +4921,7 @@ regmatch (
               }
             } else {
               const char_u *const line =
-                  reg_getline(behind_pos.rs_u.pos.lnum);
+                  reg_getline(rp->rs_un.regsave.rs_u.pos.lnum);
 
               rp->rs_un.regsave.rs_u.pos.col -=
                   utf_head_off(line,

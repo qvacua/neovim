@@ -334,39 +334,30 @@ void terminal_close(Terminal *term, char *msg)
   }
 }
 
-void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
+void terminal_check_size(Terminal *term)
 {
   if (term->closed) {
-    // If two windows display the same terminal and one is closed by keypress.
     return;
   }
-  bool force = width == UINT16_MAX || height == UINT16_MAX;
+
   int curwidth, curheight;
   vterm_get_size(term->vt, &curheight, &curwidth);
+  uint16_t width = 0, height = 0;
 
-  if (force || !width) {
-    width = (uint16_t)curwidth;
-  }
-
-  if (force || !height) {
-    height = (uint16_t)curheight;
-  }
-
-  if (!force && curheight == height && curwidth == width) {
-    return;
-  }
-
-  if (height == 0 || width == 0) {
-    return;
-  }
 
   FOR_ALL_TAB_WINDOWS(tp, wp) {
     if (wp->w_buffer && wp->w_buffer->terminal == term) {
       const uint16_t win_width =
-        (uint16_t)(MAX(0, wp->w_width - win_col_off(wp)));
+        (uint16_t)(MAX(0, wp->w_width_inner - win_col_off(wp)));
       width = MAX(width, win_width);
-      height = (uint16_t)MAX(height, wp->w_height);
+      height = (uint16_t)MAX(height, wp->w_height_inner);
     }
+  }
+
+  // if no window displays the terminal, or such all windows are zero-height,
+  // don't resize the terminal.
+  if ((curheight == height && curwidth == width) || height == 0 || width == 0) {
+    return;
   }
 
   vterm_set_size(term->vt, height, width);
@@ -383,8 +374,10 @@ void terminal_enter(void)
   memset(s, 0, sizeof(TerminalState));
   s->term = buf->terminal;
 
-  // Ensure the terminal is properly sized.
-  terminal_resize(s->term, 0, 0);
+  // Ensure the terminal is properly sized. Ideally window size management
+  // code should always have resized the terminal already, but check here to
+  // be sure.
+  terminal_check_size(s->term);
 
   int save_state = State;
   s->save_rd = RedrawingDisabled;
@@ -531,6 +524,20 @@ void terminal_send(Terminal *term, char *data, size_t size)
     return;
   }
   term->opts.write_cb(data, size, term->opts.data);
+}
+
+void terminal_paste(long count, char_u **y_array, size_t y_size)
+{
+  for (int i = 0; i < count; i++) {  // -V756
+    // feed the lines to the terminal
+    for (size_t j = 0; j < y_size; j++) {
+      if (j) {
+        // terminate the previous line
+        terminal_send(curbuf->terminal, "\n", 1);
+      }
+      terminal_send(curbuf->terminal, (char *)y_array[j], STRLEN(y_array[j]));
+    }
+  }
 }
 
 void terminal_flush_output(Terminal *term)
@@ -971,8 +978,8 @@ static void mouse_action(Terminal *term, int button, int row, int col,
 // terminal should lose focus
 static bool send_mouse_event(Terminal *term, int c)
 {
-  int row = mouse_row, col = mouse_col;
-  win_T *mouse_win = mouse_find_win(&row, &col);
+  int row = mouse_row, col = mouse_col, grid = mouse_grid;
+  win_T *mouse_win = mouse_find_win(&grid, &row, &col);
 
   if (term->forward_mouse && mouse_win->w_buffer->terminal == term) {
     // event in the terminal window and mouse events was enabled by the
@@ -1308,8 +1315,6 @@ static void redraw(bool restore_cursor)
 
 static void adjust_topline(Terminal *term, buf_T *buf, long added)
 {
-  int height, width;
-  vterm_get_size(term->vt, &height, &width);
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
     if (wp->w_buffer == buf) {
       linenr_T ml_end = buf->b_ml.ml_line_count;
@@ -1318,7 +1323,7 @@ static void adjust_topline(Terminal *term, buf_T *buf, long added)
       if (following || (wp == curwin && is_focused(term))) {
         // "Follow" the terminal output
         wp->w_cursor.lnum = ml_end;
-        set_topline(wp, MAX(wp->w_cursor.lnum - height + 1, 1));
+        set_topline(wp, MAX(wp->w_cursor.lnum - wp->w_height_inner + 1, 1));
       } else {
         // Ensure valid cursor for each window displaying this terminal.
         wp->w_cursor.lnum = MIN(wp->w_cursor.lnum, ml_end);

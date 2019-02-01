@@ -2112,9 +2112,9 @@ char_u *did_set_spelllang(win_T *wp)
         }
 
         if (region_mask != 0) {
-          langp_T *p = GA_APPEND_VIA_PTR(langp_T, &ga);
-          p->lp_slang = slang;
-          p->lp_region = region_mask;
+          langp_T *p_ = GA_APPEND_VIA_PTR(langp_T, &ga);
+          p_->lp_slang = slang;
+          p_->lp_region = region_mask;
 
           use_midword(slang, wp);
           if (slang->sl_nobreak)
@@ -2190,11 +2190,11 @@ char_u *did_set_spelllang(win_T *wp)
       }
 
       if (region_mask != 0) {
-        langp_T *p = GA_APPEND_VIA_PTR(langp_T, &ga);
-        p->lp_slang = slang;
-        p->lp_sallang = NULL;
-        p->lp_replang = NULL;
-        p->lp_region = region_mask;
+        langp_T *p_ = GA_APPEND_VIA_PTR(langp_T, &ga);
+        p_->lp_slang = slang;
+        p_->lp_sallang = NULL;
+        p_->lp_replang = NULL;
+        p_->lp_region = region_mask;
 
         use_midword(slang, wp);
       }
@@ -2510,7 +2510,7 @@ buf_T *open_spellbuf(void)
   buf->b_spell = true;
   buf->b_p_swf = true;        // may create a swap file
   if (ml_open(buf) == FAIL) {
-    abort();
+    ELOG("Error opening a new memline");
   }
   ml_open_file(buf);          // create swap file now
 

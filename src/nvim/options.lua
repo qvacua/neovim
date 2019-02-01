@@ -806,11 +806,11 @@ return {
     },
     {
       full_name='fillchars', abbreviation='fcs',
-      type='string', list='onecomma', scope={'global'},
+      type='string', list='onecomma', scope={'window'},
       deny_duplicates=true,
       vi_def=true,
-      redraw={'all_windows'},
-      varname='p_fcs',
+      alloced=true,
+      redraw={'current_window'},
       defaults={if_true={vi=''}}
     },
     {
@@ -1427,11 +1427,11 @@ return {
     },
     {
       full_name='listchars', abbreviation='lcs',
-      type='string', list='onecomma', scope={'global'},
+      type='string', list='onecomma', scope={'window'},
       deny_duplicates=true,
       vim=true,
-      redraw={'all_windows'},
-      varname='p_lcs',
+      alloced=true,
+      redraw={'current_window'},
       defaults={if_true={vi="eol:$", vim="tab:> ,trail:-,nbsp:+"}}
     },
     {
@@ -1809,6 +1809,14 @@ return {
       type='number', scope={'global'},
       vi_def=true,
       varname='p_ph',
+      defaults={if_true={vi=0}}
+    },
+    {
+      full_name='pyxversion', abbreviation='pyx',
+      type='number', scope={'global'},
+      secure=true,
+      vi_def=true,
+      varname='p_pyx',
       defaults={if_true={vi=0}}
     },
     {

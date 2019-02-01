@@ -925,11 +925,11 @@ restofline:
           return QF_FAIL;
         }
         if (*fields->errmsg) {
-          size_t len = STRLEN(qfprev->qf_text);
+          size_t textlen = STRLEN(qfprev->qf_text);
           qfprev->qf_text = xrealloc(qfprev->qf_text,
-                                     len + STRLEN(fields->errmsg) + 2);
-          qfprev->qf_text[len] = '\n';
-          STRCPY(qfprev->qf_text + len + 1, fields->errmsg);
+                                     textlen + STRLEN(fields->errmsg) + 2);
+          qfprev->qf_text[textlen] = '\n';
+          STRCPY(qfprev->qf_text + textlen + 1, fields->errmsg);
         }
         if (qfprev->qf_nr == -1) {
           qfprev->qf_nr = fields->enr;
@@ -2155,7 +2155,7 @@ win_found:
       } else if (!msg_scrolled && shortmess(SHM_OVERALL)) {
         msg_scroll = false;
       }
-      msg_attr_keep(IObuff, 0, true);
+      msg_attr_keep(IObuff, 0, true, false);
       msg_scroll = (int)i;
     }
   } else {

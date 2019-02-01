@@ -2209,6 +2209,7 @@ printf({fmt}, {expr1}...)	String	format text
 pumvisible()			Number	whether popup menu is visible
 pyeval({expr})			any	evaluate |Python| expression
 py3eval({expr})			any	evaluate |python3| expression
+pyxeval({expr})			any	evaluate |python_x| expression
 range({expr} [, {max} [, {stride}]])
 				List	items from {expr} to {max}
 readfile({fname} [, {binary} [, {max}]])
@@ -5665,23 +5666,24 @@ max({expr})	Return the maximum value of all items in {expr}.
 
 menu_get({path}, {modes})				*menu_get()*
 		Returns a |List| of |Dictionaries| describing |menus| (defined
-		by |:menu|, |:amenu|, etc.).
-		{path} limits the result to a subtree of the menu hierarchy
-		(empty string matches all menus). E.g. to get items in the
-		"File" menu subtree: >
+		by |:menu|, |:amenu|, …), including |hidden-menus|.
+
+		{path} matches a menu by name, or all menus if {path} is an
+		empty string.  Example: >
 			:echo menu_get('File','')
+			:echo menu_get('')
 <
 		{modes} is a string of zero or more modes (see |maparg()| or
 		|creating-menus| for the list of modes). "a" means "all".
 
-		For example: >
+		Example: >
 			nnoremenu &Test.Test inormal
 			inoremenu Test.Test insert
 			vnoremenu Test.Test x
 			echo menu_get("")
-<
-		returns something like this:
->
+
+<		returns something like this: >
+
 			[ {
 			  "hidden": 0,
 			  "name": "Test",
@@ -5740,29 +5742,35 @@ mode([expr])	Return a string that indicates the current mode.
 		a non-empty String (|non-zero-arg|), then the full mode is
 		returned, otherwise only the first letter is returned.
 
-			n	Normal
-			no	Operator-pending
-			v	Visual by character
-			V	Visual by line
-			CTRL-V	Visual blockwise
-			s	Select by character
-			S	Select by line
-			CTRL-S	Select blockwise
-			i	Insert
-			ic	Insert mode completion |compl-generic|
-			ix	Insert mode |i_CTRL-X| completion
-			R	Replace |R|
-			Rc	Replace mode completion |compl-generic|
-			Rv	Virtual Replace |gR|
-			Rx	Replace mode |i_CTRL-X| completion
-			c	Command-line editing
-			cv	Vim Ex mode |gQ|
-			ce	Normal Ex mode |Q|
-			r	Hit-enter prompt
-			rm	The -- more -- prompt
-			r?	A |:confirm| query of some sort
-			!	Shell or external command is executing
-			t	Terminal mode: keys go to the job
+		   n	    Normal
+		   no	    Operator-pending
+		   nov	    Operator-pending (forced characterwise |o_v|)
+		   noV	    Operator-pending (forced linewise |o_V|)
+		   noCTRL-V Operator-pending (forced blockwise |o_CTRL-V|)
+		   niI	    Normal using |i_CTRL-O| in |Insert-mode|
+		   niR	    Normal using |i_CTRL-O| in |Replace-mode|
+		   niV	    Normal using |i_CTRL-O| in |Virtual-Replace-mode|
+		   v	    Visual by character
+		   V	    Visual by line
+		   CTRL-V   Visual blockwise
+		   s	    Select by character
+		   S	    Select by line
+		   CTRL-S   Select blockwise
+		   i	    Insert
+		   ic	    Insert mode completion |compl-generic|
+		   ix	    Insert mode |i_CTRL-X| completion
+		   R	    Replace |R|
+		   Rc	    Replace mode completion |compl-generic|
+		   Rv	    Virtual Replace |gR|
+		   Rx	    Replace mode |i_CTRL-X| completion
+		   c	    Command-line editing
+		   cv	    Vim Ex mode |gQ|
+		   ce	    Normal Ex mode |Q|
+		   r	    Hit-enter prompt
+		   rm	    The -- more -- prompt
+		   r?	    |:confirm| query of some sort
+		   !	    Shell or external command is executing
+		   t	    Terminal mode: keys go to the job
 		This is useful in the 'statusline' option or when used
 		with |remote_expr()| In most other places it always returns
 		"c" or "n".
@@ -6145,6 +6153,12 @@ pyeval({expr})						*pyeval()*
 		Dictionaries are represented as Vim |Dictionary| type,
 		non-string keys result in error.
 		{only available when compiled with the |+python| feature}
+
+pyxeval({expr})						*pyxeval()*
+		Evaluate Python expression {expr} and return its result
+		converted to Vim data structures.
+		Uses Python 2 or 3, see |python_x| and 'pyxversion'.
+		See also: |pyeval()|, |py3eval()|
 
 							*E726* *E727*
 range({expr} [, {max} [, {stride}]])				*range()*
@@ -8517,6 +8531,7 @@ printer			Compiled with |:hardcopy| support.
 profile			Compiled with |:profile| support.
 python			Legacy Vim Python 2.x API is available. |has-python|
 python3			Legacy Vim Python 3.x API is available. |has-python|
+pythonx			Compiled with |python_x| interface. |has-pythonx|
 quickfix		Compiled with |quickfix| support.
 reltime			Compiled with |reltime()| support.
 rightleft		Compiled with 'rightleft' support.

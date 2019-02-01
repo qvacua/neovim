@@ -111,14 +111,14 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
 # If not in a git repo (e.g., a tarball) these tokens define the complete
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
-set(NVIM_VERSION_MINOR 3)
-set(NVIM_VERSION_PATCH 4)
-set(NVIM_VERSION_PRERELEASE "") # for package maintainers
+set(NVIM_VERSION_MINOR 4)
+set(NVIM_VERSION_PATCH 0)
+set(NVIM_VERSION_PRERELEASE "-dev") # for package maintainers
 
 # API level
-set(NVIM_API_LEVEL 5)         # Bump this after any API change.
+set(NVIM_API_LEVEL 6)         # Bump this after any API change.
 set(NVIM_API_LEVEL_COMPAT 0)  # Adjust this after a _breaking_ API change.
-set(NVIM_API_PRERELEASE false)
+set(NVIM_API_PRERELEASE true)
 
 file(TO_CMAKE_PATH ${CMAKE_CURRENT_LIST_DIR}/.git FORCED_GIT_DIR)
 include(GetGitRevisionDescription)
@@ -174,7 +174,7 @@ endif()
 
 # Enable -Wconversion.
 if(NOT MSVC)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wconversion")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wshadow -Wconversion")
 endif()
 
 # gcc 4.0+ sets _FORTIFY_SOURCE=2 automatically.  This currently
@@ -247,6 +247,16 @@ int main(void)
   return 0;
 }
 " HAVE_EXECINFO_BACKTRACE)
+
+check_c_source_compiles("
+int main(void)
+{
+  int a;
+  __builtin_add_overflow(a, a, &a);
+  __builtin_sub_overflow(a, a, &a);
+  return 0;
+}
+" HAVE_BUILTIN_ADD_OVERFLOW)
 
 if(MSVC)
   # XXX: /W4 gives too many warnings. #3241
@@ -454,22 +464,6 @@ endif()
 
 if((CLANG_ASAN_UBSAN OR CLANG_MSAN OR CLANG_TSAN) AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   message(FATAL_ERROR "Sanitizers are only supported for Clang")
-endif()
-
-if(CMAKE_SYSTEM_NAME MATCHES "OpenBSD|FreeBSD|Windows")  # see #5318
-  message(STATUS "skipping jemalloc on this system: ${CMAKE_SYSTEM_NAME}")
-  option(ENABLE_JEMALLOC "enable jemalloc" OFF)
-else()
-  option(ENABLE_JEMALLOC "enable jemalloc" ON)
-endif()
-
-if(ENABLE_JEMALLOC)
-  if(CLANG_ASAN_UBSAN OR CLANG_MSAN OR CLANG_TSAN)
-    message(STATUS "Sanitizers enabled; disabling jemalloc")
-  else()
-    find_package(JeMalloc REQUIRED)
-    include_directories(SYSTEM ${JEMALLOC_INCLUDE_DIRS})
-  endif()
 endif()
 
 if(ENABLE_LIBINTL)

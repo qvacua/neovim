@@ -1,4 +1,3 @@
-require('vim.compat')
 require('coxpcall')
 local luv = require('luv')
 local lfs = require('lfs')
@@ -84,6 +83,10 @@ end
 
 local session, loop_running, last_error
 
+local function get_session()
+  return session
+end
+
 local function set_session(s, keep)
   if session and not keep then
     session:close()
@@ -164,34 +167,34 @@ local function expect_msg_seq(...)
   error(final_error)
 end
 
-local function call_and_stop_on_error(...)
+local function call_and_stop_on_error(lsession, ...)
   local status, result = copcall(...)  -- luacheck: ignore
   if not status then
-    session:stop()
+    lsession:stop()
     last_error = result
     return ''
   end
   return result
 end
 
-local function run(request_cb, notification_cb, setup_cb, timeout)
+local function run_session(lsession, request_cb, notification_cb, setup_cb, timeout)
   local on_request, on_notification, on_setup
 
   if request_cb then
     function on_request(method, args)
-      return call_and_stop_on_error(request_cb, method, args)
+      return call_and_stop_on_error(lsession, request_cb, method, args)
     end
   end
 
   if notification_cb then
     function on_notification(method, args)
-      call_and_stop_on_error(notification_cb, method, args)
+      call_and_stop_on_error(lsession, notification_cb, method, args)
     end
   end
 
   if setup_cb then
     function on_setup()
-      call_and_stop_on_error(setup_cb)
+      call_and_stop_on_error(lsession, setup_cb)
     end
   end
 
@@ -203,6 +206,10 @@ local function run(request_cb, notification_cb, setup_cb, timeout)
     last_error = nil
     error(err)
   end
+end
+
+local function run(request_cb, notification_cb, setup_cb, timeout)
+  run_session(session, request_cb, notification_cb, setup_cb, timeout)
 end
 
 local function stop()
@@ -671,12 +678,51 @@ local function alter_slashes(obj)
   end
 end
 
+local function compute_load_factor()
+  local timeout = 200
+  local times = {}
+
+  clear()
+
+  for _ = 1, 5 do
+    source([[
+      let g:val = 0
+      call timer_start(200, {-> nvim_set_var('val', 1)})
+      let start = reltime()
+      while 1
+        sleep 10m
+        if g:val == 1
+          let g:waited_in_ms = float2nr(reltimefloat(reltime(start)) * 1000)
+          break
+        endif
+      endwhile
+    ]])
+    table.insert(times, nvim_eval('g:waited_in_ms'))
+  end
+
+  session:close()
+  session = nil
+
+  local longest = math.max(unpack(times))
+  local factor = (longest + 50.0) / timeout
+
+  return factor
+end
+
+-- Compute load factor only once.
+local load_factor = compute_load_factor()
+
+local function load_adjust(num)
+  return math.ceil(num * load_factor)
+end
+
 local module = {
   NIL = mpack.NIL,
   alter_slashes = alter_slashes,
   buffer = buffer,
   bufmeths = bufmeths,
   call = nvim_call,
+  create_callindex = create_callindex,
   clear = clear,
   command = nvim_command,
   connect = connect,
@@ -701,6 +747,7 @@ local module = {
   filter = filter,
   funcs = funcs,
   get_pathsep = get_pathsep,
+  get_session = get_session,
   insert = insert,
   iswin = iswin,
   map = map,
@@ -710,6 +757,7 @@ local module = {
   meths = meths,
   missing_provider = missing_provider,
   mkdir = lfs.mkdir,
+  load_adjust = load_adjust,
   near = near,
   neq = neq,
   new_pipename = new_pipename,
@@ -732,6 +780,7 @@ local module = {
   retry = retry,
   rmdir = rmdir,
   run = run,
+  run_session = run_session,
   set_session = set_session,
   set_shell_powershell = set_shell_powershell,
   skip_fragile = skip_fragile,
