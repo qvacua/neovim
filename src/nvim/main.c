@@ -154,6 +154,7 @@ void event_init(void)
   remote_ui_init();
   api_vim_init();
   terminal_init();
+  ui_init();
 }
 
 /// @returns false if main_loop could not be closed gracefully
@@ -221,6 +222,7 @@ void early_init(void)
 }
 
 #ifdef MAKE_LIB
+int nvim_main(int argc, char **argv);  // silence -Wmissing-prototypes
 int nvim_main(int argc, char **argv)
 #elif defined(WIN32)
 int wmain(int argc, wchar_t **argv_w)  // multibyte args on Windows. #7060

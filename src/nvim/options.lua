@@ -1175,9 +1175,7 @@ return {
       vi_def=true,
       varname='p_iminsert', pv_name='p_imi',
       defaults={
-        condition='B_IMODE_IM',
-        if_true={vi=macros('B_IMODE_IM')},
-        if_false={vi=macros('B_IMODE_NONE')},
+        if_true={vi=macros('B_IMODE_NONE')},
       }
     },
     {
@@ -1186,9 +1184,7 @@ return {
       vi_def=true,
       varname='p_imsearch', pv_name='p_ims',
       defaults={
-        condition='B_IMODE_IM',
-        if_true={vi=macros('B_IMODE_IM')},
-        if_false={vi=macros('B_IMODE_NONE')},
+        if_true={vi=macros('B_IMODE_USE_INSERT')},
       }
     },
     {
@@ -1936,7 +1932,7 @@ return {
       vi_def=true,
       varname='p_scbk',
       redraw={'current_buffer'},
-      defaults={if_true={vi=10000}}
+      defaults={if_true={vi=-1}}
     },
     {
       full_name='scrollbind', abbreviation='scb',
