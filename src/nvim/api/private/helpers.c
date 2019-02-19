@@ -27,6 +27,7 @@
 #include "nvim/version.h"
 #include "nvim/lib/kvec.h"
 #include "nvim/getchar.h"
+#include "nvim/fileio.h"
 #include "nvim/ui.h"
 
 /// Helper structure for vim_to_object
@@ -711,6 +712,12 @@ String cbuf_to_string(const char *buf, size_t size)
   };
 }
 
+String cstrn_to_string(const char *str, size_t maxsize)
+  FUNC_ATTR_NONNULL_ALL
+{
+  return cbuf_to_string(str, strnlen(str, maxsize));
+}
+
 /// Creates a String using the given C string. Unlike
 /// cstr_to_string this function DOES NOT copy the C string.
 ///
@@ -723,6 +730,18 @@ String cstr_as_string(char *str) FUNC_ATTR_PURE
     return (String)STRING_INIT;
   }
   return (String){ .data = str, .size = strlen(str) };
+}
+
+/// Return the owned memory of a ga as a String
+///
+/// Reinitializes the ga to a valid empty state.
+String ga_take_string(garray_T *ga)
+{
+  String str = { .data = (char *)ga->ga_data, .size = (size_t)ga->ga_len };
+  ga->ga_data = NULL;
+  ga->ga_len = 0;
+  ga->ga_maxlen = 0;
+  return str;
 }
 
 /// Collects `n` buffer lines into array `l`, optionally replacing newlines
@@ -1094,7 +1113,7 @@ static void set_option_value_for(char *key,
 {
   win_T *save_curwin = NULL;
   tabpage_T *save_curtab = NULL;
-  bufref_T save_curbuf =  { NULL, 0, 0 };
+  aco_save_T aco;
 
   try_start();
   switch (opt_type)
@@ -1115,9 +1134,9 @@ static void set_option_value_for(char *key,
       restore_win(save_curwin, save_curtab, true);
       break;
     case SREQ_BUF:
-      switch_buffer(&save_curbuf, (buf_T *)from);
+      aucmd_prepbuf(&aco, (buf_T *)from);
       set_option_value_err(key, numval, stringval, opt_flags, err);
-      restore_buffer(&save_curbuf);
+      aucmd_restbuf(&aco);
       break;
     case SREQ_GLOBAL:
       set_option_value_err(key, numval, stringval, opt_flags, err);

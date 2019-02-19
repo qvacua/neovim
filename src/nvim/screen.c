@@ -80,7 +80,6 @@
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_getln.h"
 #include "nvim/edit.h"
-#include "nvim/farsi.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
 #include "nvim/indent.h"
@@ -362,6 +361,8 @@ void update_screen(int type)
     need_wait_return = FALSE;
   }
 
+  msg_ext_check_prompt();
+
   /* reset cmdline_row now (may have been changed temporarily) */
   compute_cmdrow();
 
@@ -483,8 +484,9 @@ void update_screen(int type)
 
   /* Clear or redraw the command line.  Done last, because scrolling may
    * mess up the command line. */
-  if (clear_cmdline || redraw_cmdline)
+  if (clear_cmdline || redraw_cmdline) {
     showmode();
+  }
 
   /* May put up an introductory message when not editing a file */
   if (!did_intro)
@@ -5864,7 +5866,8 @@ void grid_fill(ScreenGrid *grid, int start_row, int end_row, int start_col,
     }
 
     // TODO(bfredl): The relevant caller should do this
-    if (row == Rows - 1) {  // overwritten the command line
+    if (row == Rows - 1 && !ui_has(kUIMessages)) {
+      // overwritten the command line
       redraw_cmdline = true;
       if (start_col == 0 && end_col == Columns
           && c1 == ' ' && c2 == ' ' && attr == 0) {
@@ -6394,6 +6397,13 @@ int showmode(void)
   int nwr_save;
   int sub_attr;
 
+  if (ui_has(kUIMessages) && clear_cmdline) {
+    msg_ext_clear(true);
+  }
+
+  // don't make non-flushed message part of the showmode
+  msg_ext_ui_flush();
+
   do_mode = ((p_smd && msg_silent == 0)
              && ((State & TERM_FOCUS)
                  || (State & INSERT)
@@ -6436,9 +6446,14 @@ int showmode(void)
       MSG_PUTS_ATTR("--", attr);
       // CTRL-X in Insert mode
       if (edit_submode != NULL && !shortmess(SHM_COMPLETIONMENU)) {
-        /* These messages can get long, avoid a wrap in a narrow
-         * window.  Prefer showing edit_submode_extra. */
-        length = (Rows - msg_row) * Columns - 3;
+        // These messages can get long, avoid a wrap in a narrow window.
+        // Prefer showing edit_submode_extra. With external messages there
+        // is no imposed limit.
+        if (ui_has(kUIMessages)) {
+          length = INT_MAX;
+        } else {
+          length = (Rows - msg_row) * Columns - 3;
+        }
         if (edit_submode_extra != NULL) {
           length -= vim_strsize(edit_submode_extra);
         }
@@ -6482,9 +6497,6 @@ int showmode(void)
         }
         if (p_hkmap) {
           MSG_PUTS_ATTR(_(" Hebrew"), attr);
-        }
-        if (p_fkmap) {
-          MSG_PUTS_ATTR(farsi_text_5, attr);
         }
         if (State & LANGMAP) {
           if (curwin->w_p_arab) {
@@ -6540,6 +6552,9 @@ int showmode(void)
     msg_clr_cmdline();
   }
 
+  // NB: also handles clearing the showmode if it was emtpy or disabled
+  msg_ext_flush_showmode();
+
   /* In Visual mode the size of the selected area must be redrawn. */
   if (VIsual_active)
     clear_showcmd();
@@ -6581,11 +6596,13 @@ void unshowmode(bool force)
 // Clear the mode message.
 void clearmode(void)
 {
-    msg_pos_mode();
-    if (Recording) {
-      recording_mode(HL_ATTR(HLF_CM));
-    }
-    msg_clr_eos();
+  msg_ext_ui_flush();
+  msg_pos_mode();
+  if (Recording) {
+    recording_mode(HL_ATTR(HLF_CM));
+  }
+  msg_clr_eos();
+  msg_ext_flush_showmode();
 }
 
 static void recording_mode(int attr)
@@ -6894,9 +6911,12 @@ void showruler(int always)
 
 static void win_redr_ruler(win_T *wp, int always)
 {
-  /* If 'ruler' off or redrawing disabled, don't do anything */
-  if (!p_ru)
+  static bool did_show_ext_ruler = false;
+
+  // If 'ruler' off or redrawing disabled, don't do anything
+  if (!p_ru) {
     return;
+  }
 
   /*
    * Check if cursor.lnum is valid, since win_redr_ruler() may be called
@@ -6951,12 +6971,14 @@ static void win_redr_ruler(win_T *wp, int always)
     int fillchar;
     int attr;
     int off;
+    bool part_of_status = false;
 
     if (wp->w_status_height) {
       row = W_ENDROW(wp);
       fillchar = fillchar_status(&attr, wp);
       off = wp->w_wincol;
       width = wp->w_width;
+      part_of_status = true;
     } else {
       row = Rows - 1;
       fillchar = ' ';
@@ -7016,23 +7038,39 @@ static void win_redr_ruler(win_T *wp, int always)
       }
       get_rel_pos(wp, buffer + i, RULER_BUF_LEN - i);
     }
-    // Truncate at window boundary.
-    o = 0;
-    for (i = 0; buffer[i] != NUL; i += utfc_ptr2len(buffer + i)) {
-      o += utf_ptr2cells(buffer + i);
-      if (this_ru_col + o > width) {
-        buffer[i] = NUL;
-        break;
+
+    if (ui_has(kUIMessages) && !part_of_status) {
+      Array content = ARRAY_DICT_INIT;
+      Array chunk = ARRAY_DICT_INIT;
+      ADD(chunk, INTEGER_OBJ(attr));
+      ADD(chunk, STRING_OBJ(cstr_to_string((char *)buffer)));
+      ADD(content, ARRAY_OBJ(chunk));
+      ui_call_msg_ruler(content);
+      did_show_ext_ruler = true;
+    } else {
+      if (did_show_ext_ruler) {
+        ui_call_msg_ruler((Array)ARRAY_DICT_INIT);
+        did_show_ext_ruler = false;
       }
+      // Truncate at window boundary.
+      o = 0;
+      for (i = 0; buffer[i] != NUL; i += utfc_ptr2len(buffer + i)) {
+        o += utf_ptr2cells(buffer + i);
+        if (this_ru_col + o > width) {
+          buffer[i] = NUL;
+          break;
+        }
+      }
+
+      grid_puts(&default_grid, buffer, row, this_ru_col + off, attr);
+      i = redraw_cmdline;
+      grid_fill(&default_grid, row, row + 1,
+                this_ru_col + off + (int)STRLEN(buffer), off + width, fillchar,
+                fillchar, attr);
+      // don't redraw the cmdline because of showing the ruler
+      redraw_cmdline = i;
     }
 
-    grid_puts(&default_grid, buffer, row, this_ru_col + off, attr);
-    i = redraw_cmdline;
-    grid_fill(&default_grid, row, row + 1,
-              this_ru_col + off + (int)STRLEN(buffer), off + width, fillchar,
-              fillchar, attr);
-    // don't redraw the cmdline because of showing the ruler
-    redraw_cmdline = i;
     wp->w_ru_cursor = wp->w_cursor;
     wp->w_ru_virtcol = wp->w_virtcol;
     wp->w_ru_empty = empty_line;

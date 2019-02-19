@@ -1273,7 +1273,7 @@ describe('builtin popupmenu', function()
     ]])
   end)
 
-  it('works with pumblend', function()
+  it("'pumblend' RGB-color", function()
     screen:try_resize(60,14)
     screen:set_default_attr_ids({
       [1] = {background = Screen.colors.Yellow},
@@ -1281,42 +1281,45 @@ describe('builtin popupmenu', function()
       [3] = {bold = true, foreground = Screen.colors.Brown},
       [4] = {foreground = Screen.colors.Blue1},
       [5] = {reverse = true},
-      [6] = {background = Screen.colors.Gray55, foreground = Screen.colors.Grey45, special = Screen.colors.Red},
-      [7] = {background = Screen.colors.Gray55, foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [8] = {background = tonumber('0x191919'), foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [9] = {background = tonumber('0xffc1ff'), foreground = tonumber('0xe5a8e5'), special = Screen.colors.Red},
-      [10] = {background = tonumber('0xffc1ff'), foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [11] = {foreground = tonumber('0xe5a8e5'), special = Screen.colors.Red, background = tonumber('0xffc1ff'), reverse = true, bold = true},
-      [12] = {foreground = Screen.colors.Grey45, special = Screen.colors.Red, background = Screen.colors.Gray55, reverse = true, bold = true},
-      [13] = {background = tonumber('0xffc1e5'), foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [14] = {background = tonumber('0xffc1e5'), foreground = tonumber('0xe5a8e5'), special = Screen.colors.Red},
-      [15] = {background = tonumber('0xffc1ff'), foreground = tonumber('0x080202'), special = Screen.colors.Red},
-      [16] = {special = Screen.colors.Red, background = tonumber('0xffc1ff'), bold = true, foreground = tonumber('0xf6ace9')},
-      [17] = {background = tonumber('0xffc1ff'), foreground = tonumber('0xe5a8ff'), special = Screen.colors.Red},
-      [18] = {special = Screen.colors.Red, background = tonumber('0xffc1ff'), reverse = true, foreground = tonumber('0xe5a8e5')},
-      [19] = {special = Screen.colors.Red, background = Screen.colors.Gray55, reverse = true, foreground = Screen.colors.Grey45},
+      [6] = {background = Screen.colors.Gray55, foreground = Screen.colors.Grey45},
+      [7] = {background = Screen.colors.Gray55, foreground = Screen.colors.Grey0},
+      [8] = {background = tonumber('0x191919'), foreground = Screen.colors.Grey0},
+      [9] = {background = tonumber('0xffc1ff'), foreground = tonumber('0xe5a8e5')},
+      [10] = {background = tonumber('0xffc1ff'), foreground = Screen.colors.Grey0},
+      [11] = {foreground = tonumber('0xffc1ff'), background = tonumber('0xe5a8e5'), bold = true},
+      [12] = {foreground = Screen.colors.Grey55, background = Screen.colors.Gray45, bold = true},
+      [13] = {background = tonumber('0xffc1e5'), foreground = Screen.colors.Grey0},
+      [14] = {background = tonumber('0xffc1e5'), foreground = tonumber('0xe5a8e5')},
+      [15] = {background = tonumber('0xffc1ff'), foreground = tonumber('0x080202')},
+      [16] = {background = tonumber('0xffc1ff'), bold = true, foreground = tonumber('0xf6ace9')},
+      [17] = {background = tonumber('0xffc1ff'), foreground = tonumber('0xe5a8ff')},
+      [18] = {background = tonumber('0xe5a8e5'), foreground = tonumber('0xffc1ff')},
+      [19] = {background = Screen.colors.Gray45, foreground = Screen.colors.Grey55},
       [20] = {bold = true},
       [21] = {bold = true, foreground = Screen.colors.SeaGreen4},
       [22] = {background = Screen.colors.WebGray},
       [23] = {background = Screen.colors.Grey0},
       [24] = {background = Screen.colors.LightMagenta},
-      [25] = {background = Screen.colors.Gray75, foreground = Screen.colors.Grey25, special = Screen.colors.Red},
-      [26] = {background = Screen.colors.Gray75, foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [27] = {background = Screen.colors.Gray50, foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [28] = {background = tonumber('0xffddff'), foreground = tonumber('0x7f5d7f'), special = Screen.colors.Red},
-      [29] = {background = tonumber('0xffddff'), foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [30] = {foreground = tonumber('0x7f5d7f'), special = Screen.colors.Red, background = tonumber('0xffddff'), reverse = true, bold = true},
-      [31] = {foreground = Screen.colors.Grey0, special = Screen.colors.Red, background = tonumber('0xffddff'), reverse = true, bold = true},
-      [32] = {foreground = Screen.colors.Grey25, special = Screen.colors.Red, background = Screen.colors.Gray75, reverse = true, bold = true},
-      [33] = {background = tonumber('0xffdd7f'), foreground = Screen.colors.Grey0, special = Screen.colors.Red},
-      [34] = {background = tonumber('0xffdd7f'), foreground = tonumber('0x7f5d7f'), special = Screen.colors.Red},
-      [35] = {special = Screen.colors.Red, background = tonumber('0xffddff'), bold = true, foreground = tonumber('0x290a0a')},
-      [36] = {special = Screen.colors.Red, background = tonumber('0xffddff'), bold = true, foreground = tonumber('0xd27294')},
-      [37] = {background = tonumber('0xffddff'), foreground = tonumber('0x7f5dff'), special = Screen.colors.Red},
-      [38] = {special = Screen.colors.Red, background = tonumber('0xffddff'), reverse = true, foreground = tonumber('0x7f5d7f')},
-      [39] = {special = Screen.colors.Red, background = tonumber('0xffddff'), reverse = true, foreground = Screen.colors.Grey0},
-      [40] = {special = Screen.colors.Red, background = Screen.colors.Gray75, reverse = true, foreground = Screen.colors.Grey25},
-      [41] = {background = tonumber('0xffddff'), foreground = tonumber('0x00003f'), special = Screen.colors.Red},
+      [25] = {background = Screen.colors.Gray75, foreground = Screen.colors.Grey25},
+      [26] = {background = Screen.colors.Gray75, foreground = Screen.colors.Grey0},
+      [27] = {background = Screen.colors.Gray50, foreground = Screen.colors.Grey0},
+      [28] = {background = tonumber('0xffddff'), foreground = tonumber('0x7f5d7f')},
+      [29] = {background = tonumber('0xffddff'), foreground = Screen.colors.Grey0},
+      [30] = {foreground = tonumber('0xffddff'), background = tonumber('0x7f5d7f'), bold = true},
+      [31] = {foreground = tonumber('0xffddff'), background = Screen.colors.Grey0, bold = true},
+      [32] = {foreground = Screen.colors.Gray75, background = Screen.colors.Grey25, bold = true},
+      [33] = {background = tonumber('0xffdd7f'), foreground = Screen.colors.Grey0},
+      [34] = {background = tonumber('0xffdd7f'), foreground = tonumber('0x7f5d7f')},
+      [35] = {background = tonumber('0xffddff'), bold = true, foreground = tonumber('0x290a0a')},
+      [36] = {background = tonumber('0xffddff'), bold = true, foreground = tonumber('0xd27294')},
+      [37] = {background = tonumber('0xffddff'), foreground = tonumber('0x7f5dff')},
+      [38] = {background = tonumber('0x7f5d7f'), foreground = tonumber('0xffddff')},
+      [39] = {background = Screen.colors.Grey0, foreground = tonumber('0xffddff')},
+      [40] = {background = Screen.colors.Gray25, foreground = Screen.colors.Grey75},
+      [41] = {background = tonumber('0xffddff'), foreground = tonumber('0x00003f')},
+      [42] = {foreground = tonumber('0x0c0c0c'), background = tonumber('0xe5a8e5')},
+      [43] = {background = tonumber('0x7f5d7f'), bold = true, foreground = tonumber('0x3f3f3f')},
+      [44] = {foreground = tonumber('0x3f3f3f'), background = tonumber('0x7f5d7f')},
     })
     command('syntax on')
     command('set mouse=a')
@@ -1363,13 +1366,13 @@ describe('builtin popupmenu', function()
       incidid{6:u}{7:incididunt}{6:re et}{8: }d{1:ol}ore magna aliqua.                |
       Ut enim{9: }{10:ut}{9: minim veniam}{6:,} quis nostrud                       |
       exercit{9:a}{10:labore}{9:llamco la}{6:b}oris nisi ut aliquip ex             |
-      {2:[No Nam}{11:e}{10:et}{11:[+]          }{12: }{2:                                    }|
+      {2:[No Nam}{11:e}{42:et}{11:[+]          }{12: }{2:                                    }|
       Lorem i{9:p}{10:dolor}{13:e}{14:l}{9:or sit a}{6:m}et, consectetur                     |
       adipisi{9:c}{10:magn}{15:a}{16:l}{9:it, sed d}{6:o} eiusmod tempor                     |
       bla bla{9: }{10:aliqua}{9:dunt     }{6: }                                    |
       incidid{9:u}{10:Ut}{9: }{17:ut}{9: labore et}{6: }d{1:ol}ore magna aliqua.                |
       Ut enim{9: }{10:enim}{9:inim veniam}{6:,} quis nostrud                       |
-      {5:[No Nam}{18:e}{10:ad}{18:[+]          }{19: }{5:                                    }|
+      {5:[No Nam}{18:e}{42:ad}{18:[+]          }{19: }{5:                                    }|
       {20:-- Keyword Local completion (^N^P) }{21:match 1 of 65}            |
     ]])
 
@@ -1399,13 +1402,13 @@ describe('builtin popupmenu', function()
       incidid{25:u}{26:incididunt}{25:re et}{27: }d{1:ol}ore magna aliqua.                |
       Ut enim{28: }{29:ut}{28: minim veniam}{25:,} quis nostrud                       |
       exercit{28:a}{29:labore}{28:llamco la}{25:b}oris nisi ut aliquip ex             |
-      {2:[No Nam}{30:e}{31:et}{30:[+]          }{32: }{2:                                    }|
+      {2:[No Nam}{30:e}{43:et}{30:[+]          }{32: }{2:                                    }|
       Lorem i{28:p}{29:dolor}{33:e}{34:l}{28:or sit a}{25:m}et, consectetur                     |
       adipisi{28:c}{29:magn}{35:a}{36:l}{28:it, sed d}{25:o} eiusmod tempor                     |
       bla bla{28: }{29:aliqua}{28:dunt     }{25: }                                    |
       incidid{28:u}{29:Ut}{28: }{37:ut}{28: labore et}{25: }d{1:ol}ore magna aliqua.                |
       Ut enim{28: }{29:enim}{28:inim veniam}{25:,} quis nostrud                       |
-      {5:[No Nam}{38:e}{39:ad}{38:[+]          }{40: }{5:                                    }|
+      {5:[No Nam}{38:e}{44:ad}{38:[+]          }{40: }{5:                                    }|
       {20:-- Keyword Local completion (^N^P) }{21:match 1 of 65}            |
     ]])
 
@@ -1417,13 +1420,13 @@ describe('builtin popupmenu', function()
       incidid{25:u}{26:incididunt}{25:re et}{27: }d{1:ol}ore magna aliqua.                |
       Ut enim{28: }{29:ut}{28: minim veniam}{25:,} quis nostrud                       |
       exercit{28:a}{29:labore}{28:llamco la}{25:b}oris nisi ut aliquip ex             |
-      {2:[No Nam}{30:e}{31:et}{30:[+]          }{32: }{2:                                    }|
+      {2:[No Nam}{30:e}{43:et}{30:[+]          }{32: }{2:                                    }|
       incidid{28:u}{29:dol}{41:or}{29:e}{28:labore et}{25: }d{1:ol}ore magna aliqua.                |
       Ut enim{28: }{29:magna}{28:nim veniam}{25:,} quis nostrud                       |
       exercit{28:a}{29:aliqua}{28:llamco la}{25:b}oris nisi {4:ut} aliquip ex             |
       ea comm{28:o}{29:Ut}{28: consequat. D}{25:u}is a{4:ut}e irure d{1:ol}or in              |
       reprehe{28:n}{29:enim}{28:t in v}{34:ol}{28:upt}{25:a}te v{3:el}it esse cillum                |
-      {5:[No Nam}{38:e}{39:ad}{38:[+]          }{40: }{5:                                    }|
+      {5:[No Nam}{38:e}{44:ad}{38:[+]          }{40: }{5:                                    }|
       {20:-- Keyword Local completion (^N^P) }{21:match 1 of 65}            |
     ]])
 
@@ -1443,6 +1446,43 @@ describe('builtin popupmenu', function()
       reprehenderit in v{1:ol}uptate v{3:el}it esse cillum                |
       {5:[No Name] [+]                                               }|
       {20:-- INSERT --}                                                |
+    ]])
+  end)
+
+  it("'pumblend' 256-color (non-RGB)", function()
+    screen:detach()
+    screen = Screen.new(60, 8)
+    screen:attach({rgb=false, ext_popupmenu=false})
+    screen:set_default_attr_ids({
+      [1] = {foreground = Screen.colors.Grey0, background = tonumber('0x000007')},
+      [2] = {foreground = tonumber('0x000055'), background = tonumber('0x000007')},
+      [3] = {foreground = tonumber('0x00008f'), background = Screen.colors.Grey0},
+      [4] = {foreground = Screen.colors.Grey0, background = tonumber('0x0000e1')},
+      [5] = {foreground = tonumber('0x0000d1'), background = tonumber('0x0000e1')},
+      [6] = {foreground = Screen.colors.NavyBlue, background = tonumber('0x0000f8')},
+      [7] = {foreground = tonumber('0x0000a5'), background = tonumber('0x0000f8')},
+      [8] = {foreground = tonumber('0x00000c')},
+      [9] = {bold = true},
+      [10] = {foreground = tonumber('0x000002')},
+    })
+    command('set notermguicolors pumblend=10')
+    insert([[
+      Lorem ipsum dolor sit amet, consectetur
+      adipisicing elit, sed do eiusmod tempor
+      incididunt ut labore et dolore magna aliqua.
+      Ut enim ad minim veniam, quis nostrud
+      laborum.]])
+
+    feed('ggOdo<c-x><c-n>')
+    screen:expect([[
+      dolor^                                                       |
+      {1:dolor}{2: ipsum dol}or sit amet, consectetur                     |
+      {4:do}{5:ipisicing eli}t, sed do eiusmod tempor                     |
+      {4:dolore}{5:dunt ut l}abore et dolore magna aliqua.                |
+      Ut enim ad minim veniam, quis nostrud                       |
+      laborum.                                                    |
+      {8:~                                                           }|
+      {9:-- Keyword Local completion (^N^P) }{10:match 1 of 3}             |
     ]])
   end)
 end)

@@ -10667,7 +10667,6 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     "eval",         /* always present, of course! */
     "ex_extra",
     "extra_search",
-    "farsi",
     "file_in_path",
     "filterpipe",
     "find_in_path",
@@ -19600,7 +19599,10 @@ void ex_echo(exarg_T *eap)
         msg_puts_attr(" ", echo_attr);
       }
       char *tofree = encode_tv2echo(&rettv, NULL);
-      msg_multiline_attr(tofree, echo_attr);
+      if (*tofree != NUL) {
+        msg_ext_set_kind("echo");
+        msg_multiline_attr(tofree, echo_attr);
+      }
       xfree(tofree);
     }
     tv_clear(&rettv);
@@ -19692,11 +19694,13 @@ void ex_execute(exarg_T *eap)
     }
 
     if (eap->cmdidx == CMD_echomsg) {
+      msg_ext_set_kind("echomsg");
       MSG_ATTR(ga.ga_data, echo_attr);
       ui_flush();
     } else if (eap->cmdidx == CMD_echoerr) {
       /* We don't want to abort following commands, restore did_emsg. */
       save_did_emsg = did_emsg;
+      msg_ext_set_kind("echoerr");
       EMSG((char_u *)ga.ga_data);
       if (!force_abort)
         did_emsg = save_did_emsg;

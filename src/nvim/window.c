@@ -20,7 +20,6 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/ex_getln.h"
-#include "nvim/farsi.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
 #include "nvim/getchar.h"
@@ -1300,6 +1299,7 @@ static void win_rotate(int upwards, int count)
     if (upwards) {              /* first window becomes last window */
       /* remove first window/frame from the list */
       frp = curwin->w_frame->fr_parent->fr_child;
+      assert(frp != NULL);
       wp1 = frp->fr_win;
       win_remove(wp1, NULL);
       frame_remove(frp);
@@ -2933,10 +2933,6 @@ void win_init_empty(win_T *wp)
   wp->w_topline = 1;
   wp->w_topfill = 0;
   wp->w_botline = 2;
-  if (wp->w_p_rl)
-    wp->w_farsi = W_CONV + W_R_L;
-  else
-    wp->w_farsi = W_CONV;
   wp->w_s = &wp->w_buffer->b_s;
 }
 
