@@ -47,8 +47,8 @@ local check_logs_useless_lines = {
   ['See README_MISSING_SYSCALL_OR_IOCTL for guidance']=3,
 }
 
-local function eq(expected, actual, ctx)
-  return assert.are.same(expected, actual, ctx)
+local function eq(expected, actual, context)
+  return assert.are.same(expected, actual, context)
 end
 local function neq(expected, actual, context)
   return assert.are_not.same(expected, actual, context)
@@ -708,7 +708,7 @@ end
 local function isCI()
   local is_travis = nil ~= os.getenv('TRAVIS')
   local is_appveyor = nil ~= os.getenv('APPVEYOR')
-  local is_quickbuild = nil ~= os.getenv('PR_NUMBER')
+  local is_quickbuild = nil ~= lfs.attributes('/usr/home/quickbuild')
   return is_travis or is_appveyor or is_quickbuild
 end
 
@@ -751,6 +751,7 @@ local module = {
   hasenv = hasenv,
   hexdump = hexdump,
   intchar2lua = intchar2lua,
+  isCI = isCI,
   map = map,
   matches = matches,
   mergedicts_copy = mergedicts_copy,

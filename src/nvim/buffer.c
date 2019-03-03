@@ -474,8 +474,8 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
       return;
     }
     buf->b_locked--;
-    if (abort_if_last && one_window()) {
-      /* Autocommands made this the only window. */
+    if (abort_if_last && last_nonfloat(win)) {
+      // Autocommands made this the only window.
       EMSG(_(e_auabort));
       return;
     }
@@ -491,8 +491,8 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
         return;
       }
       buf->b_locked--;
-      if (abort_if_last && one_window()) {
-        /* Autocommands made this the only window. */
+      if (abort_if_last && last_nonfloat(win)) {
+        // Autocommands made this the only window.
         EMSG(_(e_auabort));
         return;
       }
@@ -591,7 +591,8 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
   /* Change directories when the 'acd' option is set. */
   do_autochdir();
 
-  // disable buffer updates for the current buffer
+  // Disable buffer-updates for the current buffer.
+  // No need to check `unload_buf`: in that case the function returned above.
   buf_updates_unregister_all(buf);
 
   /*

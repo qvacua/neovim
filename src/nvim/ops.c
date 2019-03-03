@@ -1974,8 +1974,6 @@ int swapchar(int op_type, pos_T *pos)
     inc(pos);
   }
 
-  if (enc_dbcs != 0 && c >= 0x100)      /* No lower/uppercase letter */
-    return FALSE;
   nc = c;
   if (mb_islower(c)) {
     if (op_type == OP_ROT13) {
@@ -3610,6 +3608,7 @@ int do_join(size_t count,
   int remove_comments = (use_formatoptions == TRUE)
                         && has_format_option(FO_REMOVE_COMS);
   bool prev_was_comment = false;
+  assert(count >= 1);
 
   if (save_undo && u_save(curwin->w_cursor.lnum - 1,
                           curwin->w_cursor.lnum + (linenr_T)count) == FAIL) {

@@ -641,7 +641,6 @@ EXTERN int vr_lines_changed INIT(= 0);      /* #Lines changed by "gR" so far */
 // mbyte flags that used to depend on 'encoding'. These are now deprecated, as
 // 'encoding' is always "utf-8". Code that use them can be refactored to
 // remove dead code.
-#define enc_dbcs 0
 #define enc_utf8 true
 #define has_mbyte true
 
@@ -1049,6 +1048,10 @@ EXTERN char_u e_cmdmap_repeated[] INIT(=N_(
     "E5521: <Cmd> mapping must end with <CR> before second <Cmd>"));
 EXTERN char_u e_cmdmap_key[] INIT(=N_(
     "E5522: <Cmd> mapping must not include %s key"));
+EXTERN char_u e_floatonly[] INIT(=N_(
+    "E5601: Cannot close window, only floating window would remain"));
+EXTERN char_u e_floatexchange[] INIT(=N_(
+    "E5602: Cannot exchange or rotate float"));
 
 
 EXTERN char top_bot_msg[] INIT(= N_("search hit TOP, continuing at BOTTOM"));
