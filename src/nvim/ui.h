@@ -55,6 +55,7 @@ struct ui_t {
 
 #ifdef CUSTOM_UI
 extern void custom_ui_start(void);
+extern void custom_ui_rpcevent_subscribed(void);
 #endif
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
