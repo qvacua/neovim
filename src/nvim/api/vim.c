@@ -962,7 +962,7 @@ void nvim_subscribe(uint64_t channel_id, String event)
   rpc_subscribe(channel_id, e);
 
 #ifdef CUSTOM_UI
-  if (strncmp("com.qvacua.", event.data, 11) == 0) {
+  if (strncmp("com.qvacua.NvimView", event.data, 19) == 0) {
     custom_ui_rpcevent_subscribed();
   }
 #endif
