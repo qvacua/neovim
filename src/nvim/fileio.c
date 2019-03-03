@@ -6746,6 +6746,7 @@ bool has_event(event_T event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
     case EVENT_TABENTER:
     case EVENT_COLORSCHEME:
     case EVENT_BUFREADPOST:
+    case EVENT_GUIENTER:
       return true;
   }
   

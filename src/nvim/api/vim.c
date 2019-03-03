@@ -1174,6 +1174,12 @@ void nvim_subscribe(uint64_t channel_id, String event)
   memcpy(e, event.data, length);
   e[length] = NUL;
   rpc_subscribe(channel_id, e);
+
+#ifdef CUSTOM_UI
+  if (strncmp("com.qvacua.NvimView", event.data, 19) == 0) {
+    custom_ui_rpcevent_subscribed();
+  }
+#endif
 }
 
 /// Unsubscribes to event broadcasts.
