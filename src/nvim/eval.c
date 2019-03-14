@@ -10316,6 +10316,8 @@ static dict_T *get_win_info(win_T *wp, int16_t tpnr, int16_t winnr)
   tv_dict_add_nr(dict, S_LEN("winid"), wp->handle);
   tv_dict_add_nr(dict, S_LEN("height"), wp->w_height);
   tv_dict_add_nr(dict, S_LEN("winrow"), wp->w_winrow);
+  tv_dict_add_nr(dict, S_LEN("topline"), wp->w_topline);
+  tv_dict_add_nr(dict, S_LEN("botline"), wp->w_botline - 1);
   tv_dict_add_nr(dict, S_LEN("width"), wp->w_width);
   tv_dict_add_nr(dict, S_LEN("bufnr"), wp->w_buffer->b_fnum);
   tv_dict_add_nr(dict, S_LEN("wincol"), wp->w_wincol);
@@ -20161,7 +20163,7 @@ void ex_function(exarg_T *eap)
         skip_until = vim_strsave((char_u *)".");
       }
 
-      // Check for ":python <<EOF", ":lua <<EOF", etc.
+      // heredoc: Check for ":python <<EOF", ":lua <<EOF", etc.
       arg = skipwhite(skiptowhite(p));
       if (arg[0] == '<' && arg[1] =='<'
           && ((p[0] == 'p' && p[1] == 'y'

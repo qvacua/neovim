@@ -541,9 +541,7 @@ static void cmd_with_count(char *cmd, char_u *bufp, size_t bufsize,
 win_T *win_new_float(win_T *wp, int width, int height, FloatConfig config,
                      Error *err)
 {
-  bool new = false;
   if (wp == NULL) {
-    new = true;
     wp = win_alloc(lastwin_nofloating(), false);
     win_init(wp, curwin, 0);
   } else {
@@ -569,12 +567,13 @@ win_T *win_new_float(win_T *wp, int width, int height, FloatConfig config,
   wp->w_floating = 1;
   wp->w_status_height = 0;
   wp->w_vsep_width = 0;
+
+  // TODO(bfredl): use set_option_to() after merging #9110 ?
+  wp->w_p_nu = false;
+  wp->w_allbuf_opt.wo_nu = false;
   win_config_float(wp, width, height, config);
   wp->w_pos_changed = true;
   redraw_win_later(wp, VALID);
-  if (new) {
-    win_enter(wp, false);
-  }
   return wp;
 }
 
@@ -591,6 +590,7 @@ void win_config_float(win_T *wp, int width, int height,
     config.window = curwin->handle;
   }
 
+  bool change_external = config.external != wp->w_float_config.external;
   wp->w_float_config = config;
 
   if (!ui_has(kUIMultigrid)) {
@@ -601,6 +601,10 @@ void win_config_float(win_T *wp, int width, int height,
   win_set_inner_size(wp);
   must_redraw = MAX(must_redraw, VALID);
   wp->w_pos_changed = true;
+  if (change_external) {
+    wp->w_hl_needs_update = true;
+    redraw_win_later(wp, NOT_VALID);
+  }
 }
 
 static void ui_ext_win_position(win_T *wp)
@@ -5332,7 +5336,10 @@ void win_drag_vsep_line(win_T *dragwin, int offset)
 void set_fraction(win_T *wp)
 {
   if (wp->w_height_inner > 1) {
-    wp->w_fraction = ((long)wp->w_wrow * FRACTION_MULT + wp->w_height_inner / 2)
+    // When cursor is in the first line the percentage is computed as if
+    // it's halfway that line.  Thus with two lines it is 25%, with three
+    // lines 17%, etc.  Similarly for the last line: 75%, 83%, etc.
+    wp->w_fraction = ((long)wp->w_wrow * FRACTION_MULT + FRACTION_MULT / 2)
                    / (long)wp->w_height_inner;
   }
 }
@@ -5364,8 +5371,8 @@ void scroll_to_fraction(win_T *wp, int prev_height)
     int sline, line_size;
     int height = wp->w_height_inner;
 
-  /* Don't change w_topline when height is zero.  Don't set w_topline when
-   * 'scrollbind' is set and this isn't the current window. */
+    // Don't change w_topline when height is zero.  Don't set w_topline when
+    // 'scrollbind' is set and this isn't the current window.
   if (height > 0
       && (!wp->w_p_scb || wp == curwin)
       ) {
@@ -5376,8 +5383,7 @@ void scroll_to_fraction(win_T *wp, int prev_height)
     lnum = wp->w_cursor.lnum;
     if (lnum < 1)               /* can happen when starting up */
       lnum = 1;
-    wp->w_wrow = ((long)wp->w_fraction * (long)height - 1L + FRACTION_MULT / 2)
-                 / FRACTION_MULT;
+    wp->w_wrow = ((long)wp->w_fraction * (long)height - 1L) / FRACTION_MULT;
     line_size = plines_win_col(wp, lnum, (long)(wp->w_cursor.col)) - 1;
     sline = wp->w_wrow - line_size;
 
@@ -5408,7 +5414,6 @@ void scroll_to_fraction(win_T *wp, int prev_height)
           wp->w_wrow--;
         }
       }
-      set_topline(wp, lnum);
     } else if (sline > 0) {
       while (sline > 0 && lnum > 1) {
         (void)hasFoldingWin(wp, lnum, &lnum, NULL, true, NULL);
@@ -5437,12 +5442,12 @@ void scroll_to_fraction(win_T *wp, int prev_height)
         lnum++;
         wp->w_wrow -= line_size + sline;
       } else if (sline > 0) {
-        /* First line of file reached, use that as topline. */
+        // First line of file reached, use that as topline.
         lnum = 1;
         wp->w_wrow -= sline;
       }
-      set_topline(wp, lnum);
     }
+    set_topline(wp, lnum);
   }
 
   if (wp == curwin) {
@@ -5709,9 +5714,9 @@ file_name_in_line (
   len = 0;
   while (vim_isfilec(ptr[len]) || (ptr[len] == '\\' && ptr[len + 1] == ' ')
          || ((options & FNAME_HYP) && path_is_url((char *)ptr + len))
-         || (is_url && vim_strchr((char_u *)"?&=", ptr[len]) != NULL)) {
-    // After type:// we also include ?, & and = as valid characters, so that
-    // http://google.com?q=this&that=ok works.
+         || (is_url && vim_strchr((char_u *)":?&=", ptr[len]) != NULL)) {
+    // After type:// we also include :, ?, & and = as valid characters, so that
+    // http://google.com:8080?q=this&that=ok works.
     if ((ptr[len] >= 'A' && ptr[len] <= 'Z')
         || (ptr[len] >= 'a' && ptr[len] <= 'z')) {
       if (in_type && path_is_url((char *)ptr + len + 1)) {

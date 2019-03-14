@@ -1539,6 +1539,7 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 			cmdlevel	Level of cmdline.
 			cmdtype		Type of cmdline, |cmdline-char|.
 			cwd		Current working directory.
+			inclusive	Motion is |inclusive|, else exclusive.
 			scope		Event-specific scope name.
 			operator	Current |operator|.  Also set for Ex
 					commands (unlike |v:operator|). For
@@ -4504,11 +4505,13 @@ getwininfo([{winid}])					*getwininfo()*
 		tab pages is returned.
 
 		Each List item is a Dictionary with the following entries:
+			botline		last displayed buffer line
 			bufnr		number of buffer in the window
 			height		window height (excluding winbar)
 			loclist		1 if showing a location list
 			quickfix	1 if quickfix or location list window
 			tabnr		tab page number
+			topline		first displayed buffer line 
 			variables	a reference to the dictionary with
 					window-local variables
 			width		window width
