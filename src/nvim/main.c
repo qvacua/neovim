@@ -360,6 +360,12 @@ int main(int argc, char **argv)
   // give embedders a chance to set up nvim, by processing a request before
   // startup. This allows an external UI to show messages and prompts from
   // --cmd and buffer loading (e.g. swap files)
+#ifdef CUSTOM_UI
+  ui_builtin_start();
+  starting = NO_BUFFERS;
+  screenclear();
+  bool early_ui = true;
+#else
   bool early_ui = false;
   if (embedded_mode && !headless_mode) {
     TIME_MSG("waiting for embedder to make request");
@@ -372,6 +378,7 @@ int main(int argc, char **argv)
     early_ui = true;
     TIME_MSG("initialized screen early for embedder");
   }
+#endif
 
   // Execute --cmd arguments.
   exe_pre_commands(&params);
@@ -482,11 +489,6 @@ int main(int argc, char **argv)
     input_stop();  // Stop reading input, let the UI take over.
     ui_builtin_start();
   }
-
-#ifdef CUSTOM_UI
-  // We use --headless
-  ui_builtin_start();
-#endif
 
   setmouse();  // may start using the mouse
 
