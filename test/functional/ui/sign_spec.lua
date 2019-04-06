@@ -43,15 +43,15 @@ describe('Signs', function()
         {2:  }b                                                  |
         {1:>>}c                                                  |
         {2:  }^                                                   |
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
                                                              |
       ]])
     end)
@@ -72,14 +72,14 @@ describe('Signs', function()
         {1:>>}b                                                  |
         {2:  }c                                                  |
         {2:  }                                                   |
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
+        {0:~                                                    }|
         {4:[No Name] [+]                                        }|
         {2:  }{3:a                                                  }|
         {1:>>}b                                                  |
         {2:  }c                                                  |
         {2:  }                                                   |
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
         {5:[No Name] [+]                                        }|
                                                              |
       ]])
@@ -102,17 +102,126 @@ describe('Signs', function()
         {2:  }{6:  2 }{8:b                                              }|
         {2:  }{7:  3 }c                                              |
         {1:>>}{7:  4 }{8:^                                               }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
                                                              |
       ]])
+    end)
+
+    it('multiple signs #9295', function()
+      feed('ia<cr>b<cr>c<cr><esc>')
+      command('set number')
+      command('set signcolumn=yes:2')
+      command('sign define pietSearch text=>> texthl=Search')
+      command('sign define pietError text=XX texthl=Error')
+      command('sign define pietWarn text=WW texthl=Warning')
+      command('sign place 1 line=1 name=pietSearch buffer=1')
+      command('sign place 2 line=1 name=pietError buffer=1')
+      -- Line 2 helps checking that signs in the same line are ordered by Id.
+      command('sign place 4 line=2 name=pietSearch buffer=1')
+      command('sign place 3 line=2 name=pietError buffer=1')
+      -- Line 3 checks that with a limit over the maximum number
+      -- of signs, the ones with the highest Ids are being picked,
+      -- and presented by their sorted Id order.
+      command('sign place 4 line=3 name=pietSearch buffer=1')
+      command('sign place 5 line=3 name=pietWarn buffer=1')
+      command('sign place 3 line=3 name=pietError buffer=1')
+      screen:expect([[
+        {1:>>}XX{6:  1 }a                                            |
+        XX{1:>>}{6:  2 }b                                            |
+        {1:>>}WW{6:  3 }c                                            |
+        {2:    }{6:  4 }^                                             |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]])
+      -- With the default setting, we get the sign with the top id.
+      command('set signcolumn=yes:1')
+      screen:expect([[
+        XX{6:  1 }a                                              |
+        {1:>>}{6:  2 }b                                              |
+        WW{6:  3 }c                                              |
+        {2:  }{6:  4 }^                                               |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]])
+      -- "auto:3" accommodates all the signs we defined so far.
+      command('set signcolumn=auto:3')
+      screen:expect([[
+        {1:>>}XX{2:  }{6:  1 }a                                          |
+        XX{1:>>}{2:  }{6:  2 }b                                          |
+        XX{1:>>}WW{6:  3 }c                                          |
+        {2:      }{6:  4 }^                                           |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]])
+      -- Check "yes:9".
+      command('set signcolumn=yes:9')
+      screen:expect([[
+        {1:>>}XX{2:              }{6:  1 }a                              |
+        XX{1:>>}{2:              }{6:  2 }b                              |
+        XX{1:>>}WW{2:            }{6:  3 }c                              |
+        {2:                  }{6:  4 }^                               |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]])
+      -- Check "auto:N" larger than the maximum number of signs defined in
+      -- a single line (same result as "auto:3").
+      command('set signcolumn=auto:4')
+      screen:expect{grid=[[
+        {1:>>}XX{2:  }{6:  1 }a                                          |
+        XX{1:>>}{2:  }{6:  2 }b                                          |
+        XX{1:>>}WW{6:  3 }c                                          |
+        {2:      }{6:  4 }^                                           |
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+                                                             |
+      ]]}
     end)
 
     it('can have 32bit sign IDs', function()
@@ -121,12 +230,12 @@ describe('Signs', function()
       feed(':sign place<cr>')
       screen:expect([[
         {1:>>}                                                   |
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
         {4:                                                     }|
         :sign place                                          |
         {9:--- Signs ---}                                        |
@@ -139,18 +248,18 @@ describe('Signs', function()
       feed('<cr>')
       screen:expect([[
         {1:>>}^                                                   |
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
-        {2:  }{0:~                                                  }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
+        {0:~                                                    }|
                                                              |
       ]])
     end)

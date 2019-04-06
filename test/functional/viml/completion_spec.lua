@@ -904,9 +904,9 @@ describe('completion', function()
                                                                     |
         {8:[No Name]                                                   }|
         {0::}foo faa fee f^                                              |
-        {0::~                                                          }|
-        {0::~                                                          }|
-        {0::~                                                          }|
+        {0:~                                                           }|
+        {0:~                                                           }|
+        {0:~                                                           }|
         {9:[Command Line]                                              }|
         {3:-- INSERT --}                                                |
       ]] )
@@ -915,9 +915,9 @@ describe('completion', function()
                                                                     |
         {8:[No Name]                                                   }|
         {0::}foo faa fee foo^                                            |
-        {0::~          }{2: foo            }{0:                                }|
-        {0::~          }{1: faa            }{0:                                }|
-        {0::~          }{1: fee            }{0:                                }|
+        {0:~           }{2: foo            }{0:                                }|
+        {0:~           }{1: faa            }{0:                                }|
+        {0:~           }{1: fee            }{0:                                }|
         {9:[Command Line]                                              }|
         {3:-- Keyword Local completion (^N^P) }{4:match 1 of 3}             |
       ]])
@@ -926,9 +926,9 @@ describe('completion', function()
                                                                     |
         {8:[No Name]                                                   }|
         {0::}foo faa fee foo                                            |
-        {0::~                                                          }|
-        {0::~                                                          }|
-        {0::~                                                          }|
+        {0:~                                                           }|
+        {0:~                                                           }|
+        {0:~                                                           }|
         {9:[Command Line]                                              }|
         :foo faa fee foo^                                            |
       ]])
@@ -1071,5 +1071,84 @@ describe('completion', function()
       au! TextChangedP
       set complete&vim completeopt&vim
     ]])
+  end)
+
+  it('CompleteChanged autocommand', function()
+    curbufmeths.set_lines(0, 1, false, { 'foo', 'bar', 'foobar', ''})
+    source([[
+      set complete=. completeopt=noinsert,noselect,menuone
+      function! OnPumChange()
+        let g:event = copy(v:event)
+        let g:item = get(v:event, 'completed_item', {})
+        let g:word = get(g:item, 'word', v:null)
+      endfunction
+      autocmd! CompleteChanged * :call OnPumChange()
+      call cursor(4, 1)
+    ]])
+
+    feed('Sf<C-N>')
+    screen:expect([[
+      foo                                                         |
+      bar                                                         |
+      foobar                                                      |
+      f^                                                           |
+      {1:foo            }{0:                                             }|
+      {1:foobar         }{0:                                             }|
+      {0:~                                                           }|
+      {3:-- Keyword completion (^N^P) }{5:Back at original}               |
+    ]])
+    eq({completed_item = {}, width = 15,
+      height = 2, size = 2,
+      col = 0, row = 4, scrollbar = false},
+      eval('g:event'))
+    feed('<C-N>')
+    screen:expect([[
+      foo                                                         |
+      bar                                                         |
+      foobar                                                      |
+      foo^                                                         |
+      {2:foo            }{0:                                             }|
+      {1:foobar         }{0:                                             }|
+      {0:~                                                           }|
+      {3:-- Keyword completion (^N^P) }{4:match 1 of 2}                   |
+    ]])
+    eq('foo', eval('g:word'))
+    feed('<C-N>')
+    screen:expect([[
+      foo                                                         |
+      bar                                                         |
+      foobar                                                      |
+      foobar^                                                      |
+      {1:foo            }{0:                                             }|
+      {2:foobar         }{0:                                             }|
+      {0:~                                                           }|
+      {3:-- Keyword completion (^N^P) }{4:match 2 of 2}                   |
+    ]])
+    eq('foobar', eval('g:word'))
+    feed('<up>')
+    screen:expect([[
+      foo                                                         |
+      bar                                                         |
+      foobar                                                      |
+      foobar^                                                      |
+      {2:foo            }{0:                                             }|
+      {1:foobar         }{0:                                             }|
+      {0:~                                                           }|
+      {3:-- Keyword completion (^N^P) }{4:match 1 of 2}                   |
+    ]])
+    eq('foo', eval('g:word'))
+    feed('<down>')
+    screen:expect([[
+      foo                                                         |
+      bar                                                         |
+      foobar                                                      |
+      foobar^                                                      |
+      {1:foo            }{0:                                             }|
+      {2:foobar         }{0:                                             }|
+      {0:~                                                           }|
+      {3:-- Keyword completion (^N^P) }{4:match 2 of 2}                   |
+    ]])
+    eq('foobar', eval('g:word'))
+    feed('<esc>')
   end)
 end)

@@ -58,9 +58,10 @@
 #include "nvim/os/input.h"
 #include "nvim/os/time.h"
 
-/*
- * definitions used for CTRL-X submode
- */
+// Definitions used for CTRL-X submode.
+// Note: If you change CTRL-X submode, you must also maintain ctrl_x_msgs[]
+// and ctrl_x_mode_names[].
+
 #define CTRL_X_WANT_IDENT       0x100
 
 #define CTRL_X_NOT_DEFINED_YET  1
@@ -83,17 +84,18 @@
 #define CTRL_X_MSG(i) ctrl_x_msgs[(i) & ~CTRL_X_WANT_IDENT]
 #define CTRL_X_MODE_LINE_OR_EVAL(m) (m == CTRL_X_WHOLE_LINE || m == CTRL_X_EVAL)
 
+// Message for CTRL-X mode, index is ctrl_x_mode.
 static char *ctrl_x_msgs[] =
 {
-  N_(" Keyword completion (^N^P)"),   /* ctrl_x_mode == 0, ^P/^N compl. */
+  N_(" Keyword completion (^N^P)"),  // CTRL_X_NORMAL, ^P/^N compl.
   N_(" ^X mode (^]^D^E^F^I^K^L^N^O^Ps^U^V^Y)"),
-  NULL,
+  NULL,  // CTRL_X_SCROLL: depends on state
   N_(" Whole line completion (^L^N^P)"),
   N_(" File name completion (^F^N^P)"),
   N_(" Tag completion (^]^N^P)"),
   N_(" Path pattern completion (^N^P)"),
   N_(" Definition completion (^D^N^P)"),
-  NULL,
+  NULL,  // CTRL_X_FINISHED
   N_(" Dictionary completion (^K^N^P)"),
   N_(" Thesaurus completion (^T^N^P)"),
   N_(" Command-line completion (^V^N^P)"),
@@ -102,6 +104,26 @@ static char *ctrl_x_msgs[] =
   N_(" Spelling suggestion (s^N^P)"),
   N_(" Keyword Local completion (^N^P)"),
   NULL,  // CTRL_X_EVAL doesn't use msg.
+};
+
+static char *ctrl_x_mode_names[] = {
+  "keyword",
+  "ctrl_x",
+  "unknown",          // CTRL_X_SCROLL
+  "whole_line",
+  "files",
+  "tags",
+  "path_patterns",
+  "path_defines",
+  "unknown",          // CTRL_X_FINISHED
+  "dictionary",
+  "thesaurus",
+  "cmdline",
+  "function",
+  "omni",
+  "spell",
+  NULL,               // CTRL_X_LOCAL_MSG only used in "ctrl_x_msgs"
+  "eval"
 };
 
 static char e_hitend[] = N_("Hit end of paragraph");
@@ -645,8 +667,9 @@ static int insert_execute(VimState *state, int key)
       // there is nothing to add, CTRL-L works like CTRL-P then.
       if (s->c == Ctrl_L
           && (!CTRL_X_MODE_LINE_OR_EVAL(ctrl_x_mode)
-              || (int)STRLEN(compl_shown_match->cp_str)
-              > curwin->w_cursor.col - compl_col)) {
+              || (compl_shown_match->cp_str != NULL
+                  && (int)STRLEN(compl_shown_match->cp_str)
+                  > curwin->w_cursor.col - compl_col))) {
         ins_compl_addfrommatch();
         return 1;  // continue
       }
@@ -1378,7 +1401,7 @@ ins_redraw (
   // Trigger CursorMoved if the cursor moved.  Not when the popup menu is
   // visible, the command might delete it.
   if (ready && (has_event(EVENT_CURSORMOVEDI) || curwin->w_p_cole > 0)
-      && !equalpos(last_cursormoved, curwin->w_cursor)
+      && !equalpos(curwin->w_last_cursormoved, curwin->w_cursor)
       && !pum_visible()) {
     // Need to update the screen first, to make sure syntax
     // highlighting is correct after making a change (e.g., inserting
@@ -1394,7 +1417,7 @@ ins_redraw (
       ins_apply_autocmds(EVENT_CURSORMOVEDI);
     }
     conceal_cursor_moved = true;
-    last_cursormoved = curwin->w_cursor;
+    curwin->w_last_cursormoved = curwin->w_cursor;
   }
 
   // Trigger TextChangedI if changedtick differs.
@@ -2658,8 +2681,25 @@ void ins_compl_show_pum(void)
   col = curwin->w_cursor.col;
   curwin->w_cursor.col = compl_col;
   pum_selected_item = cur;
-  pum_display(compl_match_array, compl_match_arraysize, cur, array_changed);
+  pum_display(compl_match_array, compl_match_arraysize, cur, array_changed, 0);
   curwin->w_cursor.col = col;
+
+  if (!has_event(EVENT_COMPLETECHANGED)) {
+    return;
+  }
+  dict_T *dict = get_vim_var_dict(VV_EVENT);
+  if (cur < 0) {
+    tv_dict_add_dict(dict, S_LEN("completed_item"), tv_dict_alloc());
+  } else {
+    dict_T *item = ins_compl_dict_alloc(compl_curr_match);
+    tv_dict_add_dict(dict, S_LEN("completed_item"), item);
+  }
+  pum_set_boundings(dict);
+  tv_dict_set_keys_readonly(dict);
+  textlock++;
+  apply_autocmds(EVENT_COMPLETECHANGED, NULL, NULL, false, curbuf);
+  textlock--;
+  tv_dict_clear(dict);
 }
 
 #define DICT_FIRST      (1)     /* use just first element in "dict" */
@@ -2964,6 +3004,99 @@ bool ins_compl_active(void)
 {
   return compl_started;
 }
+
+// Get complete information
+void get_complete_info(list_T *what_list, dict_T *retdict)
+{
+#define CI_WHAT_MODE            0x01
+#define CI_WHAT_PUM_VISIBLE     0x02
+#define CI_WHAT_ITEMS           0x04
+#define CI_WHAT_SELECTED        0x08
+#define CI_WHAT_INSERTED        0x10
+#define CI_WHAT_ALL             0xff
+  int what_flag;
+
+  if (what_list == NULL) {
+    what_flag = CI_WHAT_ALL;
+  } else {
+    what_flag = 0;
+    for (listitem_T *item = tv_list_first(what_list)
+         ; item != NULL
+         ; item = TV_LIST_ITEM_NEXT(what_list, item)) {
+      const char *what = tv_get_string(TV_LIST_ITEM_TV(item));
+
+      if (STRCMP(what, "mode") == 0) {
+        what_flag |= CI_WHAT_MODE;
+      } else if (STRCMP(what, "pum_visible") == 0) {
+        what_flag |= CI_WHAT_PUM_VISIBLE;
+      } else if (STRCMP(what, "items") == 0) {
+        what_flag |= CI_WHAT_ITEMS;
+      } else if (STRCMP(what, "selected") == 0) {
+        what_flag |= CI_WHAT_SELECTED;
+      } else if (STRCMP(what, "inserted") == 0) {
+        what_flag |= CI_WHAT_INSERTED;
+      }
+    }
+  }
+
+  int ret = OK;
+  if (what_flag & CI_WHAT_MODE) {
+    ret = tv_dict_add_str(retdict, S_LEN("mode"),
+                          (char *)ins_compl_mode());
+  }
+
+  if (ret == OK && (what_flag & CI_WHAT_PUM_VISIBLE)) {
+    ret = tv_dict_add_nr(retdict, S_LEN("pum_visible"), pum_visible());
+  }
+
+  if (ret == OK && (what_flag & CI_WHAT_ITEMS)) {
+    list_T *li = tv_list_alloc(ins_compl_len());
+
+    ret = tv_dict_add_list(retdict, S_LEN("items"), li);
+    if (ret == OK && compl_first_match != NULL) {
+      compl_T *match = compl_first_match;
+      do {
+        if (!(match->cp_flags & ORIGINAL_TEXT)) {
+          dict_T *di = tv_dict_alloc();
+
+          tv_list_append_dict(li, di);
+          tv_dict_add_str(di, S_LEN("word"),
+                          (char *)EMPTY_IF_NULL(match->cp_str));
+          tv_dict_add_str(di, S_LEN("abbr"),
+                          (char *)EMPTY_IF_NULL(match->cp_text[CPT_ABBR]));
+          tv_dict_add_str(di, S_LEN("menu"),
+                          (char *)EMPTY_IF_NULL(match->cp_text[CPT_MENU]));
+          tv_dict_add_str(di, S_LEN("kind"),
+                          (char *)EMPTY_IF_NULL(match->cp_text[CPT_KIND]));
+          tv_dict_add_str(di, S_LEN("info"),
+                          (char *)EMPTY_IF_NULL(match->cp_text[CPT_INFO]));
+          tv_dict_add_str(di, S_LEN("user_data"),
+                          (char *)EMPTY_IF_NULL(match->cp_text[CPT_USER_DATA]));
+        }
+        match = match->cp_next;
+      } while (match != NULL && match != compl_first_match);
+    }
+  }
+
+  if (ret == OK && (what_flag & CI_WHAT_SELECTED)) {
+    ret = tv_dict_add_nr(retdict, S_LEN("selected"),
+                         (compl_curr_match != NULL)
+                         ? compl_curr_match->cp_number - 1 : -1);
+  }
+
+  // TODO(vim):
+  // if (ret == OK && (what_flag & CI_WHAT_INSERTED))
+}
+
+// Return Insert completion mode name string
+static char_u * ins_compl_mode(void)
+{
+  if (ctrl_x_mode == CTRL_X_NOT_DEFINED_YET || compl_started) {
+    return (char_u *)ctrl_x_mode_names[ctrl_x_mode & ~CTRL_X_WANT_IDENT];
+  }
+  return (char_u *)"";
+}
+
 
 /*
  * Delete one character before the cursor and show the subset of the matches
@@ -4099,31 +4232,37 @@ static void ins_compl_insert(int in_compl_func)
   else
     compl_used_match = TRUE;
 
-  // Set completed item.
-  // { word, abbr, menu, kind, info }
-  dict_T *dict = tv_dict_alloc();
-  tv_dict_add_str(
-      dict, S_LEN("word"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_str));
-  tv_dict_add_str(
-      dict, S_LEN("abbr"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_text[CPT_ABBR]));
-  tv_dict_add_str(
-      dict, S_LEN("menu"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_text[CPT_MENU]));
-  tv_dict_add_str(
-      dict, S_LEN("kind"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_text[CPT_KIND]));
-  tv_dict_add_str(
-      dict, S_LEN("info"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_text[CPT_INFO]));
-  tv_dict_add_str(
-      dict, S_LEN("user_data"),
-      (const char *)EMPTY_IF_NULL(compl_shown_match->cp_text[CPT_USER_DATA]));
+  dict_T *dict = ins_compl_dict_alloc(compl_shown_match);
   set_vim_var_dict(VV_COMPLETED_ITEM, dict);
   if (!in_compl_func) {
     compl_curr_match = compl_shown_match;
   }
+}
+
+// Convert to complete item dict
+static dict_T *ins_compl_dict_alloc(compl_T *match)
+{
+  // { word, abbr, menu, kind, info }
+  dict_T *dict = tv_dict_alloc();
+  tv_dict_add_str(
+      dict, S_LEN("word"),
+      (const char *)EMPTY_IF_NULL(match->cp_str));
+  tv_dict_add_str(
+      dict, S_LEN("abbr"),
+      (const char *)EMPTY_IF_NULL(match->cp_text[CPT_ABBR]));
+  tv_dict_add_str(
+      dict, S_LEN("menu"),
+      (const char *)EMPTY_IF_NULL(match->cp_text[CPT_MENU]));
+  tv_dict_add_str(
+      dict, S_LEN("kind"),
+      (const char *)EMPTY_IF_NULL(match->cp_text[CPT_KIND]));
+  tv_dict_add_str(
+      dict, S_LEN("info"),
+      (const char *)EMPTY_IF_NULL(match->cp_text[CPT_INFO]));
+  tv_dict_add_str(
+      dict, S_LEN("user_data"),
+      (const char *)EMPTY_IF_NULL(match->cp_text[CPT_USER_DATA]));
+  return dict;
 }
 
 /*
@@ -5488,16 +5627,33 @@ internal_format (
         /* remember position of blank just before text */
         end_col = curwin->w_cursor.col;
 
-        /* find start of sequence of blanks */
+        // find start of sequence of blanks
+        int wcc = 0;  // counter for whitespace chars
         while (curwin->w_cursor.col > 0 && WHITECHAR(cc)) {
           dec_cursor();
           cc = gchar_cursor();
+
+          // Increment count of how many whitespace chars in this
+          // group; we only need to know if it's more than one.
+          if (wcc < 2) {
+            wcc++;
+          }
         }
-        if (curwin->w_cursor.col == 0 && WHITECHAR(cc))
-          break;                        /* only spaces in front of text */
-        /* Don't break until after the comment leader */
-        if (curwin->w_cursor.col < leader_len)
+        if (curwin->w_cursor.col == 0 && WHITECHAR(cc)) {
+          break;                        // only spaces in front of text
+        }
+
+        // Don't break after a period when 'formatoptions' has 'p' and
+        // there are less than two spaces.
+        if (has_format_option(FO_PERIOD_ABBR) && cc == '.' && wcc < 2) {
+          continue;
+        }
+
+        // Don't break until after the comment leader
+        if (curwin->w_cursor.col < leader_len) {
           break;
+        }
+
         if (has_format_option(FO_ONE_LETTER)) {
           /* do not break after one-letter words */
           if (curwin->w_cursor.col == 0)
@@ -5861,10 +6017,7 @@ comp_textwidth (
       textwidth -= 1;
     }
     textwidth -= curwin->w_p_fdc;
-
-    if (signcolumn_on(curwin)) {
-        textwidth -= 1;
-    }
+    textwidth -= win_signcol_count(curwin);
 
     if (curwin->w_p_nu || curwin->w_p_rnu)
       textwidth -= 8;

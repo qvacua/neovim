@@ -436,11 +436,15 @@ do_tag (
         tagmatchname = vim_strsave(name);
       }
 
-      if (type == DT_TAG || type == DT_SELECT || type == DT_JUMP
+      if (type == DT_SELECT || type == DT_JUMP
           || type == DT_LTAG) {
         cur_match = MAXCOL - 1;
       }
-      max_num_matches = cur_match + 1;
+      if (type == DT_TAG) {
+        max_num_matches = MAXCOL;
+      } else {
+        max_num_matches = cur_match + 1;
+      }
 
       /* when the argument starts with '/', use it as a regexp */
       if (!no_regexp && *name == '/') {
@@ -495,7 +499,7 @@ do_tag (
       if (type == DT_CSCOPE && num_matches > 1) {
         cs_print_tags();
         ask_for_selection = true;
-      } else if (type == DT_TAG) {
+      } else if (type == DT_TAG && *tag != NUL) {
         // If a count is supplied to the ":tag <name>" command, then
         // jump to count'th matching tag.
         cur_match = count > 0 ? count - 1 : 0;
@@ -1523,55 +1527,35 @@ line_read_in:
         }
 
 parse_line:
-        /*
-         * Figure out where the different strings are in this line.
-         * For "normal" tags: Do a quick check if the tag matches.
-         * This speeds up tag searching a lot!
-         */
-        if (orgpat.headlen
-            ) {
+        // When the line is too long the NUL will not be in the
+        // last-but-one byte (see vim_fgets()).
+        // Has been reported for Mozilla JS with extremely long names.
+        // In that case we can't parse it and we ignore the line.
+        if (lbuf[LSIZE - 2] != NUL && !use_cscope) {
+          if (p_verbose >= 5) {
+            verbose_enter();
+            MSG(_("Ignoring long line in tags file"));
+            verbose_leave();
+          }
+          if (state != TS_LINEAR) {
+            // Avoid getting stuck.
+            linear = true;
+            state = TS_LINEAR;
+            vim_fseek(fp, search_info.low_offset, SEEK_SET);
+          }
+          continue;
+        }
+
+        // Figure out where the different strings are in this line.
+        // For "normal" tags: Do a quick check if the tag matches.
+        // This speeds up tag searching a lot!
+        if (orgpat.headlen) {
           tagp.tagname = lbuf;
           tagp.tagname_end = vim_strchr(lbuf, TAB);
-          if (tagp.tagname_end == NULL)
-          {
-            if (vim_strchr(lbuf, NL) == NULL) {
-              /* Truncated line, ignore it.  Has been reported for
-               * Mozilla JS with extremely long names. */
-              if (p_verbose >= 5) {
-                verbose_enter();
-                MSG(_("Ignoring long line in tags file"));
-                verbose_leave();
-              }
-              if (state != TS_LINEAR) {
-                /* Avoid getting stuck. */
-                linear = TRUE;
-                state = TS_LINEAR;
-                vim_fseek(fp, search_info.low_offset, SEEK_SET);
-              }
-              continue;
-            }
-
-            /* Corrupted tag line. */
-            line_error = TRUE;
+          if (tagp.tagname_end == NULL) {
+            // Corrupted tag line.
+            line_error = true;
             break;
-          }
-
-          /*
-           * Check for old style static tag: "file:tag file .."
-           */
-          tagp.fname = NULL;
-          for (p = lbuf; p < tagp.tagname_end; ++p) {
-            if (*p == ':') {
-              if (tagp.fname == NULL)
-                tagp.fname = tagp.tagname_end + 1;
-              if (       fnamencmp(lbuf, tagp.fname, p - lbuf) == 0
-                         && tagp.fname[p - lbuf] == TAB
-                         ) {
-                /* found one */
-                tagp.tagname = p + 1;
-                break;
-              }
-            }
           }
 
           /*
@@ -1673,11 +1657,8 @@ parse_line:
           if (mb_strnicmp(tagp.tagname, orgpat.head, (size_t)cmplen) != 0)
             continue;
 
-          /*
-           * Can be a matching tag, isolate the file name and command.
-           */
-          if (tagp.fname == NULL)
-            tagp.fname = tagp.tagname_end + 1;
+          // Can be a matching tag, isolate the file name and command.
+          tagp.fname = tagp.tagname_end + 1;
           tagp.fname_end = vim_strchr(tagp.fname, TAB);
           tagp.command = tagp.fname_end + 1;
           if (tagp.fname_end == NULL)
@@ -1744,19 +1725,12 @@ parse_line:
             /* Don't change the ordering, always use the same table. */
             mtt = MT_GL_OTH;
           } else {
-            /* Decide in which array to store this match. */
-            is_current = test_for_current(
-                tagp.fname, tagp.fname_end, tag_fname,
-                buf_ffname);
-            {
-              if (tagp.tagname != lbuf)
-                is_static = TRUE;               /* detected static tag before */
-              else
-                is_static = test_for_static(&tagp);
-            }
+            // Decide in which array to store this match.
+            is_current = test_for_current(tagp.fname, tagp.fname_end, tag_fname,
+                                          buf_ffname);
+            is_static = test_for_static(&tagp);
 
-            /* decide in which of the sixteen tables to store this
-             * match */
+            // Decide in which of the sixteen tables to store this match.
             if (is_static) {
               if (is_current)
                 mtt = MT_ST_CUR;
@@ -2188,25 +2162,9 @@ parse_tag_line (
  */
 static bool test_for_static(tagptrs_T *tagp)
 {
-  char_u      *p;
+  char_u *p;
 
-  int len;
-
-  /*
-   * Check for old style static tag: "file:tag file .."
-   */
-  len = (int)(tagp->fname_end - tagp->fname);
-  p = tagp->tagname + len;
-  if (       p < tagp->tagname_end
-             && *p == ':'
-             && fnamencmp(tagp->tagname, tagp->fname, len) == 0) {
-    tagp->tagname = p + 1;
-    return TRUE;
-  }
-
-  /*
-   * Check for new style static tag ":...<Tab>file:[<Tab>...]"
-   */
+  // Check for new style static tag ":...<Tab>file:[<Tab>...]"
   p = tagp->command;
   while ((p = vim_strchr(p, '\t')) != NULL) {
     ++p;

@@ -621,6 +621,11 @@ static void win_update(win_T *wp)
   linenr_T mod_bot = 0;
   int save_got_int;
 
+  // If we can compute a change in the automatic sizing of the sign column
+  // under 'signcolumn=auto:X' and signs currently placed in the buffer, better
+  // figuring it out here so we can redraw the entire screen for it.
+  buf_signcols(buf);
+
   type = wp->w_redr_type;
 
   win_grid_alloc(wp);
@@ -1456,7 +1461,7 @@ static void win_update(win_T *wp)
       set_empty_rows(wp, srow);
       wp->w_botline = lnum;
     } else {
-      win_draw_end(wp, '@', ' ', srow, wp->w_grid.Rows, HLF_AT);
+      win_draw_end(wp, '@', ' ', true, srow, wp->w_grid.Rows, at_attr);
       wp->w_botline = lnum;
     }
   } else {
@@ -1473,7 +1478,7 @@ static void win_update(win_T *wp)
         if (row + j > wp->w_grid.Rows) {
           j = wp->w_grid.Rows - row;
         }
-        win_draw_end(wp, i, i, row, row + (int)j, HLF_DED);
+        win_draw_end(wp, i, i, true, row, row + (int)j, HLF_DED);
         row += j;
       }
     } else if (dollar_vcol == -1)
@@ -1481,7 +1486,8 @@ static void win_update(win_T *wp)
 
     // make sure the rest of the screen is blank
     // write the 'eob' character to rows that aren't part of the file.
-    win_draw_end(wp, wp->w_p_fcs_chars.eob, ' ', row, wp->w_grid.Rows, HLF_EOB);
+    win_draw_end(wp, wp->w_p_fcs_chars.eob, ' ', false, row, wp->w_grid.Rows,
+                 HLF_EOB);
   }
 
   if (wp->w_redr_type >= REDRAW_TOP) {
@@ -1543,85 +1549,66 @@ int win_signcol_width(win_T *wp)
   return 2;
 }
 
-/*
- * Clear the rest of the window and mark the unused lines with "c1".  use "c2"
- * as the filler character.
- */
-static void win_draw_end(win_T *wp, int c1, int c2, int row, int endrow, hlf_T hl)
+/// Call grid_fill() with columns adjusted for 'rightleft' if needed.
+/// Return the new offset.
+static int win_fill_end(win_T *wp, int c1, int c2, int off, int width, int row,
+                        int endrow, int attr)
+{
+  int nn = off + width;
+
+  if (nn > wp->w_grid.Columns) {
+    nn = wp->w_grid.Columns;
+  }
+
+  if (wp->w_p_rl) {
+    grid_fill(&wp->w_grid, row, endrow, W_ENDCOL(wp) - nn, W_ENDCOL(wp) - off,
+              c1, c2, attr);
+  } else {
+    grid_fill(&wp->w_grid, row, endrow, off, nn, c1, c2, attr);
+  }
+
+  return nn;
+}
+
+/// Clear lines near the end of the window and mark the unused lines with "c1".
+/// Use "c2" as filler character.
+/// When "draw_margin" is true, then draw the sign/fold/number columns.
+static void win_draw_end(win_T *wp, int c1, int c2, bool draw_margin, int row,
+                         int endrow, hlf_T hl)
 {
   int n = 0;
-# define FDC_OFF n
-  int fdc = compute_foldcolumn(wp, 0);
+
+  if (draw_margin) {
+    // draw the fold column
+    int fdc = compute_foldcolumn(wp, 0);
+    if (fdc > 0) {
+      n = win_fill_end(wp, ' ', ' ', n, fdc, row, endrow,
+                       win_hl_attr(wp, HLF_FC));
+    }
+    // draw the sign column
+    int count = win_signcol_count(wp);
+    if (count > 0) {
+      n = win_fill_end(wp, ' ', ' ', n, win_signcol_width(wp) * count, row,
+                       endrow, win_hl_attr(wp, HLF_SC));
+    }
+    // draw the number column
+    if ((wp->w_p_nu || wp->w_p_rnu) && vim_strchr(p_cpo, CPO_NUMCOL) == NULL) {
+      n = win_fill_end(wp, ' ', ' ', n, number_width(wp) + 1, row, endrow,
+                       win_hl_attr(wp, HLF_N));
+    }
+  }
 
   int attr = hl_combine_attr(wp->w_hl_attr_normal, win_hl_attr(wp, hl));
 
   if (wp->w_p_rl) {
-    // No check for cmdline window: should never be right-left.
-    n = fdc;
-
-    if (n > 0) {
-      // draw the fold column at the right
-      if (n > wp->w_grid.Columns) {
-        n = wp->w_grid.Columns;
-      }
-      grid_fill(&wp->w_grid, row, endrow, wp->w_grid.Columns - n,
-                wp->w_grid.Columns, ' ', ' ', win_hl_attr(wp, HLF_FC));
-    }
-
-    if (signcolumn_on(wp)) {
-        int nn = n + win_signcol_width(wp);
-
-        // draw the sign column left of the fold column
-        if (nn > wp->w_grid.Columns) {
-            nn = wp->w_grid.Columns;
-        }
-        grid_fill(&wp->w_grid, row, endrow, wp->w_grid.Columns - nn,
-                  wp->w_grid.Columns - n, ' ', ' ', win_hl_attr(wp, HLF_SC));
-        n = nn;
-    }
-
-    grid_fill(&wp->w_grid, row, endrow, 0, wp->w_grid.Columns - 1 - FDC_OFF,
+    grid_fill(&wp->w_grid, row, endrow, wp->w_wincol, W_ENDCOL(wp) - 1 - n,
               c2, c2, attr);
-    grid_fill(&wp->w_grid, row, endrow,
-              wp->w_grid.Columns - 1 - FDC_OFF, wp->w_grid.Columns - FDC_OFF,
+    grid_fill(&wp->w_grid, row, endrow, W_ENDCOL(wp) - 1 - n, W_ENDCOL(wp) - n,
               c1, c2, attr);
   } else {
-    if (cmdwin_type != 0 && wp == curwin) {
-      /* draw the cmdline character in the leftmost column */
-      n = 1;
-      if (n > wp->w_grid.Columns) {
-        n = wp->w_grid.Columns;
-      }
-      grid_fill(&wp->w_grid, row, endrow, 0, n, cmdwin_type, ' ',
-                win_hl_attr(wp, HLF_AT));
-    }
-    if (fdc > 0) {
-      int nn = n + fdc;
-
-      // draw the fold column at the left
-      if (nn > wp->w_grid.Columns) {
-        nn = wp->w_grid.Columns;
-      }
-      grid_fill(&wp->w_grid, row, endrow, n, nn, ' ', ' ',
-                win_hl_attr(wp, HLF_FC));
-      n = nn;
-    }
-
-    if (signcolumn_on(wp)) {
-        int nn = n + win_signcol_width(wp);
-
-        // draw the sign column after the fold column
-        if (nn > wp->w_grid.Columns) {
-            nn = wp->w_grid.Columns;
-        }
-        grid_fill(&wp->w_grid, row, endrow, n, nn, ' ', ' ',
-                  win_hl_attr(wp, HLF_SC));
-        n = nn;
-    }
-
-    grid_fill(&wp->w_grid, row, endrow, FDC_OFF, wp->w_grid.Columns, c1, c2,
-              attr);
+    grid_fill(&wp->w_grid, row, endrow, n, wp->w_grid.Columns, c1, c2, attr);
   }
+
   set_empty_rows(wp, row);
 }
 
@@ -1773,10 +1760,10 @@ static void fold_line(win_T *wp, long fold_count, foldinfo_T *foldinfo, linenr_T
   RL_MEMSET(col, win_hl_attr(wp, HLF_FL), wp->w_grid.Columns - col);
 
   // If signs are being displayed, add spaces.
-  if (signcolumn_on(wp)) {
+  if (win_signcol_count(wp) > 0) {
       len = wp->w_grid.Columns - col;
       if (len > 0) {
-          int len_max = win_signcol_width(wp);
+          int len_max = win_signcol_width(wp) * win_signcol_count(wp);
           if (len > len_max) {
               len = len_max;
           }
@@ -2377,31 +2364,34 @@ win_line (
     filler_lines = wp->w_topfill;
   filler_todo = filler_lines;
 
-  // Cursor line highlighting for 'cursorline' in the current window.  Not
-  // when Visual mode is active, because it's not clear what is selected
-  // then.
-  if (wp->w_p_cul && lnum == wp->w_cursor.lnum
-      && !(wp == curwin && VIsual_active)) {
-    int cul_attr = win_hl_attr(wp, HLF_CUL);
-    HlAttrs ae = syn_attr2entry(cul_attr);
+  // Cursor line highlighting for 'cursorline' in the current window.
+  if (wp->w_p_cul && lnum == wp->w_cursor.lnum) {
+    // Do not show the cursor line when Visual mode is active, because it's
+    // not clear what is selected then.
+    if (!(wp == curwin && VIsual_active)) {
+      int cul_attr = win_hl_attr(wp, HLF_CUL);
+      HlAttrs ae = syn_attr2entry(cul_attr);
 
-    // We make a compromise here (#7383):
-    //  * low-priority CursorLine if fg is not set
-    //  * high-priority ("same as Vim" priority) CursorLine if fg is set
-    if (ae.rgb_fg_color == -1 && ae.cterm_fg_color == 0) {
-      line_attr_lowprio = cul_attr;
-    } else {
-      if (!(State & INSERT) && bt_quickfix(wp->w_buffer)
-          && qf_current_entry(wp) == lnum) {
-        line_attr = hl_combine_attr(cul_attr, line_attr);
+      // We make a compromise here (#7383):
+      //  * low-priority CursorLine if fg is not set
+      //  * high-priority ("same as Vim" priority) CursorLine if fg is set
+      if (ae.rgb_fg_color == -1 && ae.cterm_fg_color == 0) {
+        line_attr_lowprio = cul_attr;
       } else {
-        line_attr = cul_attr;
+        if (!(State & INSERT) && bt_quickfix(wp->w_buffer)
+            && qf_current_entry(wp) == lnum) {
+          line_attr = hl_combine_attr(cul_attr, line_attr);
+        } else {
+          line_attr = cul_attr;
+        }
       }
     }
+    // Update w_last_cursorline even if Visual mode is active.
+    wp->w_last_cursorline = wp->w_cursor.lnum;
   }
 
   // If this line has a sign with line highlighting set line_attr.
-  v = buf_getsigntype(wp->w_buffer, lnum, SIGN_LINEHL);
+  v = buf_getsigntype(wp->w_buffer, lnum, SIGN_LINEHL, 0, 1);
   if (v != 0) {
     line_attr = sign_get_attr((int)v, SIGN_LINEHL);
   }
@@ -2651,6 +2641,7 @@ win_line (
     extra_check = true;
   }
 
+  int sign_idx = 0;
   // Repeat for the whole displayed line.
   for (;; ) {
     has_match_conc = 0;
@@ -2691,7 +2682,8 @@ win_line (
           draw_state = WL_SIGN;
           /* Show the sign column when there are any signs in this
            * buffer or when using Netbeans. */
-          if (signcolumn_on(wp)) {
+          int count = win_signcol_count(wp);
+          if (count > 0) {
               int text_sign;
               // Draw cells with the sign value or blank.
               c_extra = ' ';
@@ -2700,7 +2692,8 @@ win_line (
               n_extra = win_signcol_width(wp);
 
               if (row == startrow + filler_lines && filler_todo <= 0) {
-                  text_sign = buf_getsigntype(wp->w_buffer, lnum, SIGN_TEXT);
+                  text_sign = buf_getsigntype(wp->w_buffer, lnum, SIGN_TEXT,
+                                              sign_idx, count);
                   if (text_sign != 0) {
                       p_extra = sign_get_text(text_sign);
                       int symbol_blen = (int)STRLEN(p_extra);
@@ -2717,6 +2710,11 @@ win_line (
                       }
                       char_attr = sign_get_attr(text_sign, SIGN_TEXT);
                   }
+              }
+
+              sign_idx++;
+              if (sign_idx < count) {
+                  draw_state = WL_SIGN - 1;
               }
           }
       }
@@ -2754,8 +2752,15 @@ win_line (
             if (wp->w_skipcol > 0)
               for (p_extra = extra; *p_extra == ' '; ++p_extra)
                 *p_extra = '-';
-            if (wp->w_p_rl)                         /* reverse line numbers */
-              rl_mirror(extra);
+            if (wp->w_p_rl) {                       // reverse line numbers
+              // like rl_mirror(), but keep the space at the end
+              char_u *p2 = skiptowhite(extra) - 1;
+              for (char_u *p1 = extra; p1 < p2; p1++, p2--) {
+                const int t = *p1;
+                *p1 = *p2;
+                *p2 = t;
+              }
+            }
             p_extra = extra;
             c_extra = NUL;
             c_final = NUL;
@@ -2766,7 +2771,8 @@ win_line (
           n_extra = number_width(wp) + 1;
           char_attr = win_hl_attr(wp, HLF_N);
 
-          int num_sign = buf_getsigntype(wp->w_buffer, lnum, SIGN_NUMHL);
+          int num_sign = buf_getsigntype(wp->w_buffer, lnum, SIGN_NUMHL,
+                                         0, 1);
           if (num_sign != 0) {
             // :sign defined with "numhl" highlight.
             char_attr = sign_get_attr(num_sign, SIGN_NUMHL);
@@ -2853,6 +2859,7 @@ win_line (
       }
 
       if (draw_state == WL_LINE - 1 && n_extra == 0) {
+        sign_idx = 0;
         draw_state = WL_LINE;
         if (saved_n_extra) {
           /* Continue item from end of wrapped line. */
@@ -2936,8 +2943,11 @@ win_line (
                 shl->endcol = tmp_col;
               }
               shl->attr_cur = shl->attr;
-              if (cur != NULL && syn_name2id((char_u *)"Conceal")
-                  == cur->hlg_id) {
+              // Match with the "Conceal" group results in hiding
+              // the match.
+              if (cur != NULL
+                  && shl != &search_hl
+                  && syn_name2id((char_u *)"Conceal") == cur->hlg_id) {
                 has_match_conc = v == (long)shl->startcol ? 2 : 1;
                 match_conc = cur->conceal_char;
               } else {
@@ -4192,11 +4202,9 @@ win_line (
            ) || lcs_eol_one == -1)
         break;
 
-      /* When the window is too narrow draw all "@" lines. */
-      if (draw_state != WL_LINE
-          && filler_todo <= 0
-          ) {
-        win_draw_end(wp, '@', ' ', row, wp->w_grid.Rows, HLF_AT);
+      // When the window is too narrow draw all "@" lines.
+      if (draw_state != WL_LINE && filler_todo <= 0) {
+        win_draw_end(wp, '@', ' ', true, row, wp->w_grid.Rows, HLF_AT);
         row = endrow;
       }
 
@@ -6351,14 +6359,12 @@ void grid_del_lines(ScreenGrid *grid, int row, int line_count, int end, int col,
 }
 
 
-/*
- * show the current mode and ruler
- *
- * If clear_cmdline is TRUE, clear the rest of the cmdline.
- * If clear_cmdline is FALSE there may be a message there that needs to be
- * cleared only if a mode is shown.
- * Return the length of the message (0 if no message).
- */
+// Show the current mode and ruler.
+//
+// If clear_cmdline is TRUE, clear the rest of the cmdline.
+// If clear_cmdline is FALSE there may be a message there that needs to be
+// cleared only if a mode is shown.
+// Return the length of the message (0 if no message).
 int showmode(void)
 {
   int need_clear;
@@ -7151,8 +7157,12 @@ void screen_resize(int width, int height)
       if (curwin->w_p_scb)
         do_check_scrollbind(TRUE);
       if (State & CMDLINE) {
+        redraw_popupmenu = false;
         update_screen(NOT_VALID);
         redrawcmdline();
+        if (pum_drawn()) {
+          cmdline_pum_display(false);
+        }
       } else {
         update_topline();
         if (pum_drawn()) {

@@ -1069,19 +1069,24 @@ static void mark_adjust_internal(linenr_T line1, linenr_T line2,
     { \
       posp->lnum += lnum_amount; \
       assert(col_amount > INT_MIN && col_amount <= INT_MAX); \
-      if (col_amount < 0 && posp->col <= (colnr_T)-col_amount) \
+      if (col_amount < 0 && posp->col <= (colnr_T)-col_amount) { \
         posp->col = 0; \
-      else \
+      } else if (posp->col < spaces_removed) { \
+        posp->col = (int)col_amount + spaces_removed; \
+      } else { \
         posp->col += (colnr_T)col_amount; \
+      } \
     } \
   }
 
-/*
- * Adjust marks in line "lnum" at column "mincol" and further: add
- * "lnum_amount" to the line number and add "col_amount" to the column
- * position.
- */
-void mark_col_adjust(linenr_T lnum, colnr_T mincol, long lnum_amount, long col_amount)
+// Adjust marks in line "lnum" at column "mincol" and further: add
+// "lnum_amount" to the line number and add "col_amount" to the column
+// position.
+// "spaces_removed" is the number of spaces that were removed, matters when the
+// cursor is inside them.
+void mark_col_adjust(
+    linenr_T lnum, colnr_T mincol, long lnum_amount, long col_amount,
+    int spaces_removed)
 {
   int i;
   int fnum = curbuf->b_fnum;
@@ -1183,9 +1188,23 @@ void cleanup_jumplist(void)
       xfree(curwin->w_jumplist[from].fname);
     }
   }
-  if (curwin->w_jumplistidx == curwin->w_jumplistlen)
+  if (curwin->w_jumplistidx == curwin->w_jumplistlen) {
     curwin->w_jumplistidx = to;
+  }
   curwin->w_jumplistlen = to;
+
+  // When pointer is below last jump, remove the jump if it matches the current
+  // line.  This avoids useless/phantom jumps. #9805
+  if (curwin->w_jumplistlen
+      && curwin->w_jumplistidx == curwin->w_jumplistlen) {
+    const xfmark_T *fm_last = &curwin->w_jumplist[curwin->w_jumplistlen - 1];
+    if (fm_last->fmark.fnum == curbuf->b_fnum
+        && fm_last->fmark.mark.lnum == curwin->w_cursor.lnum) {
+      xfree(fm_last->fname);
+      curwin->w_jumplistlen--;
+      curwin->w_jumplistidx--;
+    }
+  }
 }
 
 /*

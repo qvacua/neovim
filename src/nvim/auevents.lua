@@ -29,6 +29,7 @@ return {
     'CmdWinLeave',            -- before leaving the cmdline window
     'ColorScheme',            -- after loading a colorscheme
     'ColorSchemePre',         -- before loading a colorscheme
+    'CompleteChanged',        -- after popup menu changed
     'CompleteDone',           -- after finishing insert complete
     'CursorHold',             -- cursor in same position for a while
     'CursorHoldI',            -- idem, in Insert mode

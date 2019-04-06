@@ -881,12 +881,23 @@ func Test_Executable()
     call assert_equal(1, executable('notepad'))
     call assert_equal(1, executable('notepad.exe'))
     call assert_equal(0, executable('notepad.exe.exe'))
-    call assert_equal(1, executable('shell32.dll'))
-    call assert_equal(1, executable('win.ini'))
+    call assert_equal(0, executable('shell32.dll'))
+    call assert_equal(0, executable('win.ini'))
   elseif has('unix')
     call assert_equal(1, executable('cat'))
     call assert_equal(0, executable('nodogshere'))
   endif
+endfunc
+
+func Test_executable_longname()
+  if !has('win32')
+    return
+  endif
+
+  let fname = 'X' . repeat('あ', 200) . '.bat'
+  call writefile([], fname)
+  call assert_equal(1, executable(fname))
+  call delete(fname)
 endfunc
 
 func Test_hostname()
@@ -1048,4 +1059,20 @@ func Test_func_range_with_edit()
   call delete('Xfuncrange1')
   call delete('Xfuncrange2')
   bwipe!
+endfunc
+
+sandbox function Fsandbox()
+  normal ix
+endfunc
+
+func Test_func_sandbox()
+  sandbox let F = {-> 'hello'}
+  call assert_equal('hello', F())
+
+  sandbox let F = {-> execute("normal ix\<Esc>")}
+  call assert_fails('call F()', 'E48:')
+  unlet F
+
+  call assert_fails('call Fsandbox()', 'E48:')
+  delfunc Fsandbox
 endfunc
