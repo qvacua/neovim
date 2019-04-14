@@ -181,6 +181,7 @@ return {
     {
       full_name='backupskip', abbreviation='bsk',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_bsk',
       defaults={if_true={vi=""}}
@@ -189,6 +190,7 @@ return {
       full_name='belloff', abbreviation='bo',
       deny_duplicates=true,
       type='string', list='comma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_bo',
       defaults={if_true={vi="all"}}
@@ -756,6 +758,7 @@ return {
     {
       full_name='fileencodings', abbreviation='fencs',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_fencs',
       defaults={if_true={vi="ucs-bom,utf-8,default,latin1"}}
@@ -1017,6 +1020,7 @@ return {
     {
       full_name='guifontset', abbreviation='gfs',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_guifontset',
       redraw={'ui_option'},
@@ -1072,6 +1076,7 @@ return {
     {
       full_name='helplang', abbreviation='hlg',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_hlg',
       defaults={if_true={vi=""}}
@@ -2242,6 +2247,7 @@ return {
     {
       full_name='spellfile', abbreviation='spf',
       type='string', list='onecomma', scope={'buffer'},
+      deny_duplicates=true,
       secure=true,
       vi_def=true,
       alloced=true,
@@ -2252,6 +2258,7 @@ return {
     {
       full_name='spelllang', abbreviation='spl',
       type='string', list='onecomma', scope={'buffer'},
+      deny_duplicates=true,
       vi_def=true,
       alloced=true,
       expand=true,
@@ -2262,6 +2269,7 @@ return {
     {
       full_name='spellsuggest', abbreviation='sps',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       secure=true,
       vi_def=true,
       expand=true,
@@ -2704,6 +2712,7 @@ return {
     {
       full_name='wildoptions', abbreviation='wop',
       type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
       vi_def=true,
       varname='p_wop',
       defaults={if_true={vi=""}}

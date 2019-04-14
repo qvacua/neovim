@@ -49,11 +49,28 @@ describe('API', function()
 
   it('handles errors in async requests', function()
     local error_types = meths.get_api_info()[2].error_types
-    nvim_async("bogus")
+    nvim_async('bogus')
     eq({'notification', 'nvim_error_event',
         {error_types.Exception.id, 'Invalid method: nvim_bogus'}}, next_msg())
     -- error didn't close channel.
     eq(2, eval('1+1'))
+  end)
+
+  it('failed async request emits nvim_error_event', function()
+    local error_types = meths.get_api_info()[2].error_types
+    nvim_async('command', 'bogus')
+    eq({'notification', 'nvim_error_event',
+        {error_types.Exception.id, 'Vim:E492: Not an editor command: bogus'}},
+        next_msg())
+    -- error didn't close channel.
+    eq(2, eval('1+1'))
+  end)
+
+  it('does not set CA_COMMAND_BUSY #7254', function()
+    nvim('command', 'split')
+    nvim('command', 'autocmd WinEnter * startinsert')
+    nvim('command', 'wincmd w')
+    eq({mode='i', blocking=false}, nvim("get_mode"))
   end)
 
   describe('nvim_command', function()
@@ -83,7 +100,7 @@ describe('API', function()
     end)
 
     it('VimL execution error: fails with specific error', function()
-      local status, rv = pcall(nvim, "command_output", "buffer 23487")
+      local status, rv = pcall(nvim, "command", "buffer 23487")
       eq(false, status)                 -- nvim_command() failed.
       eq("E86: Buffer 23487 does not exist", string.match(rv, "E%d*:.*"))
       eq('', eval('v:errmsg'))  -- v:errmsg was not updated.

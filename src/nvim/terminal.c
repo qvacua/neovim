@@ -405,6 +405,7 @@ void terminal_enter(void)
   ui_cursor_shape();
 
   s->state.execute = terminal_execute;
+  s->state.check = terminal_check;
   state_enter(&s->state);
 
   restart_edit = 0;
@@ -429,6 +430,19 @@ void terminal_enter(void)
   }
   
   ui_cursor_shape();
+}
+
+// Function executed before each iteration of terminal mode.
+// Return:
+//   1 if the iteration should continue normally
+//   0 if the main loop must exit
+static int terminal_check(VimState *state)
+{
+  if (stop_insert_mode) {
+    stop_insert_mode = false;
+    return 0;
+  }
+  return 1;
 }
 
 static int terminal_execute(VimState *state, int key)

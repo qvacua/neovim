@@ -37,6 +37,20 @@ describe('floating windows', function()
     [17] = {background = Screen.colors.Yellow},
   }
 
+  it('behavior', function()
+    -- Create three windows and test that ":wincmd <direction>" changes to the
+    -- first window, if the previous window is invalid.
+    command('split')
+    meths.open_win(0, true, {width=10, height=10, relative='editor', row=0, col=0})
+    eq(1002, funcs.win_getid())
+    eq('editor', meths.win_get_config(1002).relative)
+    command([[
+      call nvim_win_close(1001, v:false)
+      wincmd j
+    ]])
+    eq(1000, funcs.win_getid())
+  end)
+
   local function with_ext_multigrid(multigrid)
     local screen
     before_each(function()
@@ -546,6 +560,66 @@ describe('floating windows', function()
           {0:~                                       }|
           {4:[No Name] [+]                           }|
                                                   |
+        ]])
+      end
+    end)
+
+    it('validates cursor even when window is not entered', function()
+      screen:try_resize(30,5)
+      command("set nowrap")
+      insert([[some text that is wider than the window]])
+      if multigrid then
+        screen:expect([[
+        ## grid 1
+          [2:------------------------------]|
+          [2:------------------------------]|
+          [2:------------------------------]|
+          [2:------------------------------]|
+                                        |
+        ## grid 2
+          that is wider than the windo^w |
+          {0:~                             }|
+          {0:~                             }|
+          {0:~                             }|
+        ]])
+      else
+        screen:expect([[
+          that is wider than the windo^w |
+          {0:~                             }|
+          {0:~                             }|
+          {0:~                             }|
+                                        |
+        ]])
+      end
+
+      local buf = meths.create_buf(false,true)
+      meths.buf_set_lines(buf, 0, -1, true, {'some floaty text'})
+      meths.open_win(buf, false, {relative='editor', width=20, height=1, row=3, col=1})
+      if multigrid then
+        screen:expect{grid=[[
+        ## grid 1
+          [2:------------------------------]|
+          [2:------------------------------]|
+          [2:------------------------------]|
+          [2:------------------------------]|
+                                        |
+        ## grid 2
+          that is wider than the windo^w |
+          {0:~                             }|
+          {0:~                             }|
+          {0:~                             }|
+        ## grid 4
+          {1:some floaty text    }|
+        ]], float_pos={
+          [4] = {{id = 1002}, "NW", 1, 3, 1, true}
+        }}
+      else
+        screen:expect([[
+          that is wider than the windo^w |
+          {0:~                             }|
+          {0:~                             }|
+          {0:~}{1:some floaty text    }{0:         }|
+                                        |
         ]])
       end
     end)

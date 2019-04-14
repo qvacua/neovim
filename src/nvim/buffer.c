@@ -1550,7 +1550,7 @@ void enter_buffer(buf_T *buf)
     diff_buf_add(curbuf);
   }
 
-  curwin->w_s = &(buf->b_s);
+  curwin->w_s = &(curbuf->b_s);
 
   // Cursor on first line by default.
   curwin->w_cursor.lnum = 1;
@@ -1620,6 +1620,7 @@ void do_autochdir(void)
     if (starting == 0
         && curbuf->b_ffname != NULL
         && vim_chdirfile(curbuf->b_ffname) == OK) {
+      post_chdir(kCdScopeGlobal, false);
       shorten_fnames(true);
     }
   }
@@ -1717,11 +1718,8 @@ buf_T * buflist_new(char_u *ffname, char_u *sfname, linenr_T lnum, int flags)
    * buffer.)
    */
   buf = NULL;
-  if ((flags & BLN_CURBUF)
-      && curbuf != NULL
-      && curbuf->b_ffname == NULL
-      && curbuf->b_nwindows <= 1
-      && (curbuf->b_ml.ml_mfp == NULL || BUFEMPTY())) {
+  if ((flags & BLN_CURBUF) && curbuf_reusable()) {
+    assert(curbuf != NULL);
     buf = curbuf;
     /* It's like this buffer is deleted.  Watch out for autocommands that
      * change curbuf!  If that happens, allocate a new buffer anyway. */
@@ -1862,6 +1860,18 @@ buf_T * buflist_new(char_u *ffname, char_u *sfname, linenr_T lnum, int flags)
   }
 
   return buf;
+}
+
+/// Return true if the current buffer is empty, unnamed, unmodified and used in
+/// only one window. That means it can be reused.
+bool curbuf_reusable(void)
+{
+  return (curbuf != NULL
+          && curbuf->b_ffname == NULL
+          && curbuf->b_nwindows <= 1
+          && (curbuf->b_ml.ml_mfp == NULL || BUFEMPTY())
+          && !bt_quickfix(curbuf)
+          && !curbufIsChanged());
 }
 
 /*

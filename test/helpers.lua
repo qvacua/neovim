@@ -235,6 +235,11 @@ local function hasenv(name)
   return nil
 end
 
+local function deps_prefix()
+  local env = os.getenv('DEPS_PREFIX')
+  return (env and env ~= '') and env or '.deps/usr'
+end
+
 local tests_skipped = 0
 
 local function check_cores(app, force)
@@ -263,7 +268,7 @@ local function check_cores(app, force)
   else
     initial_path = '.'
     re = '/core[^/]*$'
-    exc_re = { '^/%.deps$', local_tmpdir, '^/%node_modules$' }
+    exc_re = { '^/%.deps$', '^/%'..deps_prefix()..'$', local_tmpdir, '^/%node_modules$' }
     db_cmd = gdb_db_cmd
     random_skip = true
   end
@@ -622,6 +627,19 @@ local function table_flatten(arr)
   return result
 end
 
+-- Checks if a list-like (vector) table contains `value`.
+local function table_contains(t, value)
+  if type(t) ~= 'table' then
+    error('t must be a table')
+  end
+  for _,v in ipairs(t) do
+    if v == value then
+      return true
+    end
+  end
+  return false
+end
+
 local function hexdump(str)
   local len = string.len(str)
   local dump = ""
@@ -766,6 +784,7 @@ local module = {
   repeated_read_cmd = repeated_read_cmd,
   shallowcopy = shallowcopy,
   sleep = sleep,
+  table_contains = table_contains,
   table_flatten = table_flatten,
   tmpname = tmpname,
   uname = uname,

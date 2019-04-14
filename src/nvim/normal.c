@@ -6530,8 +6530,14 @@ static void n_start_visual_mode(int c)
  */
 static void nv_window(cmdarg_T *cap)
 {
-  if (!checkclearop(cap->oap))
-    do_window(cap->nchar, cap->count0, NUL);     /* everything is in window.c */
+  if (cap->nchar == ':') {
+    // "CTRL-W :" is the same as typing ":"; useful in a terminal window
+    cap->cmdchar = ':';
+    cap->nchar = NUL;
+    nv_colon(cap);
+  } else if (!checkclearop(cap->oap)) {
+    do_window(cap->nchar, cap->count0, NUL);  // everything is in window.c
+  }
 }
 
 /*
@@ -8005,7 +8011,6 @@ static void nv_event(cmdarg_T *cap)
   // lists or dicts being used.
   may_garbage_collect = false;
   multiqueue_process_events(main_loop.events);
-  cap->retval |= CA_COMMAND_BUSY;       // don't call edit() now
   finish_op = false;
 }
 
