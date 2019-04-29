@@ -7222,7 +7222,7 @@ void free_cd_dir(void)
 /// Deal with the side effects of changing the current directory.
 ///
 /// @param scope  Scope of the function call (global, tab or window).
-void post_chdir(CdScope scope)
+void post_chdir(CdScope scope, bool trigger_dirchanged)
 {
   // Always overwrite the window-local CWD.
   xfree(curwin->w_localdir);
@@ -7262,7 +7262,10 @@ void post_chdir(CdScope scope)
   }
 
   shorten_fnames(true);
-  do_autocmd_dirchanged(cwd, scope);
+
+  if (trigger_dirchanged) {
+    do_autocmd_dirchanged(cwd, scope);
+  }
 }
 
 /// `:cd`, `:tcd`, `:lcd`, `:chdir`, `:tchdir` and `:lchdir`.
@@ -7324,7 +7327,7 @@ void ex_cd(exarg_T *eap)
     if (vim_chdir(new_dir, scope)) {
       EMSG(_(e_failed));
     } else {
-      post_chdir(scope);
+      post_chdir(scope, true);
       // Echo the new current directory if the command was typed.
       if (KeyTyped || p_verbose >= 5) {
         ex_pwd(eap);
