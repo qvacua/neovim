@@ -3935,7 +3935,7 @@ static int eval6(char_u **arg, typval_T *rettv, int evaluate, int want_string)
   int op;
   varnumber_T n1, n2;
   bool use_float = false;
-  float_T f1 = 0, f2;
+  float_T f1 = 0, f2 = 0;
   bool error = false;
 
   /*
@@ -6875,6 +6875,27 @@ static void assert_equal_common(typval_T *argvars, assert_type_T atype)
     assert_error(&ga);
     ga_clear(&ga);
   }
+}
+
+static void f_assert_beeps(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  const char *const cmd = tv_get_string_chk(&argvars[0]);
+  garray_T ga;
+
+  called_vim_beep = false;
+  suppress_errthrow = true;
+  emsg_silent = false;
+  do_cmdline_cmd(cmd);
+  if (!called_vim_beep) {
+    prepare_assert_error(&ga);
+    ga_concat(&ga, (const char_u *)"command did not beep: ");
+    ga_concat(&ga, (const char_u *)cmd);
+    assert_error(&ga);
+    ga_clear(&ga);
+  }
+
+  suppress_errthrow = false;
+  emsg_on_display = false;
 }
 
 // "assert_equal(expected, actual[, msg])" function
@@ -10096,7 +10117,7 @@ static void f_getmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       // match added with matchaddpos()
       for (i = 0; i < MAXPOSMATCH; i++) {
         llpos_T   *llpos;
-        char buf[6];
+        char buf[30];  // use 30 to avoid compiler warning
 
         llpos = &cur->pos.pos[i];
         if (llpos->lnum == 0) {
@@ -10451,6 +10472,14 @@ static void f_win_screenpos(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   const win_T *const wp = find_win_by_nr_or_id(&argvars[0]);
   tv_list_append_number(rettv->vval.v_list, wp == NULL ? 0 : wp->w_winrow + 1);
   tv_list_append_number(rettv->vval.v_list, wp == NULL ? 0 : wp->w_wincol + 1);
+}
+
+// "getwinpos({timeout})" function
+static void f_getwinpos(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  tv_list_alloc_ret(rettv, 2);
+  tv_list_append_number(rettv->vval.v_list, -1);
+  tv_list_append_number(rettv->vval.v_list, -1);
 }
 
 /*
@@ -14928,7 +14957,7 @@ static void f_setmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
       // match from matchaddpos()
       for (i = 1; i < 9; i++) {
-        char buf[5];
+        char buf[30];  // use 30 to avoid compiler warning
         snprintf(buf, sizeof(buf), "pos%d", i);
         dictitem_T *const pos_di = tv_dict_find(d, buf, -1);
         if (pos_di != NULL) {
