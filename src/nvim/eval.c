@@ -5221,7 +5221,7 @@ bool garbage_collect(bool testing)
       (void)garbage_collect(testing);
     }
   } else if (p_verbose > 0) {
-    verb_msg((char_u *)_(
+    verb_msg(_(
         "Not enough memory to set references, garbage collection aborted!"));
   }
 #undef ABORTING
@@ -10404,6 +10404,23 @@ static void f_gettabwinvar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   getwinvar(argvars, rettv, 1);
 }
 
+// "gettagstack()" function
+static void f_gettagstack(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+    win_T        *wp = curwin;                  // default is current window
+
+    tv_dict_alloc_ret(rettv);
+
+    if (argvars[0].v_type != VAR_UNKNOWN) {
+        wp = find_win_by_nr_or_id(&argvars[0]);
+        if (wp == NULL) {
+          return;
+        }
+    }
+
+    get_tagstack(wp, rettv->vval.v_dict);
+}
+
 /// Returns information about a window as a dictionary.
 static dict_T *get_win_info(win_T *wp, int16_t tpnr, int16_t winnr)
 {
@@ -11477,25 +11494,21 @@ static void f_inputlist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
 static garray_T ga_userinput = {0, 0, sizeof(tasave_T), 4, NULL};
 
-/*
- * "inputrestore()" function
- */
+/// "inputrestore()" function
 static void f_inputrestore(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   if (!GA_EMPTY(&ga_userinput)) {
-    --ga_userinput.ga_len;
+    ga_userinput.ga_len--;
     restore_typeahead((tasave_T *)(ga_userinput.ga_data)
-        + ga_userinput.ga_len);
-    /* default return is zero == OK */
+                      + ga_userinput.ga_len);
+    // default return is zero == OK
   } else if (p_verbose > 1) {
-    verb_msg((char_u *)_("called inputrestore() more often than inputsave()"));
-    rettv->vval.v_number = 1;     /* Failed */
+    verb_msg(_("called inputrestore() more often than inputsave()"));
+    rettv->vval.v_number = 1;  // Failed
   }
 }
 
-/*
- * "inputsave()" function
- */
+/// "inputsave()" function
 static void f_inputsave(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   // Add an entry to the stack of typeahead storage.
@@ -11503,9 +11516,7 @@ static void f_inputsave(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   save_typeahead(p);
 }
 
-/*
- * "inputsecret()" function
- */
+/// "inputsecret()" function
 static void f_inputsecret(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   cmdline_star++;
@@ -15207,6 +15218,60 @@ static void f_settabwinvar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   setwinvar(argvars, rettv, 1);
 }
 
+// "settagstack()" function
+static void f_settagstack(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+    static char *e_invact2 = N_("E962: Invalid action: '%s'");
+    win_T       *wp;
+    dict_T      *d;
+    int         action = 'r';
+
+    rettv->vval.v_number = -1;
+
+    // first argument: window number or id
+    wp = find_win_by_nr_or_id(&argvars[0]);
+    if (wp == NULL) {
+      return;
+    }
+
+    // second argument: dict with items to set in the tag stack
+    if (argvars[1].v_type != VAR_DICT) {
+        EMSG(_(e_dictreq));
+        return;
+    }
+    d = argvars[1].vval.v_dict;
+    if (d == NULL) {
+      return;
+    }
+
+    // third argument: action - 'a' for append and 'r' for replace.
+    // default is to replace the stack.
+    if (argvars[2].v_type == VAR_UNKNOWN) {
+      action = 'r';
+    } else if (argvars[2].v_type == VAR_STRING) {
+        const char *actstr;
+        actstr = tv_get_string_chk(&argvars[2]);
+        if (actstr == NULL) {
+          return;
+        }
+        if ((*actstr == 'r' || *actstr == 'a') && actstr[1] == NUL) {
+          action = *actstr;
+        } else {
+            EMSG2(_(e_invact2), actstr);
+            return;
+        }
+    } else {
+        EMSG(_(e_stringreq));
+        return;
+    }
+
+    if (set_tagstack(wp, d, action) == OK) {
+      rettv->vval.v_number = 0;
+    } else {
+      EMSG(_(e_listreq));
+    }
+}
+
 /*
  * "setwinvar()" function
  */
@@ -16423,6 +16488,27 @@ static void f_substitute(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   } else {
     rettv->vval.v_string = do_string_sub((char_u *)str, (char_u *)pat,
                                          (char_u *)sub, expr, (char_u *)flg);
+  }
+}
+
+/// "swapinfo(swap_filename)" function
+static void f_swapinfo(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  tv_dict_alloc_ret(rettv);
+  get_b0_dict(tv_get_string(argvars), rettv->vval.v_dict);
+}
+
+/// "swapname(expr)" function
+static void f_swapname(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  rettv->v_type = VAR_STRING;
+  buf_T *buf = tv_get_buf(&argvars[0], false);
+  if (buf == NULL
+      || buf->b_ml.ml_mfp == NULL
+      || buf->b_ml.ml_mfp->mf_fname == NULL) {
+    rettv->vval.v_string = NULL;
+  } else {
+    rettv->vval.v_string = vim_strsave(buf->b_ml.ml_mfp->mf_fname);
   }
 }
 
@@ -18208,7 +18294,7 @@ pos_T *var2fpos(const typval_T *const tv, const int dollar_lnum,
  * Return FAIL when conversion is not possible, doesn't check the position for
  * validity.
  */
-static int list2fpos(typval_T *arg, pos_T *posp, int *fnump, colnr_T *curswantp)
+int list2fpos(typval_T *arg, pos_T *posp, int *fnump, colnr_T *curswantp)
 {
   list_T *l;
   long i = 0;

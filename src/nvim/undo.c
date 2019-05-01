@@ -1131,8 +1131,9 @@ void u_write_undo(const char *const name, const bool forceit, buf_T *const buf,
   /* If there is no undo information at all, quit here after deleting any
    * existing undo file. */
   if (buf->b_u_numhead == 0 && buf->b_u_line_ptr == NULL) {
-    if (p_verbose > 0)
-      verb_msg((char_u *)_("Skipping undo file write, nothing to undo"));
+    if (p_verbose > 0) {
+      verb_msg(_("Skipping undo file write, nothing to undo"));
+    }
     goto theend;
   }
 
@@ -2150,7 +2151,7 @@ static void u_undoredo(int undo, bool do_buf_event)
   int new_flags;
   fmark_T namedm[NMARKS];
   visualinfo_T visualinfo;
-  int empty_buffer;                         /* buffer became empty */
+  bool empty_buffer;                        // buffer became empty
   u_header_T  *curhead = curbuf->b_u_curhead;
 
   /* Don't want autocommands using the undo structures here, they are
@@ -2217,7 +2218,7 @@ static void u_undoredo(int undo, bool do_buf_event)
       }
     }
 
-    empty_buffer = FALSE;
+    empty_buffer = false;
 
     /* delete the lines between top and bot and save them in newarray */
     if (oldsize > 0) {
@@ -2228,9 +2229,10 @@ static void u_undoredo(int undo, bool do_buf_event)
         newarray[i] = u_save_line(lnum);
         /* remember we deleted the last line in the buffer, and a
          * dummy empty line will be inserted */
-        if (curbuf->b_ml.ml_line_count == 1)
-          empty_buffer = TRUE;
-        ml_delete(lnum, FALSE);
+        if (curbuf->b_ml.ml_line_count == 1) {
+          empty_buffer = true;
+        }
+        ml_delete(lnum, false);
       }
     } else
       newarray = NULL;
@@ -2245,7 +2247,7 @@ static void u_undoredo(int undo, bool do_buf_event)
         if (empty_buffer && lnum == 0) {
           ml_replace((linenr_T)1, uep->ue_array[i], true);
         } else {
-          ml_append(lnum, uep->ue_array[i], (colnr_T)0, FALSE);
+          ml_append(lnum, uep->ue_array[i], (colnr_T)0, false);
         }
         xfree(uep->ue_array[i]);
       }
