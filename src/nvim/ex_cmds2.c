@@ -1040,12 +1040,9 @@ static void profile_reset(void)
         uf->uf_tm_self      = profile_zero();
         uf->uf_tm_children  = profile_zero();
 
-        xfree(uf->uf_tml_count);
-        xfree(uf->uf_tml_total);
-        xfree(uf->uf_tml_self);
-        uf->uf_tml_count    = NULL;
-        uf->uf_tml_total    = NULL;
-        uf->uf_tml_self     = NULL;
+        XFREE_CLEAR(uf->uf_tml_count);
+        XFREE_CLEAR(uf->uf_tml_total);
+        XFREE_CLEAR(uf->uf_tml_self);
 
         uf->uf_tml_start    = profile_zero();
         uf->uf_tml_children = profile_zero();
@@ -1056,8 +1053,7 @@ static void profile_reset(void)
     }
   }
 
-  xfree(profile_fname);
-  profile_fname = NULL;
+  XFREE_CLEAR(profile_fname);
 }
 
 /// Start profiling a script.
@@ -1298,7 +1294,12 @@ void dialog_changed(buf_T *buf, bool checkall)
 {
   char_u buff[DIALOG_MSG_SIZE];
   int ret;
-  exarg_T ea;
+  // Init ea pseudo-structure, this is needed for the check_overwrite()
+  // function.
+  exarg_T ea = {
+    .append = false,
+    .forceit = false,
+  };
 
   dialog_msg(buff, _("Save changes to \"%s\"?"), buf->b_fname);
   if (checkall) {
@@ -1306,10 +1307,6 @@ void dialog_changed(buf_T *buf, bool checkall)
   } else {
     ret = vim_dialog_yesnocancel(VIM_QUESTION, NULL, buff, 1);
   }
-
-  // Init ea pseudo-structure, this is needed for the check_overwrite()
-  // function.
-  ea.append = ea.forceit = false;
 
   if (ret == VIM_YES) {
     if (buf->b_fname != NULL
@@ -2825,6 +2822,9 @@ void ex_packadd(exarg_T *eap)
 void ex_options(exarg_T *eap)
 {
   vim_setenv("OPTWIN_CMD", cmdmod.tab ? "tab" : "");
+  vim_setenv("OPTWIN_CMD",
+             cmdmod.tab ? "tab" :
+             (cmdmod.split & WSP_VERT) ? "vert" : "");
   cmd_source((char_u *)SYS_OPTWIN_FILE, NULL);
 }
 
@@ -3403,13 +3403,18 @@ char_u *getsourceline(int c, void *cookie, int indent)
     // Get the next line and concatenate it when it starts with a
     // backslash. We always need to read the next line, keep it in
     // sp->nextline.
+    // Also check for a comment in between continuation lines: "\ .
     sp->nextline = get_one_sourceline(sp);
-    if (sp->nextline != NULL && *(p = skipwhite(sp->nextline)) == '\\') {
+    if (sp->nextline != NULL
+        && (*(p = skipwhite(sp->nextline)) == '\\'
+            || (p[0] == '"' && p[1] == '\\' && p[2] == ' '))) {
       garray_T ga;
 
       ga_init(&ga, (int)sizeof(char_u), 400);
       ga_concat(&ga, line);
-      ga_concat(&ga, p + 1);
+      if (*p == '\\') {
+        ga_concat(&ga, p + 1);
+      }
       for (;; ) {
         xfree(sp->nextline);
         sp->nextline = get_one_sourceline(sp);
@@ -3417,15 +3422,16 @@ char_u *getsourceline(int c, void *cookie, int indent)
           break;
         }
         p = skipwhite(sp->nextline);
-        if (*p != '\\') {
+        if (*p == '\\') {
+          // Adjust the growsize to the current length to speed up
+          // concatenating many lines.
+          if (ga.ga_len > 400) {
+            ga_set_growsize(&ga, (ga.ga_len > 8000) ? 8000 : ga.ga_len);
+          }
+          ga_concat(&ga, p + 1);
+        } else if (p[0] != '"' || p[1] != '\\' || p[2] != ' ') {
           break;
         }
-        // Adjust the growsize to the current length to speed up
-        // concatenating many lines.
-        if (ga.ga_len > 400) {
-          ga_set_growsize(&ga, (ga.ga_len > 8000) ? 8000 : ga.ga_len);
-        }
-        ga_concat(&ga, p + 1);
       }
       ga_append(&ga, NUL);
       xfree(line);
@@ -3993,8 +3999,7 @@ void free_locales(void)
     for (i = 0; locales[i] != NULL; i++) {
       xfree(locales[i]);
     }
-    xfree(locales);
-    locales = NULL;
+    XFREE_CLEAR(locales);
   }
 }
 

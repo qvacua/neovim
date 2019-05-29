@@ -54,6 +54,7 @@
 #include "nvim/regexp.h"
 #include "nvim/screen.h"
 #include "nvim/search.h"
+#include "nvim/sign.h"
 #include "nvim/strings.h"
 #include "nvim/state.h"
 #include "nvim/syntax.h"
@@ -366,7 +367,7 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
 
   // redraw the statusline for statuslines that display the current mode
   // using the mode() function.
-  if (KeyTyped && msg_scrolled == 0) {
+  if (!cmd_silent && msg_scrolled == 0) {
     curwin->w_redr_status = true;
     redraw_statuslines();
   }
@@ -547,7 +548,10 @@ static int command_line_execute(VimState *state, int key)
     } else {
       do_cmdline(NULL, getcmdkeycmd, NULL, DOCMD_NOWAIT);
     }
-    redrawcmdline();
+
+    if (!cmdline_was_last_drawn) {
+      redrawcmdline();
+    }
     return 1;
   }
 
@@ -592,8 +596,7 @@ static int command_line_execute(VimState *state, int key)
       && s->c != K_KPAGEDOWN && s->c != K_KPAGEUP
       && s->c != K_LEFT && s->c != K_RIGHT
       && (s->xpc.xp_numfiles > 0 || (s->c != Ctrl_P && s->c != Ctrl_N))) {
-    xfree(s->lookfor);
-    s->lookfor = NULL;
+    XFREE_CLEAR(s->lookfor);
   }
 
   // When there are matching completions to select <S-Tab> works like
@@ -626,8 +629,7 @@ static int command_line_execute(VimState *state, int key)
       && s->c != Ctrl_L) {
     if (compl_match_array) {
       pum_undisplay(true);
-      xfree(compl_match_array);
-      compl_match_array = NULL;
+      XFREE_CLEAR(compl_match_array);
     }
     if (s->xpc.xp_numfiles != -1) {
       (void)ExpandOne(&s->xpc, NULL, NULL, 0, WILD_FREE);
@@ -1260,8 +1262,7 @@ static int command_line_handle_key(CommandLineState *s)
         return command_line_not_changed(s);
       }
 
-      xfree(ccline.cmdbuff);               // no commandline to return
-      ccline.cmdbuff = NULL;
+      XFREE_CLEAR(ccline.cmdbuff);        // no commandline to return
       if (!cmd_silent && !ui_has(kUICmdline)) {
         if (cmdmsg_rl) {
           msg_col = Columns;
@@ -1978,8 +1979,7 @@ static int command_line_changed(CommandLineState *s)
 /// Abandon the command line.
 static void abandon_cmdline(void)
 {
-  xfree(ccline.cmdbuff);
-  ccline.cmdbuff = NULL;
+  XFREE_CLEAR(ccline.cmdbuff);
   if (msg_scrolled == 0) {
     compute_cmdrow();
   }
@@ -2630,8 +2630,7 @@ static bool color_cmdline(CmdlineInfo *colored_ccline)
 
   if (colored_ccline->cmdbuff == NULL || *colored_ccline->cmdbuff == NUL) {
     // Nothing to do, exiting.
-    xfree(ccline_colors->cmdbuff);
-    ccline_colors->cmdbuff = NULL;
+    XFREE_CLEAR(ccline_colors->cmdbuff);
     return ret;
   }
 
@@ -3462,6 +3461,8 @@ void redrawcmd(void)
     return;
   }
 
+  redrawing_cmdline = true;
+
   msg_start();
   redrawcmdprompt();
 
@@ -3483,9 +3484,11 @@ void redrawcmd(void)
    */
   msg_scroll = FALSE;           /* next message overwrites cmdline */
 
-  /* Typing ':' at the more prompt may set skip_redraw.  We don't want this
-   * in cmdline mode */
-  skip_redraw = FALSE;
+  // Typing ':' at the more prompt may set skip_redraw.  We don't want this
+  // in cmdline mode.
+  skip_redraw = false;
+
+  redrawing_cmdline = false;
 }
 
 void compute_cmdrow(void)
@@ -3650,8 +3653,7 @@ nextwild (
         }
       }
       if ((int)STRLEN(p2) < j) {
-        xfree(p2);
-        p2 = NULL;
+        XFREE_CLEAR(p2);
       }
     }
   }
@@ -3785,8 +3787,7 @@ ExpandOne (
   if (xp->xp_numfiles != -1 && mode != WILD_ALL && mode != WILD_LONGEST) {
     FreeWild(xp->xp_numfiles, xp->xp_files);
     xp->xp_numfiles = -1;
-    xfree(orig_save);
-    orig_save = NULL;
+    XFREE_CLEAR(orig_save);
   }
   findex = 0;
 

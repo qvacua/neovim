@@ -1027,7 +1027,7 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
 ///      - "editor" the global editor grid
 ///      - "win"    a window. Use `win` to specify a window id,
 ///                 or the current window will be used by default.
-///      "cursor" the cursor position in current window.
+///      - "cursor" the cursor position in current window.
 ///   - `win`: When using relative='win', window id of the window where the
 ///       position is defined.
 ///   - `anchor`: The corner of the float that the row,col position defines:
@@ -1268,6 +1268,49 @@ ArrayOf(Dictionary) nvim_get_keymap(String mode)
   return keymap_array(mode, NULL);
 }
 
+/// Sets a global |mapping| for the given mode.
+///
+/// To set a buffer-local mapping, use |nvim_buf_set_keymap()|.
+///
+/// Unlike |:map|, leading/trailing whitespace is accepted as part of the {lhs}
+/// or {rhs}. Empty {rhs} is |<Nop>|. |keycodes| are replaced as usual.
+///
+/// Example:
+/// <pre>
+///     call nvim_set_keymap('n', ' <NL>', '', {'nowait': v:true})
+/// </pre>
+///
+/// is equivalent to:
+/// <pre>
+///     nmap <nowait> <Space><NL> <Nop>
+/// </pre>
+///
+/// @param  mode  Mode short-name (map command prefix: "n", "i", "v", "x", …)
+///               or "!" for |:map!|, or empty string for |:map|.
+/// @param  lhs   Left-hand-side |{lhs}| of the mapping.
+/// @param  rhs   Right-hand-side |{rhs}| of the mapping.
+/// @param  opts  Optional parameters map. Accepts all |:map-arguments|
+///               as keys excluding |<buffer>| but including |noremap|.
+///               Values are Booleans. Unknown key is an error.
+/// @param[out]   err   Error details, if any.
+void nvim_set_keymap(String mode, String lhs, String rhs,
+                     Dictionary opts, Error *err)
+  FUNC_API_SINCE(6)
+{
+  modify_keymap(-1, false, mode, lhs, rhs, opts, err);
+}
+
+/// Unmaps a global |mapping| for the given mode.
+///
+/// To unmap a buffer-local mapping, use |nvim_buf_del_keymap()|.
+///
+/// @see |nvim_set_keymap()|
+void nvim_del_keymap(String mode, String lhs, Error *err)
+  FUNC_API_SINCE(6)
+{
+  nvim_buf_del_keymap(-1, mode, lhs, err);
+}
+
 /// Gets a map of global (non-buffer-local) Ex commands.
 ///
 /// Currently only |user-commands| are supported, not builtin Ex commands.
@@ -1299,10 +1342,17 @@ Array nvim_get_api_info(uint64_t channel_id)
   return rv;
 }
 
-/// Identifies the client. Can be called more than once; subsequent calls
-/// remove earlier info, which should be included by the caller if it is
-/// still valid. (E.g. if a library first identifies the channel, then a
-/// plugin using that library later overrides that info)
+/// Self-identifies the client.
+///
+/// The client/plugin/application should call this after connecting, to provide
+/// hints about its identity and purpose, for debugging and orchestration.
+///
+/// Can be called more than once; the caller should merge old info if
+/// appropriate. Example: library first identifies the channel, then a plugin
+/// using that library later identifies itself.
+///
+/// @note "Something is better than nothing". You don't need to include all the
+///       fields.
 ///
 /// @param channel_id
 /// @param name Short name for the connected client
@@ -2054,10 +2104,10 @@ Dictionary nvim__stats(void)
 /// Gets a list of dictionaries representing attached UIs.
 ///
 /// @return Array of UI dictionaries, each with these keys:
-///   - "height"  requested height of the UI
-///   - "width"   requested width of the UI
+///   - "height"  Requested height of the UI
+///   - "width"   Requested width of the UI
 ///   - "rgb"     true if the UI uses RGB colors (false implies |cterm-colors|)
-///   - "ext_..." Requested UI extensions, see |ui-options|
+///   - "ext_..." Requested UI extensions, see |ui-option|
 ///   - "chan"    Channel id of remote UI (not present for TUI)
 Array nvim_list_uis(void)
   FUNC_API_SINCE(4)

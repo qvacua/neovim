@@ -146,12 +146,14 @@ EXTERN int mod_mask INIT(= 0x0);                /* current key modifiers */
  */
 EXTERN int cmdline_row;
 
-EXTERN int redraw_cmdline INIT(= FALSE);        /* cmdline must be redrawn */
-EXTERN int clear_cmdline INIT(= FALSE);         /* cmdline must be cleared */
-EXTERN int mode_displayed INIT(= FALSE);        /* mode is being displayed */
-EXTERN int cmdline_star INIT(= FALSE);          /* cmdline is crypted */
+EXTERN int redraw_cmdline INIT(= false);          // cmdline must be redrawn
+EXTERN int clear_cmdline INIT(= false);           // cmdline must be cleared
+EXTERN int mode_displayed INIT(= false);          // mode is being displayed
+EXTERN int cmdline_star INIT(= false);            // cmdline is crypted
+EXTERN int redrawing_cmdline INIT(= false);       // cmdline is being redrawn
+EXTERN int cmdline_was_last_drawn INIT(= false);  // cmdline was last drawn
 
-EXTERN int exec_from_reg INIT(= FALSE);         /* executing register */
+EXTERN int exec_from_reg INIT(= false);         // executing register
 
 /*
  * When '$' is included in 'cpoptions' option set:
@@ -482,6 +484,11 @@ EXTERN buf_T    *curbuf INIT(= NULL);    // currently active buffer
 #define FOR_ALL_BUFFERS_BACKWARDS(buf) \
   for (buf_T *buf = lastbuf; buf != NULL; buf = buf->b_prev)
 
+// Iterate through all the signs placed in a buffer
+#define FOR_ALL_SIGNS_IN_BUF(buf, sign) \
+  for (sign = buf->b_signlist; sign != NULL; sign = sign->next)   // NOLINT
+
+
 /*
  * List of files being edited (global argument list).  curwin->w_alist points
  * to this when the window is using the global argument list.
@@ -675,8 +682,8 @@ EXTERN int motion_force INIT(=0);       // motion force for pending operator
 EXTERN int exmode_active INIT(= 0);     // Zero, EXMODE_NORMAL or EXMODE_VIM.
 EXTERN int ex_no_reprint INIT(=false);  // No need to print after z or p.
 
-EXTERN int Recording INIT(= false);     // TRUE when recording into a reg.
-EXTERN int Exec_reg INIT(= false);      // TRUE when executing a register.
+EXTERN int reg_recording INIT(= 0);     // register for recording  or zero
+EXTERN int reg_executing INIT(= 0);     // register being executed or zero
 
 EXTERN int no_mapping INIT(= false);    // currently no mapping allowed
 EXTERN int no_zero_mapping INIT(= 0);   // mapping zero not allowed
@@ -1039,6 +1046,7 @@ EXTERN char_u e_au_recursive[] INIT(= N_(
 EXTERN char_u e_unsupportedoption[] INIT(= N_("E519: Option not supported"));
 EXTERN char_u e_fnametoolong[] INIT(= N_("E856: Filename too long"));
 EXTERN char_u e_float_as_string[] INIT(= N_("E806: using Float as a String"));
+
 EXTERN char_u e_autocmd_err[] INIT(=N_(
     "E5500: autocmd has thrown an exception: %s"));
 EXTERN char_u e_cmdmap_err[] INIT(=N_(
@@ -1047,6 +1055,10 @@ EXTERN char_u e_cmdmap_repeated[] INIT(=N_(
     "E5521: <Cmd> mapping must end with <CR> before second <Cmd>"));
 EXTERN char_u e_cmdmap_key[] INIT(=N_(
     "E5522: <Cmd> mapping must not include %s key"));
+
+EXTERN char_u e_api_error[] INIT(=N_(
+    "E5555: API call: %s"));
+
 EXTERN char_u e_floatonly[] INIT(=N_(
     "E5601: Cannot close window, only floating window would remain"));
 EXTERN char_u e_floatexchange[] INIT(=N_(

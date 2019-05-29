@@ -1346,6 +1346,15 @@ void slash_adjust(char_u *p)
   if (path_with_url((const char *)p)) {
     return;
   }
+
+  if (*p == '`') {
+    // don't replace backslash in backtick quoted strings
+    const size_t len = STRLEN(p);
+    if (len > 2 && *(p + len - 1) == '`') {
+      return;
+    }
+  }
+
   while (*p) {
     if (*p == (char_u)psepcN) {
       *p = (char_u)psepc;
@@ -2079,8 +2088,7 @@ int expand_wildcards(int num_pat, char_u **pat, int *num_files, char_u ***files,
 
   // Free empty array of matches
   if (*num_files == 0) {
-    xfree(*files);
-    *files = NULL;
+    XFREE_CLEAR(*files);
     return FAIL;
   }
 

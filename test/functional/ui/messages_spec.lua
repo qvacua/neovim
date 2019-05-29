@@ -4,6 +4,7 @@ local clear, feed = helpers.clear, helpers.feed
 local eval = helpers.eval
 local eq = helpers.eq
 local command = helpers.command
+local set_method_error = helpers.set_method_error
 
 
 describe('ui/ext_messages', function()
@@ -22,8 +23,144 @@ describe('ui/ext_messages', function()
       [6] = {bold = true, reverse = true},
     })
   end)
+  after_each(function()
+    os.remove('Xtest')
+  end)
 
-  it('supports :echoerr', function()
+  it('msg_show kind=confirm,confirm_sub,emsg,wmsg,quickfix', function()
+    feed('iline 1\nline 2<esc>')
+
+    -- kind=confirm
+    feed(':echo confirm("test")<cr>')
+    screen:expect{grid=[[
+      line 1                   |
+      line ^2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={ {
+      content = {{"\ntest\n[O]k: ", 4}},
+      kind = 'confirm',
+    }}}
+    feed('<cr><cr>')
+    screen:expect{grid=[[
+      line 1                   |
+      line ^2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={ {
+        content = { { "\ntest\n[O]k: ", 4 } },
+        kind = "confirm"
+      }, {
+        content = { { "1" } },
+        kind = "echo"
+      }, {
+        content = { { "Press ENTER or type command to continue", 4 } },
+        kind = "return_prompt"
+    } }}
+    feed('<cr><cr>')
+
+    -- kind=confirm_sub
+    feed(':%s/i/X/gc<cr>')
+    screen:expect{grid=[[
+      l{7:i}ne 1                   |
+      l{8:i}ne ^2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], attr_ids={
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [3] = {bold = true},
+      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+      [5] = {foreground = Screen.colors.Blue1},
+      [6] = {bold = true, reverse = true},
+      [7] = {reverse = true},
+      [8] = {background = Screen.colors.Yellow},
+    }, messages={ {
+        content = { { "replace with X (y/n/a/q/l/^E/^Y)?", 4 } },
+        kind = "confirm_sub"
+      } }}
+    feed('nq')
+
+    -- kind=wmsg (editing readonly file)
+    command('write Xtest')
+    command('set readonly nohls')
+    feed('G$x')
+    screen:expect{grid=[[
+        line 1                   |
+        {IGNORE}|
+        {1:~                        }|
+        {1:~                        }|
+        {1:~                        }|
+      ]], attr_ids={
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [7] = {foreground = Screen.colors.Red},
+      }, messages={ {
+        content = { { "W10: Warning: Changing a readonly file", 7 } },
+        kind = "wmsg"
+      }
+    }}
+
+    -- kind=wmsg ('wrapscan' after search reaches EOF)
+    feed('uG$/i<cr>')
+    screen:expect{grid=[[
+      l^ine 1                   |
+      line 2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], attr_ids={
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [3] = {bold = true},
+      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+      [5] = {foreground = Screen.colors.Blue1},
+      [6] = {bold = true, reverse = true},
+      [7] = {foreground = Screen.colors.Red},
+    }, messages={ {
+        content = { { "search hit BOTTOM, continuing at TOP", 7 } },
+        kind = "wmsg"
+      } }}
+
+    -- kind=emsg after :throw
+    feed(':throw "foo"<cr>')
+    screen:expect{grid=[[
+      l^ine 1                   |
+      line 2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={ {
+        content = { { "Error detected while processing :", 2 } },
+        kind = "emsg"
+      }, {
+        content = { { "E605: Exception not caught: foo", 2 } },
+        kind = ""
+      }, {
+        content = { { "Press ENTER or type command to continue", 4 } },
+        kind = "return_prompt"
+      } }
+    }
+
+    -- kind=quickfix after :cnext
+    feed('<c-c>')
+    command("caddexpr [expand('%').':1:line1',expand('%').':2:line2']")
+    feed(':cnext<cr>')
+    screen:expect{grid=[[
+      line 1                   |
+      ^line 2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={ {
+        content = { { "(2 of 2): line2" } },
+        kind = "quickfix"
+      } }}
+  end)
+
+  it(':echoerr', function()
     feed(':echoerr "raa"<cr>')
     screen:expect{grid=[[
       ^                         |
@@ -142,7 +279,7 @@ describe('ui/ext_messages', function()
     }}
   end)
 
-  it('supports showmode', function()
+  it('&showmode', function()
     command('imap <f2> <cmd>echomsg "stuff"<cr>')
     feed('i')
     screen:expect{grid=[[
@@ -230,7 +367,7 @@ describe('ui/ext_messages', function()
     }}
   end)
 
-  it('supports showmode with recording message', function()
+  it('&showmode with macro-recording message', function()
     feed('qq')
     screen:expect{grid=[[
       ^                         |
@@ -268,7 +405,7 @@ describe('ui/ext_messages', function()
     ]])
   end)
 
-  it('shows recording message with noshowmode', function()
+  it('shows macro-recording message with &noshowmode', function()
     command("set noshowmode")
     feed('qq')
     -- also check mode to avoid immediate success
@@ -308,7 +445,7 @@ describe('ui/ext_messages', function()
     ]], mode="normal"}
   end)
 
-  it('supports showcmd and ruler', function()
+  it('supports &showcmd and &ruler', function()
     command('set showcmd ruler')
     screen:expect{grid=[[
       ^                         |
@@ -510,7 +647,7 @@ describe('ui/ext_messages', function()
     eq(0, eval('&cmdheight'))
   end)
 
-  it('supports multiline messages', function()
+  it('supports multiline messages from lua', function()
     feed(':lua error("such\\nmultiline\\nerror")<cr>')
     screen:expect{grid=[[
       ^                         |
@@ -520,8 +657,60 @@ describe('ui/ext_messages', function()
       {1:~                        }|
     ]], messages={{
         content = {{'E5105: Error while calling lua chunk: [string "<VimL compiled string>"]:1: such\nmultiline\nerror', 2}},
-        kind = "emsg"
+        kind = "lua_error"
      }}}
+  end)
+
+  it('supports multiline messages from rpc', function()
+    feed(':call rpcrequest(1, "test_method")<cr>')
+
+    screen:expect{grid=[[
+      ^                         |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={{
+      content = {{"Error invoking 'test_method' on channel 1:\ncomplete\nerror\n\nmessage", 2}},
+      kind = "rpc_error"
+    }}, request_cb=function (name)
+      if name == "test_method" then
+        set_method_error("complete\nerror\n\nmessage")
+      end
+    end}
+  end)
+end)
+
+describe('ui/builtin messages', function()
+  local screen
+  before_each(function()
+    clear()
+    screen = Screen.new(60, 7)
+    screen:attach({rgb=true, ext_popupmenu=true})
+    screen:set_default_attr_ids({
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [3] = {bold = true, reverse = true},
+      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+    })
+  end)
+
+  it('supports multiline messages from rpc', function()
+    feed(':call rpcrequest(1, "test_method")<cr>')
+
+    screen:expect{grid=[[
+      {3:                                                            }|
+      {2:Error invoking 'test_method' on channel 1:}                  |
+      {2:complete}                                                    |
+      {2:error}                                                       |
+                                                                  |
+      {2:message}                                                     |
+      {4:Press ENTER or type command to continue}^                     |
+    ]], request_cb=function (name)
+      if name == "test_method" then
+        set_method_error("complete\nerror\n\nmessage")
+      end
+    end}
   end)
 end)
 

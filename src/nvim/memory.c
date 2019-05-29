@@ -16,6 +16,7 @@
 #include "nvim/message.h"
 #include "nvim/misc1.h"
 #include "nvim/ui.h"
+#include "nvim/sign.h"
 #include "nvim/api/vim.h"
 
 #ifdef UNIT_TESTING
@@ -110,6 +111,8 @@ void *xmalloc(size_t size)
 }
 
 /// free() wrapper that delegates to the backing memory manager
+///
+/// @note Use XFREE_CLEAR() instead, if possible.
 void xfree(void *ptr)
 {
   free(ptr);

@@ -769,15 +769,15 @@ struct file_buffer {
    * spell buffer - used for spell info, never displayed and doesn't have a
    *                file name.
    */
-  bool b_help;                  /* TRUE for help file buffer (when set b_p_bt
-                                   is "help") */
-  bool b_spell;                 /* True for a spell file buffer, most fields
-                                   are not used!  Use the B_SPELL macro to
-                                   access b_spell without #ifdef. */
+  bool b_help;                  // TRUE for help file buffer (when set b_p_bt
+                                // is "help")
+  bool b_spell;                 // True for a spell file buffer, most fields
+                                // are not used!  Use the B_SPELL macro to
+                                // access b_spell without #ifdef.
 
-  synblock_T b_s;               /* Info related to syntax highlighting.  w_s
-                                 * normally points to this, but some windows
-                                 * may use a different synblock_T. */
+  synblock_T b_s;               // Info related to syntax highlighting.  w_s
+                                // normally points to this, but some windows
+                                // may use a different synblock_T.
 
   signlist_T *b_signlist;       // list of signs to draw
   int b_signcols_max;           // cached maximum number of sign columns
@@ -999,6 +999,16 @@ typedef struct {
                                           .relative = 0, .external = false, \
                                           .focusable = true })
 
+// Structure to store last cursor position and topline.  Used by check_lnums()
+// and reset_lnums().
+typedef struct
+{
+  int w_topline_save;   // original topline value
+  int w_topline_corr;   // corrected topline value
+  pos_T w_cursor_save;  // original cursor position
+  pos_T w_cursor_corr;  // corrected cursor position
+} pos_save_T;
+
 /// Structure which contains all information that belongs to a window.
 ///
 /// All row numbers are relative to the start of the window, except w_winrow.
@@ -1091,17 +1101,18 @@ struct window_S {
   colnr_T w_skipcol;                /* starting column when a single line
                                        doesn't fit in the window */
 
-  /*
-   * Layout of the window in the screen.
-   * May need to add "msg_scrolled" to "w_winrow" in rare situations.
-   */
-  int w_winrow;                     /* first row of window in screen */
-  int w_height;                     /* number of rows in window, excluding
-                                       status/command line(s) */
-  int w_status_height;              /* number of status lines (0 or 1) */
-  int w_wincol;                     /* Leftmost column of window in screen. */
-  int w_width;                      /* Width of window, excluding separation. */
-  int w_vsep_width;                 /* Number of separator columns (0 or 1). */
+  //
+  // Layout of the window in the screen.
+  // May need to add "msg_scrolled" to "w_winrow" in rare situations.
+  //
+  int w_winrow;                     // first row of window in screen
+  int w_height;                     // number of rows in window, excluding
+                                    // status/command line(s)
+  int w_status_height;              // number of status lines (0 or 1)
+  int w_wincol;                     // Leftmost column of window in screen.
+  int w_width;                      // Width of window, excluding separation.
+  int w_vsep_width;                 // Number of separator columns (0 or 1).
+  pos_save_T w_save_cursor;         // backup of cursor pos and topline
 
   // inner size of window, which can be overridden by external UI
   int w_height_inner;
@@ -1133,12 +1144,12 @@ struct window_S {
 
   int w_cline_row;                  /* starting row of the cursor line */
 
-  colnr_T w_virtcol;                /* column number of the cursor in the
-                                       buffer line, as opposed to the column
-                                       number we're at on the screen.  This
-                                       makes a difference on lines which span
-                                       more than one screen line or when
-                                       w_leftcol is non-zero */
+  colnr_T w_virtcol;                // column number of the cursor in the
+                                    // buffer line, as opposed to the column
+                                    // number we're at on the screen.  This
+                                    // makes a difference on lines which span
+                                    // more than one screen line or when
+                                    // w_leftcol is non-zero
 
   /*
    * w_wrow and w_wcol specify the cursor position in the window.

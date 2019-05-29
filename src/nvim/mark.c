@@ -29,6 +29,7 @@
 #include "nvim/path.h"
 #include "nvim/quickfix.h"
 #include "nvim/search.h"
+#include "nvim/sign.h"
 #include "nvim/strings.h"
 #include "nvim/ui.h"
 #include "nvim/os/os.h"
@@ -214,7 +215,7 @@ pos_T *movemark(int count)
   pos_T       *pos;
   xfmark_T    *jmp;
 
-  cleanup_jumplist();
+  cleanup_jumplist(curwin, true);
 
   if (curwin->w_jumplistlen == 0)           /* nothing to jump to */
     return (pos_T *)NULL;
@@ -523,8 +524,7 @@ static void fmarks_check_one(xfmark_T *fm, char_u *name, buf_T *buf)
       && fm->fname != NULL
       && fnamecmp(name, fm->fname) == 0) {
     fm->fmark.fnum = buf->b_fnum;
-    xfree(fm->fname);
-    fm->fname = NULL;
+    XFREE_CLEAR(fm->fname);
   }
 }
 
@@ -752,8 +752,7 @@ void ex_delmarks(exarg_T *eap)
               n = i - 'A';
             }
             namedfm[n].fmark.mark.lnum = 0;
-            xfree(namedfm[n].fname);
-            namedfm[n].fname = NULL;
+            XFREE_CLEAR(namedfm[n].fname);
           }
         }
       } else
@@ -781,13 +780,11 @@ void ex_jumps(exarg_T *eap)
   int i;
   char_u      *name;
 
-  cleanup_jumplist();
-  /* Highlight title */
+  cleanup_jumplist(curwin, true);
+  // Highlight title
   MSG_PUTS_TITLE(_("\n jump line  col file/text"));
   for (i = 0; i < curwin->w_jumplistlen && !got_int; ++i) {
     if (curwin->w_jumplist[i].fmark.mark.lnum != 0) {
-      if (curwin->w_jumplist[i].fmark.fnum == 0)
-        fname2fnum(&curwin->w_jumplist[i]);
       name = fm_getname(&curwin->w_jumplist[i].fmark, 16);
       if (name == NULL)             /* file name not available */
         continue;
@@ -1156,53 +1153,67 @@ void mark_col_adjust(
   }
 }
 
-/*
- * When deleting lines, this may create duplicate marks in the
- * jumplist. They will be removed here for the current window.
- */
-void cleanup_jumplist(void)
+// When deleting lines, this may create duplicate marks in the
+// jumplist. They will be removed here for the specified window.
+// When "loadfiles" is true first ensure entries have the "fnum" field set
+// (this may be a bit slow).
+void cleanup_jumplist(win_T *wp, bool loadfiles)
 {
   int i;
-  int from, to;
 
-  to = 0;
-  for (from = 0; from < curwin->w_jumplistlen; ++from) {
-    if (curwin->w_jumplistidx == from)
-      curwin->w_jumplistidx = to;
-    for (i = from + 1; i < curwin->w_jumplistlen; ++i)
-      if (curwin->w_jumplist[i].fmark.fnum
-          == curwin->w_jumplist[from].fmark.fnum
-          && curwin->w_jumplist[from].fmark.fnum != 0
-          && curwin->w_jumplist[i].fmark.mark.lnum
-          == curwin->w_jumplist[from].fmark.mark.lnum)
+  if (loadfiles) {
+    // If specified, load all the files from the jump list. This is
+    // needed to properly clean up duplicate entries, but will take some
+    // time.
+    for (i = 0; i < wp->w_jumplistlen; i++) {
+      if ((wp->w_jumplist[i].fmark.fnum == 0)
+          && (wp->w_jumplist[i].fmark.mark.lnum != 0)) {
+        fname2fnum(&wp->w_jumplist[i]);
+      }
+    }
+  }
+
+  int to = 0;
+  for (int from = 0; from < wp->w_jumplistlen; from++) {
+    if (wp->w_jumplistidx == from) {
+      wp->w_jumplistidx = to;
+    }
+    for (i = from + 1; i < wp->w_jumplistlen; i++) {
+      if (wp->w_jumplist[i].fmark.fnum
+          == wp->w_jumplist[from].fmark.fnum
+          && wp->w_jumplist[from].fmark.fnum != 0
+          && wp->w_jumplist[i].fmark.mark.lnum
+          == wp->w_jumplist[from].fmark.mark.lnum) {
         break;
-    if (i >= curwin->w_jumplistlen) {  // no duplicate
+      }
+    }
+    if (i >= wp->w_jumplistlen) {  // no duplicate
       if (to != from) {
-        // Not using curwin->w_jumplist[to++] = curwin->w_jumplist[from] because
+        // Not using wp->w_jumplist[to++] = wp->w_jumplist[from] because
         // this way valgrind complains about overlapping source and destination
         // in memcpy() call. (clang-3.6.0, debug build with -DEXITFREE).
-        curwin->w_jumplist[to] = curwin->w_jumplist[from];
+        wp->w_jumplist[to] = wp->w_jumplist[from];
       }
       to++;
     } else {
-      xfree(curwin->w_jumplist[from].fname);
+      xfree(wp->w_jumplist[from].fname);
     }
   }
-  if (curwin->w_jumplistidx == curwin->w_jumplistlen) {
-    curwin->w_jumplistidx = to;
+  if (wp->w_jumplistidx == wp->w_jumplistlen) {
+    wp->w_jumplistidx = to;
   }
-  curwin->w_jumplistlen = to;
+  wp->w_jumplistlen = to;
 
   // When pointer is below last jump, remove the jump if it matches the current
   // line.  This avoids useless/phantom jumps. #9805
-  if (curwin->w_jumplistlen
-      && curwin->w_jumplistidx == curwin->w_jumplistlen) {
-    const xfmark_T *fm_last = &curwin->w_jumplist[curwin->w_jumplistlen - 1];
+  if (wp->w_jumplistlen
+      && wp->w_jumplistidx == wp->w_jumplistlen) {
+    const xfmark_T *fm_last = &wp->w_jumplist[wp->w_jumplistlen - 1];
     if (fm_last->fmark.fnum == curbuf->b_fnum
-        && fm_last->fmark.mark.lnum == curwin->w_cursor.lnum) {
+        && fm_last->fmark.mark.lnum == wp->w_cursor.lnum) {
       xfree(fm_last->fname);
-      curwin->w_jumplistlen--;
-      curwin->w_jumplistidx--;
+      wp->w_jumplistlen--;
+      wp->w_jumplistidx--;
     }
   }
 }

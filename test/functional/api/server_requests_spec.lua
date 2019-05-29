@@ -1,7 +1,6 @@
 -- Test server -> client RPC scenarios. Note: unlike `rpcnotify`, to evaluate
 -- `rpcrequest` calls we need the client event loop to be running.
 local helpers = require('test.functional.helpers')(after_each)
-local Paths = require('test.config.paths')
 
 local clear, nvim, eval = helpers.clear, helpers.nvim, helpers.eval
 local eq, neq, run, stop = helpers.eq, helpers.neq, helpers.run, helpers.stop
@@ -11,7 +10,7 @@ local ok = helpers.ok
 local meths = helpers.meths
 local spawn, merge_args = helpers.spawn, helpers.merge_args
 local set_session = helpers.set_session
-local expect_err = helpers.expect_err
+local meth_pcall = helpers.meth_pcall
 
 describe('server -> client', function()
   local cid
@@ -222,8 +221,8 @@ describe('server -> client', function()
     end)
 
     it('returns an error if the request failed', function()
-      expect_err('Vim:Invalid method: does%-not%-exist',
-                 eval, "rpcrequest(vim, 'does-not-exist')")
+      eq({false, "Vim:Error invoking 'does-not-exist' on channel 3:\nInvalid method: does-not-exist" },
+         meth_pcall(eval, "rpcrequest(vim, 'does-not-exist')"))
     end)
   end)
 
@@ -243,8 +242,8 @@ describe('server -> client', function()
         \ 'rpc': v:true
         \ }
       ]])
-      local lua_prog = Paths.test_lua_prg
-      meths.set_var("args", {lua_prog, 'test/functional/api/rpc_fixture.lua'})
+      meths.set_var("args", {helpers.test_lua_prg,
+                             'test/functional/api/rpc_fixture.lua'})
       jobid = eval("jobstart(g:args, g:job_opts)")
       neq(0, 'jobid')
     end)

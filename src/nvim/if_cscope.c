@@ -425,9 +425,11 @@ cs_add_common(
   expand_env((char_u *)arg1, (char_u *)fname, MAXPATHL);
   size_t len = STRLEN(fname);
   fbuf = (char_u *)fname;
-  (void)modify_fname((char_u *)":p", &usedlen, (char_u **)&fname, &fbuf, &len);
-  if (fname == NULL)
+  (void)modify_fname((char_u *)":p", false, &usedlen,
+                     (char_u **)&fname, &fbuf, &len);
+  if (fname == NULL) {
     goto add_err;
+  }
   fname = (char *)vim_strnsave((char_u *)fname, len);
   xfree(fbuf);
   FileInfo file_info;
@@ -1522,39 +1524,40 @@ static void cs_fill_results(char *tagstr, size_t totmatches, int *nummatches_a,
       }
 
       totsofar++;
-
-    }     /* for all matches */
+    }     // for all matches
 
     (void)cs_read_prompt(i);
-
-  }   /* for all cscope connections */
+  }   // for all cscope connections
 
   if (totsofar == 0) {
-    /* No matches, free the arrays and return NULL in "*matches_p". */
-    xfree(matches);
-    matches = NULL;
-    xfree(cntxts);
-    cntxts = NULL;
+    // No matches, free the arrays and return NULL in "*matches_p".
+    XFREE_CLEAR(matches);
+    XFREE_CLEAR(cntxts);
   }
   *matched = totsofar;
   *matches_p = matches;
   *cntxts_p = cntxts;
 
   xfree(buf);
-} /* cs_fill_results */
+}  // cs_fill_results
 
 
 /* get the requested path components */
 static char *cs_pathcomponents(char *path)
 {
-  if (p_cspc == 0)
+  if (p_cspc == 0) {
     return path;
+  }
 
   char *s = path + strlen(path) - 1;
-  for (int i = 0; i < p_cspc; ++i)
-    while (s > path && *--s != '/') continue;
-  if ((s > path && *s == '/'))
-    ++s;
+  for (int i = 0; i < p_cspc; i++) {
+    while (s > path && *--s != '/') {
+      continue;
+    }
+  }
+  if ((s > path && *s == '/')) {
+    s++;
+  }
   return s;
 }
 

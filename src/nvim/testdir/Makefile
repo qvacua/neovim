@@ -14,7 +14,6 @@ export NVIM_PRG := $(NVIM_PRG)
 export TMPDIR := $(abspath ../../../Xtest-tmpdir)
 
 SCRIPTS_DEFAULT = \
-	test37.out             \
 	test42.out             \
 	test48.out             \
 	test52.out             \
@@ -22,7 +21,6 @@ SCRIPTS_DEFAULT = \
 
 ifneq ($(OS),Windows_NT)
   SCRIPTS_DEFAULTS := $(SCRIPTS_DEFAULT) \
-	test17.out             \
 	test49.out             \
 
 endif

@@ -1239,7 +1239,7 @@ int do_set(
         }
         len++;
         if (opt_idx == -1) {
-          key = find_key_option(arg + 1);
+          key = find_key_option(arg + 1, true);
         }
       } else {
         len = 0;
@@ -1253,7 +1253,7 @@ int do_set(
         }
         opt_idx = findoption_len((const char *)arg, (size_t)len);
         if (opt_idx == -1) {
-          key = find_key_option(arg);
+          key = find_key_option(arg, false);
         }
       }
 
@@ -1833,34 +1833,30 @@ int do_set(
 
             {
               uint32_t *p = insecure_flag(opt_idx, opt_flags);
-              int did_inc_secure = false;
+              const int secure_saved = secure;
 
               // When an option is set in the sandbox, from a
               // modeline or in secure mode, then deal with side
               // effects in secure mode.  Also when the value was
               // set with the P_INSECURE flag and is not
               // completely replaced.
-              if (secure
+              if ((opt_flags & OPT_MODELINE)
                   || sandbox != 0
-                  || (opt_flags & OPT_MODELINE)
                   || (!value_is_replaced && (*p & P_INSECURE))) {
-                  did_inc_secure = true;
-                  secure++;
+                secure = 1;
               }
 
-              // Handle side effects, and set the global value for
-              // ":set" on local options. Note: when setting 'syntax'
-              // or 'filetype' autocommands may be triggered that can
-              // cause havoc.
+              // Handle side effects, and set the global value
+              // for ":set" on local options. Note: when setting
+              // 'syntax' or 'filetype' autocommands may be
+              // triggered that can cause havoc.
               errmsg = did_set_string_option(opt_idx, (char_u **)varp,
                                              new_value_alloced, oldval,
                                              errbuf, sizeof(errbuf),
                                              opt_flags, &value_checked);
 
-              if (did_inc_secure) {
-                secure--;
-              }
-          }
+              secure = secure_saved;
+            }
 
             if (errmsg == NULL) {
               if (!starting) {
@@ -1990,7 +1986,7 @@ static char_u *illegal_char(char_u *errbuf, size_t errbuflen, int c)
 static int string_to_key(char_u *arg)
 {
   if (*arg == '<') {
-    return find_key_option(arg + 1);
+    return find_key_option(arg + 1, true);
   }
   if (*arg == '^') {
     return Ctrl_chr(arg[1]);
@@ -4961,19 +4957,20 @@ char *set_option_value(const char *const name, const long number,
   return NULL;
 }
 
-/*
- * Translate a string like "t_xx", "<t_xx>" or "<S-Tab>" to a key number.
- */
-int find_key_option_len(const char_u *arg, size_t len)
+// Translate a string like "t_xx", "<t_xx>" or "<S-Tab>" to a key number.
+// When "has_lt" is true there is a '<' before "*arg_arg".
+// Returns 0 when the key is not recognized.
+int find_key_option_len(const char_u *arg_arg, size_t len, bool has_lt)
 {
-  int key;
+  int key = 0;
   int modifiers;
+  const char_u *arg = arg_arg;
 
   // Don't use get_special_key_code() for t_xx, we don't want it to call
   // add_termcap_entry().
   if (len >= 4 && arg[0] == 't' && arg[1] == '_') {
     key = TERMCAP2KEY(arg[2], arg[3]);
-  } else {
+  } else if (has_lt)  {
     arg--;  // put arg at the '<'
     modifiers = 0;
     key = find_special_key(&arg, len + 1, &modifiers, true, true, false);
@@ -4984,9 +4981,9 @@ int find_key_option_len(const char_u *arg, size_t len)
   return key;
 }
 
-static int find_key_option(const char_u *arg)
+static int find_key_option(const char_u *arg, bool has_lt)
 {
-  return find_key_option_len(arg, STRLEN(arg));
+  return find_key_option_len(arg, STRLEN(arg), has_lt);
 }
 
 /*

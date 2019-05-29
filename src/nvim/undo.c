@@ -714,8 +714,7 @@ char *u_get_undo_file_name(const char *const buf_ffname, const bool reading)
         && (!reading || os_path_exists((char_u *)undo_file_name))) {
       break;
     }
-    xfree(undo_file_name);
-    undo_file_name = NULL;
+    XFREE_CLEAR(undo_file_name);
   }
 
   xfree(munged_name);
@@ -1169,10 +1168,6 @@ void u_write_undo(const char *const name, const bool forceit, buf_T *const buf,
       && os_fchown(fd, (uv_uid_t)-1, (uv_gid_t)file_info_old.stat.st_gid)) {
     os_setperm(file_name, (perm & 0707) | ((perm & 07) << 3));
   }
-# ifdef HAVE_SELINUX
-  if (buf->b_ffname != NULL)
-    mch_copy_sec(buf->b_ffname, file_name);
-# endif
 #endif
 
   fp = fdopen(fd, "w");
@@ -2891,8 +2886,7 @@ void u_saveline(linenr_T lnum)
 void u_clearline(void)
 {
   if (curbuf->b_u_line_ptr != NULL) {
-    xfree(curbuf->b_u_line_ptr);
-    curbuf->b_u_line_ptr = NULL;
+    XFREE_CLEAR(curbuf->b_u_line_ptr);
     curbuf->b_u_line_lnum = 0;
   }
 }

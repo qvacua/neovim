@@ -103,6 +103,7 @@
 #include "nvim/quickfix.h"
 #include "nvim/regexp.h"
 #include "nvim/search.h"
+#include "nvim/sign.h"
 #include "nvim/spell.h"
 #include "nvim/state.h"
 #include "nvim/strings.h"
@@ -220,7 +221,8 @@ void redraw_buf_later(buf_T *buf, int type)
 void redraw_buf_line_later(buf_T *buf,  linenr_T line)
 {
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    if (wp->w_buffer == buf) {
+    if (wp->w_buffer == buf
+        && line >= wp->w_topline && line < wp->w_botline) {
       redrawWinline(wp, line);
     }
   }
@@ -507,6 +509,8 @@ void update_screen(int type)
     maybe_intro_message();
   did_intro = TRUE;
 
+  // either cmdline is cleared, not drawn or mode is last drawn
+  cmdline_was_last_drawn = false;
 }
 
 /*
@@ -678,8 +682,6 @@ static void win_update(win_T *wp)
       mod_bot = wp->w_redraw_bot + 1;
     else
       mod_bot = 0;
-    wp->w_redraw_top = 0;       /* reset for next time */
-    wp->w_redraw_bot = 0;
     if (buf->b_mod_set) {
       if (mod_top == 0 || mod_top > buf->b_mod_top) {
         mod_top = buf->b_mod_top;
@@ -776,6 +778,8 @@ static void win_update(win_T *wp)
     if (mod_top != 0 && buf->b_mod_xlines != 0 && wp->w_p_nu)
       mod_bot = MAXLNUM;
   }
+  wp->w_redraw_top = 0;  // reset for next time
+  wp->w_redraw_bot = 0;
 
   /*
    * When only displaying the lines at the top, set top_end.  Used when
@@ -2171,7 +2175,6 @@ win_line (
   int vcol_off        = 0;              ///< offset for concealed characters
   int did_wcol        = false;
   int match_conc      = 0;              ///< cchar for match functions
-  int has_match_conc  = 0;              ///< match wants to conceal
   int old_boguscols = 0;
 # define VCOL_HLC (vcol - vcol_off)
 # define FIX_FOR_BOGUSCOLS \
@@ -2446,7 +2449,9 @@ win_line (
   }
 
   if (wp->w_p_list) {
-    if (curwin->w_p_lcs_chars.space || wp->w_p_lcs_chars.trail) {
+    if (curwin->w_p_lcs_chars.space
+        || wp->w_p_lcs_chars.trail
+        || wp->w_p_lcs_chars.nbsp) {
       extra_check = true;
     }
     // find start of trailing whitespace
@@ -2654,7 +2659,8 @@ win_line (
   int sign_idx = 0;
   // Repeat for the whole displayed line.
   for (;; ) {
-    has_match_conc = 0;
+    int has_match_conc = 0;  ///< match wants to conceal
+    bool did_decrement_ptr = false;
     // Skip this quickly when working on the text.
     if (draw_state != WL_LINE) {
       if (draw_state == WL_CMDLINE - 1 && n_extra == 0) {
@@ -3133,8 +3139,7 @@ win_line (
       int c0;
 
       if (p_extra_free != NULL) {
-        xfree(p_extra_free);
-        p_extra_free = NULL;
+        XFREE_CLEAR(p_extra_free);
       }
 
       // Get a character from the line itself.
@@ -3227,6 +3232,7 @@ win_line (
         // Put pointer back so that the character will be
         // displayed at the start of the next line.
         ptr--;
+        did_decrement_ptr = true;
       } else if (*ptr != NUL) {
         ptr += mb_l - 1;
       }
@@ -3275,16 +3281,18 @@ win_line (
           line = ml_get_buf(wp->w_buffer, lnum, FALSE);
           ptr = line + v;
 
-          if (!attr_pri)
+          if (!attr_pri) {
             char_attr = syntax_attr;
-          else
+          } else {
             char_attr = hl_combine_attr(syntax_attr, char_attr);
-          /* no concealing past the end of the line, it interferes
-           * with line highlighting */
-          if (c == NUL)
+          }
+          // no concealing past the end of the line, it interferes
+          // with line highlighting.
+          if (c == NUL) {
             syntax_flags = 0;
-          else
+          } else {
             syntax_flags = get_syntax_info(&syntax_seqnr);
+          }
         } else if (!attr_pri) {
           char_attr = 0;
         }
@@ -3376,7 +3384,7 @@ win_line (
         }
 
         if (wp->w_buffer->terminal) {
-          char_attr = hl_combine_attr(char_attr, term_attrs[vcol]);
+          char_attr = hl_combine_attr(term_attrs[vcol], char_attr);
         }
 
         // Found last space before word: check for line break.
@@ -3682,6 +3690,11 @@ win_line (
       } else {
         prev_syntax_id = 0;
         is_concealing = FALSE;
+      }
+
+      if (n_skip > 0 && did_decrement_ptr) {
+        // not showing the '>', put pointer back to avoid getting stuck
+        ptr++;
       }
     }
 
@@ -3991,8 +4004,10 @@ win_line (
       break;
     }
 
-    // line continues beyond line end
-    if (wp->w_p_lcs_chars.ext
+    // Show "extends" character from 'listchars' if beyond the line end and
+    // 'list' is set.
+    if (wp->w_p_lcs_chars.ext != NUL
+        && wp->w_p_list
         && !wp->w_p_wrap
         && filler_todo <= 0
         && (wp->w_p_rl ? col == 0 : col == grid->Columns - 1)
@@ -6395,14 +6410,11 @@ int showmode(void)
              && ((State & TERM_FOCUS)
                  || (State & INSERT)
                  || restart_edit
-                 || VIsual_active
-                 ));
-  if (do_mode || Recording) {
-    /*
-     * Don't show mode right now, when not redrawing or inside a mapping.
-     * Call char_avail() only when we are going to show something, because
-     * it takes a bit of time.
-     */
+                 || VIsual_active));
+  if (do_mode || reg_recording != 0) {
+    // Don't show mode right now, when not redrawing or inside a mapping.
+    // Call char_avail() only when we are going to show something, because
+    // it takes a bit of time.
     if (!redrawing() || (char_avail() && !KeyTyped) || msg_silent != 0) {
       redraw_cmdline = TRUE;                    /* show mode later */
       return 0;
@@ -6518,8 +6530,8 @@ int showmode(void)
 
       need_clear = TRUE;
     }
-    if (Recording
-        && edit_submode == NULL             /* otherwise it gets too long */
+    if (reg_recording != 0
+        && edit_submode == NULL             // otherwise it gets too long
         ) {
       recording_mode(attr);
       need_clear = true;
@@ -6585,7 +6597,7 @@ void clearmode(void)
 {
   msg_ext_ui_flush();
   msg_pos_mode();
-  if (Recording) {
+  if (reg_recording != 0) {
     recording_mode(HL_ATTR(HLF_CM));
   }
   msg_clr_eos();
@@ -6597,7 +6609,7 @@ static void recording_mode(int attr)
   MSG_PUTS_ATTR(_("recording"), attr);
   if (!shortmess(SHM_RECORDING)) {
     char_u s[4];
-    vim_snprintf((char *)s, ARRAY_SIZE(s), " @%c", Recording);
+    snprintf((char *)s, ARRAY_SIZE(s), " @%c", reg_recording);
     MSG_PUTS_ATTR(s, attr);
   }
 }

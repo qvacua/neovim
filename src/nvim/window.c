@@ -558,8 +558,7 @@ win_T *win_new_float(win_T *wp, FloatConfig fconfig, Error *err)
     }
     int dir;
     winframe_remove(wp, &dir, NULL);
-    xfree(wp->w_frame);
-    wp->w_frame = NULL;
+    XFREE_CLEAR(wp->w_frame);
     (void)win_comp_pos();  // recompute window positions
     win_remove(wp, NULL);
     win_append(lastwin_nofloating(), wp);
@@ -2295,8 +2294,7 @@ int win_close(win_T *win, bool free_buf)
     EMSG(_("E813: Cannot close autocmd window"));
     return FAIL;
   }
-  if ((firstwin == aucmd_win || lastwin_nofloating() == aucmd_win)
-      && one_window()) {
+  if ((firstwin == aucmd_win || lastwin == aucmd_win) && one_window()) {
     EMSG(_("E814: Cannot close window, only autocmd window would remain"));
     return FAIL;
   }
@@ -3413,16 +3411,18 @@ int win_alloc_first(void)
   return OK;
 }
 
-/*
- * Init "aucmd_win".  This can only be done after the first
- * window is fully initialized, thus it can't be in win_alloc_first().
- */
+// Init `aucmd_win`. This can only be done after the first window
+// is fully initialized, thus it can't be in win_alloc_first().
 void win_alloc_aucmd_win(void)
 {
-  aucmd_win = win_alloc(NULL, TRUE);
-  win_init_some(aucmd_win, curwin);
+  Error err = ERROR_INIT;
+  FloatConfig fconfig = FLOAT_CONFIG_INIT;
+  fconfig.width = Columns;
+  fconfig.height = 5;
+  fconfig.focusable = false;
+  aucmd_win = win_new_float(NULL, fconfig, &err);
+  aucmd_win->w_buffer->b_nwindows--;
   RESET_BINDING(aucmd_win);
-  new_frame(aucmd_win);
 }
 
 /*
@@ -3793,6 +3793,9 @@ static void enter_tabpage(tabpage_T *tp, buf_T *old_curbuf, int trigger_enter_au
    * the frames for that.  When the Vim window was resized need to update
    * frame sizes too.  Use the stored value of p_ch, so that it can be
    * different for each tab page. */
+  if (p_ch != curtab->tp_ch_used) {
+    clear_cmdline = true;
+  }
   p_ch = curtab->tp_ch_used;
   if (curtab->tp_old_Rows != Rows || (old_off != firstwin->w_winrow
                                       ))
@@ -4293,9 +4296,8 @@ static void win_enter_ext(win_T *wp, bool undo_sync, int curwin_invalid,
         do_autocmd_dirchanged((char *)globaldir, kCdScopeGlobal);
       }
     }
-    xfree(globaldir);
-    globaldir = NULL;
-    shorten_fnames(TRUE);
+    XFREE_CLEAR(globaldir);
+    shorten_fnames(true);
   }
 
   if (trigger_new_autocmds) {
@@ -5959,16 +5961,40 @@ void check_lnums(int do_curwin)
 {
   FOR_ALL_TAB_WINDOWS(tp, wp) {
     if ((do_curwin || wp != curwin) && wp->w_buffer == curbuf) {
+      // save the original cursor position and topline
+      wp->w_save_cursor.w_cursor_save = wp->w_cursor;
+      wp->w_save_cursor.w_topline_save = wp->w_topline;
+
       if (wp->w_cursor.lnum > curbuf->b_ml.ml_line_count) {
         wp->w_cursor.lnum = curbuf->b_ml.ml_line_count;
       }
       if (wp->w_topline > curbuf->b_ml.ml_line_count) {
         wp->w_topline = curbuf->b_ml.ml_line_count;
       }
+
+      // save the corrected cursor position and topline
+      wp->w_save_cursor.w_cursor_corr = wp->w_cursor;
+      wp->w_save_cursor.w_topline_corr = wp->w_topline;
     }
   }
 }
 
+/// Reset cursor and topline to its stored values from check_lnums().
+/// check_lnums() must have been called first!
+void reset_lnums(void)
+{
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
+    if (wp->w_buffer == curbuf) {
+      // Restore the value if the autocommand didn't change it.
+      if (equalpos(wp->w_save_cursor.w_cursor_corr, wp->w_cursor)) {
+        wp->w_cursor = wp->w_save_cursor.w_cursor_save;
+      }
+      if (wp->w_save_cursor.w_topline_corr == wp->w_topline) {
+        wp->w_topline = wp->w_save_cursor.w_topline_save;
+      }
+    }
+  }
+}
 
 /*
  * A snapshot of the window sizes, to restore them after closing the help
@@ -6628,6 +6654,41 @@ void win_findbuf(typval_T *argvars, list_T *list)
   FOR_ALL_TAB_WINDOWS(tp, wp) {
     if (wp->w_buffer->b_fnum == bufnr) {
       tv_list_append_number(list, wp->handle);
+    }
+  }
+}
+
+// Get the layout of the given tab page for winlayout().
+void get_framelayout(const frame_T *fr, list_T *l, bool outer)
+{
+  list_T *fr_list;
+
+  if (fr == NULL) {
+    return;
+  }
+
+  if (outer) {
+    // outermost call from f_winlayout()
+    fr_list = l;
+  } else {
+    fr_list = tv_list_alloc(2);
+    tv_list_append_list(l, fr_list);
+  }
+
+  if (fr->fr_layout == FR_LEAF) {
+    if (fr->fr_win != NULL) {
+      tv_list_append_string(fr_list, "leaf", -1);
+      tv_list_append_number(fr_list, fr->fr_win->handle);
+    }
+  } else {
+    tv_list_append_string(fr_list, fr->fr_layout == FR_ROW ? "row" : "col", -1);
+
+    list_T *const win_list = tv_list_alloc(kListLenUnknown);
+    tv_list_append_list(fr_list, win_list);
+    const frame_T *child = fr->fr_child;
+    while (child != NULL) {
+      get_framelayout(child, win_list, false);
+      child = child->fr_next;
     }
   }
 }

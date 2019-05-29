@@ -179,9 +179,9 @@ static int compl_no_insert = FALSE;             /* FALSE: select & insert
 static int compl_no_select = FALSE;             /* FALSE: select & insert
                                                    TRUE: noselect */
 
-static int compl_used_match;            /* Selected one of the matches.  When
-                                           FALSE the match was edited or using
-                                           the longest common string. */
+static int compl_used_match;            // Selected one of the matches.  When
+                                        // FALSE the match was edited or using
+                                        // the longest common string.
 
 static int compl_was_interrupted = FALSE;         /* didn't finish finding
                                                      completions. */
@@ -2524,8 +2524,7 @@ static void ins_compl_del_pum(void)
 {
   if (compl_match_array != NULL) {
     pum_undisplay(false);
-    xfree(compl_match_array);
-    compl_match_array = NULL;
+    XFREE_CLEAR(compl_match_array);
   }
 }
 
@@ -2589,21 +2588,22 @@ void ins_compl_show_pum(void)
     // Need to build the popup menu list.
     compl_match_arraysize = 0;
     compl = compl_first_match;
-    /*
-     * If it's user complete function and refresh_always,
-     * not use "compl_leader" as prefix filter.
-     */
-    if (ins_compl_need_restart()){
-      xfree(compl_leader);
-      compl_leader = NULL;
+    //
+    // If it's user complete function and refresh_always,
+    // do not use "compl_leader" as prefix filter.
+    //
+    if (ins_compl_need_restart()) {
+      XFREE_CLEAR(compl_leader);
     }
-    if (compl_leader != NULL)
+    if (compl_leader != NULL) {
       lead_len = (int)STRLEN(compl_leader);
+    }
     do {
       if ((compl->cp_flags & ORIGINAL_TEXT) == 0
           && (compl_leader == NULL
-              || ins_compl_equal(compl, compl_leader, lead_len)))
-        ++compl_match_arraysize;
+              || ins_compl_equal(compl, compl_leader, lead_len))) {
+        compl_match_arraysize++;
+      }
       compl = compl->cp_next;
     } while (compl != NULL && compl != compl_first_match);
     if (compl_match_arraysize == 0)
@@ -2962,10 +2962,8 @@ static void ins_compl_free(void)
   compl_T *match;
   int i;
 
-  xfree(compl_pattern);
-  compl_pattern = NULL;
-  xfree(compl_leader);
-  compl_leader = NULL;
+  XFREE_CLEAR(compl_pattern);
+  XFREE_CLEAR(compl_leader);
 
   if (compl_first_match == NULL)
     return;
@@ -2995,14 +2993,11 @@ static void ins_compl_clear(void)
   compl_cont_status = 0;
   compl_started = FALSE;
   compl_matches = 0;
-  xfree(compl_pattern);
-  compl_pattern = NULL;
-  xfree(compl_leader);
-  compl_leader = NULL;
+  XFREE_CLEAR(compl_pattern);
+  XFREE_CLEAR(compl_leader);
   edit_submode_extra = NULL;
-  xfree(compl_orig_text);
-  compl_orig_text = NULL;
-  compl_enter_selects = FALSE;
+  XFREE_CLEAR(compl_orig_text);
+  compl_enter_selects = false;
   // clear v:completed_item
   set_vim_var_dict(VV_COMPLETED_ITEM, tv_dict_alloc());
 }
@@ -4962,10 +4957,8 @@ static int ins_complete(int c, bool enable_pum)
     compl_orig_text = vim_strnsave(line + compl_col, compl_length);
     if (ins_compl_add(compl_orig_text, -1, p_ic, NULL, NULL, false, 0,
                       ORIGINAL_TEXT, false, false) != OK) {
-      xfree(compl_pattern);
-      compl_pattern = NULL;
-      xfree(compl_orig_text);
-      compl_orig_text = NULL;
+      XFREE_CLEAR(compl_pattern);
+      XFREE_CLEAR(compl_orig_text);
       return FAIL;
     }
 
@@ -6312,10 +6305,8 @@ void set_last_insert(int c)
 #if defined(EXITFREE)
 void free_last_insert(void)
 {
-  xfree(last_insert);
-  last_insert = NULL;
-  xfree(compl_orig_text);
-  compl_orig_text = NULL;
+  XFREE_CLEAR(last_insert);
+  XFREE_CLEAR(compl_orig_text);
 }
 
 #endif
@@ -6842,8 +6833,7 @@ static void mb_replace_pop_ins(int cc)
  */
 static void replace_flush(void)
 {
-  xfree(replace_stack);
-  replace_stack = NULL;
+  XFREE_CLEAR(replace_stack);
   replace_stack_len = 0;
   replace_stack_nr = 0;
 }
@@ -7506,7 +7496,7 @@ static bool ins_esc(long *count, int cmdchar, bool nomove)
 
   // When recording or for CTRL-O, need to display the new mode.
   // Otherwise remove the mode message.
-  if (Recording || restart_edit != NUL) {
+  if (reg_recording != 0 || restart_edit != NUL) {
     showmode();
   } else if (p_smd) {
     MSG("");

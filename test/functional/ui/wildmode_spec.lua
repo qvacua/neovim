@@ -1,7 +1,6 @@
-local global_helpers = require('test.helpers')
-local shallowcopy = global_helpers.shallowcopy
 local helpers = require('test.functional.helpers')(after_each)
 local Screen = require('test.functional.ui.screen')
+local shallowcopy = helpers.shallowcopy
 local clear, feed, command = helpers.clear, helpers.feed, helpers.command
 local iswin = helpers.iswin
 local funcs = helpers.funcs
@@ -95,10 +94,12 @@ describe("'wildmenu'", function()
 
     feed([[<C-\><C-N>gg]])
     feed([[:sign <Tab>]])   -- Invoke wildmenu.
+    -- NB: in earlier versions terminal output was redrawn during cmdline mode.
+    -- For now just assert that the screen remains unchanged.
     expect_stay_unchanged{grid=[[
-      foo                      |
-      foo                      |
-      foo                      |
+                               |
+                               |
+                               |
       define  jump  list  >    |
       :sign define^             |
     ]]}

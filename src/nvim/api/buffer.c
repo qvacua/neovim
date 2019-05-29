@@ -15,6 +15,7 @@
 #include "nvim/buffer.h"
 #include "nvim/charset.h"
 #include "nvim/cursor.h"
+#include "nvim/getchar.h"
 #include "nvim/memline.h"
 #include "nvim/memory.h"
 #include "nvim/misc1.h"
@@ -474,6 +475,7 @@ void nvim_buf_set_lines(uint64_t channel_id,
               false);
 
   changed_lines((linenr_T)start, 0, (linenr_T)end, (long)extra, true);
+  fix_cursor((linenr_T)start, (linenr_T)end, (linenr_T)extra);
 
 end:
   for (size_t i = 0; i < new_len; i++) {
@@ -485,7 +487,7 @@ end:
   try_end(err);
 }
 
-/// Returns the byte offset for a line.
+/// Returns the byte offset of a line (0-indexed). |api-indexing|
 ///
 /// Line 1 (index=0) has offset 0. UTF-8 bytes are counted. EOL is one byte.
 /// 'fileformat' and 'fileencoding' are ignored. The line index just after the
@@ -573,6 +575,31 @@ ArrayOf(Dictionary) nvim_buf_get_keymap(Buffer buffer, String mode, Error *err)
   }
 
   return keymap_array(mode, buf);
+}
+
+/// Sets a buffer-local |mapping| for the given mode.
+///
+/// @see |nvim_set_keymap()|
+///
+/// @param  buffer  Buffer handle, or 0 for current buffer
+void nvim_buf_set_keymap(Buffer buffer, String mode, String lhs, String rhs,
+                         Dictionary opts, Error *err)
+  FUNC_API_SINCE(6)
+{
+  modify_keymap(buffer, false, mode, lhs, rhs, opts, err);
+}
+
+/// Unmaps a buffer-local |mapping| for the given mode.
+///
+/// @see |nvim_del_keymap()|
+///
+/// @param  buffer  Buffer handle, or 0 for current buffer
+void nvim_buf_del_keymap(Buffer buffer, String mode, String lhs, Error *err)
+  FUNC_API_SINCE(6)
+{
+  String rhs = { .data = "", .size = 0 };
+  Dictionary opts = ARRAY_DICT_INIT;
+  modify_keymap(buffer, true, mode, lhs, rhs, opts, err);
 }
 
 /// Gets a map of buffer-local |user-commands|.
@@ -852,7 +879,9 @@ void buffer_insert(Buffer buffer,
   nvim_buf_set_lines(0, buffer, lnum, lnum, true, lines, err);
 }
 
-/// Return a tuple (row,col) representing the position of the named mark
+/// Return a tuple (row,col) representing the position of the named mark.
+///
+/// Marks are (1,0)-indexed. |api-indexing|
 ///
 /// @param buffer     Buffer handle, or 0 for current buffer
 /// @param name       Mark name
@@ -966,8 +995,8 @@ Integer nvim_buf_add_highlight(Buffer buffer,
 
 /// Clears namespaced objects, highlights and virtual text, from a line range
 ///
-/// To clear the namespace in the entire buffer, pass in 0 and -1 to
-/// line_start and line_end respectively.
+/// Lines are 0-indexed. |api-indexing|  To clear the namespace in the entire
+/// buffer, specify line_start=0 and line_end=-1.
 ///
 /// @param buffer     Buffer handle, or 0 for current buffer
 /// @param ns_id      Namespace to clear, or -1 to clear all namespaces.
@@ -1104,6 +1133,26 @@ Integer nvim_buf_set_virtual_text(Buffer buffer,
 free_exit:
   kv_destroy(virt_text);
   return 0;
+}
+
+// Check if deleting lines made the cursor position invalid.
+// Changed lines from `lo` to `hi`; added `extra` lines (negative if deleted).
+static void fix_cursor(linenr_T lo, linenr_T hi, linenr_T extra)
+{
+  if (curwin->w_cursor.lnum >= lo) {
+    // Adjust cursor position if it's in/after the changed lines.
+    if (curwin->w_cursor.lnum >= hi) {
+      curwin->w_cursor.lnum += extra;
+      check_cursor_col();
+    } else if (extra < 0) {
+      curwin->w_cursor.lnum = lo;
+      check_cursor();
+    } else {
+      check_cursor_col();
+    }
+    changed_cline_bef_curs();
+  }
+  invalidate_botline();
 }
 
 // Normalizes 0-based indexes to buffer line numbers

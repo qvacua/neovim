@@ -71,10 +71,10 @@
 -- To help write screen tests, see Screen:snapshot_util().
 -- To debug screen tests, see Screen:redraw_debug().
 
-local global_helpers = require('test.helpers')
-local deepcopy = global_helpers.deepcopy
-local shallowcopy = global_helpers.shallowcopy
 local helpers = require('test.functional.helpers')(nil)
+local deepcopy = helpers.deepcopy
+local shallowcopy = helpers.shallowcopy
+local concat_tables = helpers.concat_tables
 local request, run_session = helpers.request, helpers.run_session
 local eq = helpers.eq
 local dedent = helpers.dedent
@@ -322,7 +322,7 @@ function Screen:expect(expected, attr_ids, attr_ignore)
     assert(not (attr_ids ~= nil or attr_ignore ~= nil))
     local is_key = {grid=true, attr_ids=true, attr_ignore=true, condition=true,
                     any=true, mode=true, unchanged=true, intermediate=true,
-                    reset=true, timeout=true}
+                    reset=true, timeout=true, request_cb=true}
     for _, v in ipairs(ext_keys) do
       is_key[v] = true
     end
@@ -413,26 +413,23 @@ screen:redraw_debug() to show all intermediate screen states.  ]])
       end
     end
 
-    -- Extension features. The default expectations should cover the case of
+    -- UI extensions. The default expectations should cover the case of
     -- the ext_ feature being disabled, or the feature currently not activated
-    -- (for instance no external cmdline visible). Some extensions require
+    -- (e.g. no external cmdline visible). Some extensions require
     -- preprocessing to represent highlights in a reproducible way.
     local extstate = self:_extstate_repr(attr_state)
-
-    -- convert assertion errors into invalid screen state descriptions
-    local status, res = pcall(function()
-      for _, k in ipairs(ext_keys) do
-        -- Empty states is considered the default and need not be mentioned
-        if not (expected[k] == nil and isempty(extstate[k])) then
-          eq(expected[k], extstate[k], k)
+    if expected['mode'] ~= nil then
+      extstate['mode'] = self.mode
+    end
+    -- Convert assertion errors into invalid screen state descriptions.
+    for _, k in ipairs(concat_tables(ext_keys, {'mode'})) do
+      -- Empty states are considered the default and need not be mentioned.
+      if (not (expected[k] == nil and isempty(extstate[k]))) then
+        local status, res = pcall(eq, expected[k], extstate[k], k)
+        if not status then
+          return (tostring(res)..'\nHint: full state of "'..k..'":\n  '..inspect(extstate[k]))
         end
       end
-      if expected.mode ~= nil then
-        eq(expected.mode, self.mode, "mode")
-      end
-    end)
-    if not status then
-      return tostring(res)
     end
   end, expected)
 end
@@ -500,7 +497,7 @@ function Screen:_wait(check, flags)
 
     return true
   end
-  run_session(self._session, nil, notification_cb, nil, minimal_timeout)
+  run_session(self._session, flags.request_cb, notification_cb, nil, minimal_timeout)
   if not did_flush then
     err = "no flush received"
   elseif not checked then
@@ -513,7 +510,7 @@ function Screen:_wait(check, flags)
 
   if not success_seen then
     did_miminal_timeout = true
-    run_session(self._session, nil, notification_cb, nil, timeout-minimal_timeout)
+    run_session(self._session, flags.request_cb, notification_cb, nil, timeout-minimal_timeout)
   end
 
   local did_warn = false
@@ -568,12 +565,12 @@ asynchronous (feed(), nvim_input()) and synchronous API calls.
   end
 end
 
-function Screen:sleep(ms)
+function Screen:sleep(ms, request_cb)
   local function notification_cb(method, args)
     assert(method == 'redraw')
     self:_redraw(args)
   end
-  run_session(self._session, nil, notification_cb, nil, ms)
+  run_session(self._session, request_cb, notification_cb, nil, ms)
 end
 
 function Screen:_redraw(updates)
@@ -1148,8 +1145,8 @@ end
 -- Use snapshot_util({},true) to generate a text-only (no attributes) test.
 --
 -- @see Screen:redraw_debug()
-function Screen:snapshot_util(attrs, ignore)
-  self:sleep(250)
+function Screen:snapshot_util(attrs, ignore, request_cb)
+  self:sleep(250, request_cb)
   self:print_snapshot(attrs, ignore)
 end
 

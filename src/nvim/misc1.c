@@ -2248,6 +2248,7 @@ change_warning (
     if (msg_row == Rows - 1)
       msg_col = col;
     msg_source(HL_ATTR(HLF_W));
+    msg_ext_set_kind("wmsg");
     MSG_PUTS_ATTR(_(w_readonly), HL_ATTR(HLF_W) | MSG_HIST);
     set_vim_var_string(VV_WARNINGMSG, _(w_readonly), -1);
     msg_clr_eos();
@@ -2582,10 +2583,22 @@ void vim_beep(unsigned val)
 
   if (emsg_silent == 0) {
     if (!((bo_flags & val) || (bo_flags & BO_ALL))) {
-      if (p_vb) {
-        ui_call_visual_bell();
-      } else {
-        ui_call_bell();
+      static int beeps = 0;
+      static uint64_t start_time = 0;
+
+      // Only beep up to three times per half a second,
+      // otherwise a sequence of beeps would freeze Vim.
+      if (start_time == 0 || os_hrtime() - start_time > 500000000u) {
+        beeps = 0;
+        start_time = os_hrtime();
+      }
+      beeps++;
+      if (beeps <= 3) {
+        if (p_vb) {
+          ui_call_visual_bell();
+        } else {
+          ui_call_bell();
+        }
       }
     }
 
@@ -2827,8 +2840,7 @@ char_u *get_cmd_output(char_u *cmd, char_u *infile, ShellOpts flags,
   os_remove((char *)tempname);
   if (i != len) {
     EMSG2(_(e_notread), tempname);
-    xfree(buffer);
-    buffer = NULL;
+    XFREE_CLEAR(buffer);
   } else if (ret_len == NULL) {
     /* Change NUL into SOH, otherwise the string is truncated. */
     for (i = 0; i < len; ++i)

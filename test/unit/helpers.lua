@@ -15,7 +15,7 @@ local dedent = global_helpers.dedent
 local neq = global_helpers.neq
 local map = global_helpers.map
 local eq = global_helpers.eq
-local ok = global_helpers.ok
+local trim = global_helpers.trim
 
 -- C constants.
 local NULL = ffi.cast('void*', 0)
@@ -119,10 +119,6 @@ local deinit = only_separate(function()
     child_cleanups_mod_once = nil
   end
 end)
-
-local function trim(s)
-  return s:match('^%s*(.*%S)') or ''
-end
 
 -- a Set that keeps around the lines we've already seen
 local cdefs_init = Set:new()
@@ -842,9 +838,6 @@ local module = {
   cimport = cimport,
   cppimport = cppimport,
   internalize = internalize,
-  ok = ok,
-  eq = eq,
-  neq = neq,
   ffi = ffi,
   lib = lib,
   cstr = cstr,
@@ -869,6 +862,7 @@ local module = {
   ptr2key = ptr2key,
   debug_log = debug_log,
 }
+module = global_helpers.tbl_extend('error', module, global_helpers)
 return function()
   return module
 end

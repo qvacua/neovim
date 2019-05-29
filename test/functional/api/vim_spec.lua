@@ -1,6 +1,5 @@
 local helpers = require('test.functional.helpers')(after_each)
 local Screen = require('test.functional.ui.screen')
-local global_helpers = require('test.helpers')
 
 local NIL = helpers.NIL
 local clear, nvim, eq, neq = helpers.clear, helpers.nvim, helpers.eq, helpers.neq
@@ -16,10 +15,10 @@ local request = helpers.request
 local source = helpers.source
 local next_msg = helpers.next_msg
 
-local expect_err = global_helpers.expect_err
-local format_string = global_helpers.format_string
-local intchar2lua = global_helpers.intchar2lua
-local mergedicts_copy = global_helpers.mergedicts_copy
+local expect_err = helpers.expect_err
+local format_string = helpers.format_string
+local intchar2lua = helpers.intchar2lua
+local mergedicts_copy = helpers.mergedicts_copy
 
 describe('API', function()
   before_each(clear)
@@ -893,7 +892,7 @@ describe('API', function()
       eq({info=info}, meths.get_var("opened_event"))
       eq({[1]=testinfo,[2]=stderr,[3]=info}, meths.list_chans())
       eq(info, meths.get_chan_info(3))
-      eval('rpcrequest(3, "nvim_set_client_info", "cat", {}, "remote",'..
+      eval('rpcrequest(3, "nvim_set_client_info", "amazing-cat", {}, "remote",'..
                        '{"nvim_command":{"n_args":1}},'.. -- and so on
                        '{"description":"The Amazing Cat"})')
       info = {
@@ -901,7 +900,7 @@ describe('API', function()
         id=3,
         mode='rpc',
         client = {
-          name='cat',
+          name='amazing-cat',
           version={major=0},
           type='remote',
           methods={nvim_command={n_args=1}},
@@ -910,6 +909,9 @@ describe('API', function()
       }
       eq({info=info}, meths.get_var("info_event"))
       eq({[1]=testinfo,[2]=stderr,[3]=info}, meths.list_chans())
+
+      eq({false, "Vim:Error invoking 'nvim_set_current_buf' on channel 3 (amazing-cat):\nWrong type for argument 1, expecting Buffer"},
+         meth_pcall(eval, 'rpcrequest(3, "nvim_set_current_buf", -1)'))
     end)
 
     it('works for :terminal channel', function()
@@ -1284,7 +1286,7 @@ describe('API', function()
     end)
     it('returns attached UIs', function()
       local screen = Screen.new(20, 4)
-      screen:attach()
+      screen:attach({override=true})
       local expected = {
         {
           chan = 1,
@@ -1299,6 +1301,7 @@ describe('API', function()
           ext_messages = false,
           height = 4,
           rgb = true,
+          override = true,
           width = 20,
         }
       }
@@ -1308,6 +1311,7 @@ describe('API', function()
       screen = Screen.new(44, 99)
       screen:attach({ rgb = false })
       expected[1].rgb = false
+      expected[1].override = false
       expected[1].width = 44
       expected[1].height = 99
       eq(expected, nvim("list_uis"))

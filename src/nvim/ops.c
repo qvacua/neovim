@@ -852,13 +852,13 @@ int do_record(int c)
   yankreg_T  *old_y_previous;
   int retval;
 
-  if (Recording == false) {
+  if (reg_recording == 0) {
     // start recording
     // registers 0-9, a-z and " are allowed
     if (c < 0 || (!ASCII_ISALNUM(c) && c != '"')) {
       retval = FAIL;
     } else {
-      Recording = c;
+      reg_recording = c;
       showmode();
       regname = c;
       retval = OK;
@@ -869,7 +869,7 @@ int do_record(int c)
      * needs to be removed again to put it in a register.  exec_reg then
      * adds the escaping back later.
      */
-    Recording = false;
+    reg_recording = 0;
     if (ui_has(kUIMessages)) {
       showmode();
     } else {
@@ -983,9 +983,8 @@ do_execreg(
       EMSG(_(e_nolastcmd));
       return FAIL;
     }
-    xfree(new_last_cmdline);     /* don't keep the cmdline containing @: */
-    new_last_cmdline = NULL;
-    /* Escape all control characters with a CTRL-V */
+    XFREE_CLEAR(new_last_cmdline);      // don't keep the cmdline containing @:
+    // Escape all control characters with a CTRL-V
     p = vim_strsave_escaped_ext(
         last_cmdline,
         (char_u *)
@@ -1041,7 +1040,7 @@ do_execreg(
           == FAIL)
         return FAIL;
     }
-    Exec_reg = TRUE;            /* disable the 'q' command */
+    reg_executing = regname == 0 ? '"' : regname;  // disable the 'q' command
   }
   return retval;
 }
@@ -2348,8 +2347,7 @@ void free_register(yankreg_T *reg)
     for (size_t i = reg->y_size; i-- > 0;) {  // from y_size - 1 to 0 included
       xfree(reg->y_array[i]);
     }
-    xfree(reg->y_array);
-    reg->y_array = NULL;
+    XFREE_CLEAR(reg->y_array);
   }
 }
 
