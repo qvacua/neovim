@@ -241,13 +241,14 @@ typedef enum {
                                   ///< the value (prevents error message).
 } GetLvalFlags;
 
-// function flags
+// flags used in uf_flags
 #define FC_ABORT    0x01          // abort function on error
 #define FC_RANGE    0x02          // function accepts range
 #define FC_DICT     0x04          // Dict function, uses "self"
 #define FC_CLOSURE  0x08          // closure, uses outer scope variables
 #define FC_DELETED  0x10          // :delfunction used while uf_refcount > 0
 #define FC_REMOVED  0x20          // function redefined while uf_refcount > 0
+#define FC_SANDBOX  0x40          // function defined in the sandbox
 
 // The names of packages that once were loaded are remembered.
 static garray_T ga_loaded = { 0, 0, sizeof(char_u *), 4, NULL };
@@ -5853,6 +5854,9 @@ static int get_lambda_tv(char_u **arg, typval_T *rettv, bool evaluate)
     if (prof_def_func()) {
       func_do_profile(fp);
     }
+    if (sandbox) {
+      flags |= FC_SANDBOX;
+    }
     fp->uf_varargs = true;
     fp->uf_flags = flags;
     fp->uf_calls = 0;
@@ -6512,6 +6516,10 @@ static void float_op_wrapper(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
 static void api_wrapper(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
+  if (check_restricted() || check_secure()) {
+    return;
+  }
+
   ApiDispatchWrapper fn = (ApiDispatchWrapper)fptr;
 
   Array args = ARRAY_DICT_INIT;
@@ -20318,6 +20326,9 @@ void ex_function(exarg_T *eap)
   if (prof_def_func())
     func_do_profile(fp);
   fp->uf_varargs = varargs;
+  if (sandbox) {
+    flags |= FC_SANDBOX;
+  }
   fp->uf_flags = flags;
   fp->uf_calls = 0;
   fp->uf_script_ID = current_SID;
@@ -21308,6 +21319,7 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   char_u      *save_sourcing_name;
   linenr_T save_sourcing_lnum;
   scid_T save_current_SID;
+  bool using_sandbox = false;
   funccall_T  *fc;
   int save_did_emsg;
   static int depth = 0;
@@ -21465,6 +21477,12 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   save_sourcing_name = sourcing_name;
   save_sourcing_lnum = sourcing_lnum;
   sourcing_lnum = 1;
+
+  if (fp->uf_flags & FC_SANDBOX) {
+    using_sandbox = true;
+    sandbox++;
+  }
+
   // need space for new sourcing_name:
   // * save_sourcing_name
   // * "["number"].." or "function "
@@ -21624,6 +21642,9 @@ void call_user_func(ufunc_T *fp, int argcount, typval_T *argvars,
   current_SID = save_current_SID;
   if (do_profiling_yes) {
     script_prof_restore(&wait_start);
+  }
+  if (using_sandbox) {
+    sandbox--;
   }
 
   if (p_verbose >= 12 && sourcing_name != NULL) {
