@@ -31,6 +31,10 @@
 #include "nvim/lua/executor.h"
 #include "nvim/lua/converter.h"
 
+#include "luv/luv.h"
+
+static int in_fast_callback = 0;
+
 typedef struct {
   Error err;
   String lua_err_str;
@@ -108,6 +112,79 @@ static int nlua_stricmp(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   return 1;
 }
 
+static void nlua_luv_error_event(void **argv)
+{
+  char *error = (char *)argv[0];
+  msg_ext_set_kind("lua_error");
+  emsgf_multiline("Error executing luv callback:\n%s", error);
+  xfree(error);
+}
+
+static int nlua_luv_cfpcall(lua_State *lstate, int nargs, int nresult,
+                            int flags)
+  FUNC_ATTR_NONNULL_ALL
+{
+  int retval;
+
+  // luv callbacks might be executed at any os_breakcheck/line_breakcheck
+  // call, so using the API directly here is not safe.
+  in_fast_callback++;
+
+  int top = lua_gettop(lstate);
+  int status = lua_pcall(lstate, nargs, nresult, 0);
+  if (status) {
+    if (status == LUA_ERRMEM && !(flags & LUVF_CALLBACK_NOEXIT)) {
+      // consider out of memory errors unrecoverable, just like xmalloc()
+      mch_errmsg(e_outofmem);
+      mch_errmsg("\n");
+      preserve_exit();
+    }
+    const char *error = lua_tostring(lstate, -1);
+
+    multiqueue_put(main_loop.events, nlua_luv_error_event,
+                   1, xstrdup(error));
+    lua_pop(lstate, 1);  // error mesage
+    retval = -status;
+  } else {  // LUA_OK
+    if (nresult == LUA_MULTRET) {
+      nresult = lua_gettop(lstate) - top + nargs + 1;
+    }
+    retval = nresult;
+  }
+
+  in_fast_callback--;
+  return retval;
+}
+
+static void nlua_schedule_event(void **argv)
+{
+  LuaRef cb = (LuaRef)(ptrdiff_t)argv[0];
+  lua_State *const lstate = nlua_enter();
+  nlua_pushref(lstate, cb);
+  nlua_unref(lstate, cb);
+  if (lua_pcall(lstate, 0, 0, 0)) {
+    nlua_error(lstate, _("Error executing vim.schedule lua callback: %.*s"));
+  }
+}
+
+/// Schedule Lua callback on main loop's event queue
+///
+/// @param  lstate  Lua interpreter state.
+static int nlua_schedule(lua_State *const lstate)
+  FUNC_ATTR_NONNULL_ALL
+{
+  if (lua_type(lstate, 1) != LUA_TFUNCTION) {
+    lua_pushliteral(lstate, "vim.schedule: expected function");
+    return lua_error(lstate);
+  }
+
+  LuaRef cb = nlua_ref(lstate, 1);
+
+  multiqueue_put(main_loop.events, nlua_schedule_event,
+                 1, (void *)(ptrdiff_t)cb);
+  return 0;
+}
+
 /// Initialize lua interpreter state
 ///
 /// Called by lua interpreter itself to initialize state.
@@ -143,6 +220,24 @@ static int nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   // stricmp
   lua_pushcfunction(lstate, &nlua_stricmp);
   lua_setfield(lstate, -2, "stricmp");
+  // schedule
+  lua_pushcfunction(lstate, &nlua_schedule);
+  lua_setfield(lstate, -2, "schedule");
+
+  // vim.loop
+  luv_set_loop(lstate, &main_loop.uv);
+  luv_set_callback(lstate, nlua_luv_cfpcall);
+  luaopen_luv(lstate);
+  lua_pushvalue(lstate, -1);
+  lua_setfield(lstate, -3, "loop");
+
+  // package.loaded.luv = vim.loop
+  // otherwise luv will be reinitialized when require'luv'
+  lua_getglobal(lstate, "package");
+  lua_getfield(lstate, -1, "loaded");
+  lua_pushvalue(lstate, -3);
+  lua_setfield(lstate, -2, "luv");
+  lua_pop(lstate, 3);
 
   lua_setglobal(lstate, "vim");
   return 0;
@@ -363,6 +458,33 @@ static int nlua_getenv(lua_State *lstate)
 }
 #endif
 
+/// add the value to the registry
+LuaRef nlua_ref(lua_State *lstate, int index)
+{
+  lua_pushvalue(lstate, index);
+  return luaL_ref(lstate, LUA_REGISTRYINDEX);
+}
+
+/// remove the value from the registry
+void nlua_unref(lua_State *lstate, LuaRef ref)
+{
+  if (ref > 0) {
+    luaL_unref(lstate, LUA_REGISTRYINDEX, ref);
+  }
+}
+
+void executor_free_luaref(LuaRef ref)
+{
+  lua_State *const lstate = nlua_enter();
+  nlua_unref(lstate, ref);
+}
+
+/// push a value referenced in the regirstry
+void nlua_pushref(lua_State *lstate, LuaRef ref)
+{
+  lua_rawgeti(lstate, LUA_REGISTRYINDEX, ref);
+}
+
 /// Evaluate lua string
 ///
 /// Used for luaeval().
@@ -440,7 +562,7 @@ Object executor_exec_lua_api(const String str, const Array args, Error *err)
   }
 
   for (size_t i = 0; i < args.size; i++) {
-    nlua_push_Object(lstate, args.items[i]);
+    nlua_push_Object(lstate, args.items[i], false);
   }
 
   if (lua_pcall(lstate, (int)args.size, 1, 0)) {
@@ -451,9 +573,41 @@ Object executor_exec_lua_api(const String str, const Array args, Error *err)
     return NIL;
   }
 
-  return nlua_pop_Object(lstate, err);
+  return nlua_pop_Object(lstate, false, err);
 }
 
+Object executor_exec_lua_cb(LuaRef ref, const char *name, Array args,
+                            bool retval)
+{
+  lua_State *const lstate = nlua_enter();
+  nlua_pushref(lstate, ref);
+  lua_pushstring(lstate, name);
+  for (size_t i = 0; i < args.size; i++) {
+    nlua_push_Object(lstate, args.items[i], false);
+  }
+
+  if (lua_pcall(lstate, (int)args.size+1, retval ? 1 : 0, 0)) {
+    // TODO(bfredl): callbacks:s might not always be msg-safe, for instance
+    // lua callbacks for redraw events. Later on let the caller deal with the
+    // error instead.
+    nlua_error(lstate, _("Error executing lua callback: %.*s"));
+    return NIL;
+  }
+  Error err = ERROR_INIT;
+
+  if (retval) {
+    return nlua_pop_Object(lstate, false, &err);
+  } else {
+    return NIL;
+  }
+}
+
+/// check if the current execution context is safe for calling deferred API
+/// methods. Luv callbacks are unsafe as they are called inside the uv loop.
+bool nlua_is_deferred_safe(lua_State *lstate)
+{
+  return in_fast_callback == 0;
+}
 
 /// Run lua string
 ///

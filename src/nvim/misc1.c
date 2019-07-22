@@ -495,9 +495,14 @@ open_line (
     }
     if (lead_len > 0) {
       // allocate buffer (may concatenate p_extra later)
-      leader = xmalloc((size_t)(lead_len + lead_repl_len + extra_space
-                                + extra_len + (second_line_indent > 0
-                                               ? second_line_indent : 0) + 1));
+      int bytes = lead_len
+          + lead_repl_len
+          + extra_space
+          + extra_len
+          + (second_line_indent > 0 ? second_line_indent : 0)
+          + 1;
+      assert(bytes >= 0);
+      leader = xmalloc((size_t)bytes);
       allocated = leader;  // remember to free it later
 
       STRLCPY(leader, saved_line, lead_len + 1);
@@ -1556,11 +1561,14 @@ void ins_str(char_u *s)
   oldp = ml_get(lnum);
   oldlen = (int)STRLEN(oldp);
 
-  newp = (char_u *) xmalloc((size_t)(oldlen + newlen + 1));
-  if (col > 0)
+  newp = (char_u *)xmalloc((size_t)oldlen + (size_t)newlen + 1);
+  if (col > 0) {
     memmove(newp, oldp, (size_t)col);
+  }
   memmove(newp + col, s, (size_t)newlen);
-  memmove(newp + col + newlen, oldp + col, (size_t)(oldlen - col + 1));
+  int bytes = oldlen - col + 1;
+  assert(bytes >= 0);
+  memmove(newp + col + newlen, oldp + col, (size_t)bytes);
   ml_replace(lnum, newp, false);
   changed_bytes(lnum, col);
   curwin->w_cursor.col += newlen;
@@ -1765,6 +1773,7 @@ del_lines (
 }
 
 int gchar_pos(pos_T *pos)
+  FUNC_ATTR_NONNULL_ARG(1)
 {
   // When searching columns is sometimes put at the end of a line.
   if (pos->col == MAXCOL) {
@@ -1847,9 +1856,7 @@ void changed_bytes(linenr_T lnum, colnr_T col)
   changedOneline(curbuf, lnum);
   changed_common(lnum, col, lnum + 1, 0L);
   // notify any channels that are watching
-  if (kv_size(curbuf->update_channels)) {
-    buf_updates_send_changes(curbuf, lnum, 1, 1, true);
-  }
+  buf_updates_send_changes(curbuf, lnum, 1, 1, true);
 
   /* Diff highlighting in other diff windows may need to be updated too. */
   if (curwin->w_p_diff) {
@@ -1973,7 +1980,7 @@ changed_lines(
 
   changed_common(lnum, col, lnume, xtra);
 
-  if (do_buf_event && kv_size(curbuf->update_channels)) {
+  if (do_buf_event) {
     int64_t num_added = (int64_t)(lnume + xtra - lnum);
     int64_t num_removed = lnume - lnum;
     buf_updates_send_changes(curbuf, lnum, num_added, num_removed, true);
@@ -2505,18 +2512,24 @@ int prompt_for_number(int *mouse_used)
   cmdline_row = 0;
   save_State = State;
   State = ASKMORE;  // prevents a screen update when using a timer
+  // May show different mouse shape.
+  setmouse();
 
   i = get_number(TRUE, mouse_used);
   if (KeyTyped) {
-    /* don't call wait_return() now */
-    /* msg_putchar('\n'); */
-    cmdline_row = msg_row - 1;
-    need_wait_return = FALSE;
-    msg_didany = FALSE;
-    msg_didout = FALSE;
-  } else
+    // don't call wait_return() now
+    if (msg_row > 0) {
+      cmdline_row = msg_row - 1;
+    }
+    need_wait_return = false;
+    msg_didany = false;
+    msg_didout = false;
+  } else {
     cmdline_row = save_cmdline_row;
+  }
   State = save_State;
+  // May need to restore mouse shape.
+  setmouse();
 
   return i;
 }
@@ -2722,7 +2735,7 @@ void preserve_exit(void)
  */
 
 #ifndef BREAKCHECK_SKIP
-#  define BREAKCHECK_SKIP 32
+#  define BREAKCHECK_SKIP 1000
 #endif
 
 static int breakcheck_count = 0;

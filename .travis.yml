@@ -34,7 +34,6 @@ env:
     - ASAN_OPTIONS="detect_leaks=1:check_initialization_order=1:log_path=$LOG_DIR/asan"
     - TSAN_OPTIONS="log_path=$LOG_DIR/tsan"
     - UBSAN_OPTIONS="print_stacktrace=1 log_path=$LOG_DIR/ubsan"
-    - ASAN_SYMBOLIZE=asan_symbolize
     # Environment variables for Valgrind.
     - VALGRIND_LOG="$LOG_DIR/valgrind-%p.log"
     # If this file exists, the cache is valid (compile was successful).
@@ -46,66 +45,25 @@ env:
     - CCACHE_COMPRESS=1
     - CCACHE_SLOPPINESS=time_macros,file_macro
     - CCACHE_BASEDIR="$TRAVIS_BUILD_DIR"
+    # Default since 3.3, but Travis (Xenial) has 3.2.4; required with newer gcc/clang.
+    - CCACHE_CPP2=1
 
-jobs:
-  include:
-    - stage: normal builds
-      os: linux
-      compiler: clang-4.0
-      # Use Lua so that ASAN can test our embedded Lua support. 8fec4d53d0f6
-      env: >
-        CLANG_SANITIZER=ASAN_UBSAN
-        CMAKE_FLAGS="$CMAKE_FLAGS -DPREFER_LUA=ON"
-        ASAN_SYMBOLIZE=asan_symbolize-4.0
-    - os: linux
-      compiler: gcc
-      env: >
-        FUNCTIONALTEST=functionaltest-lua
-        CMAKE_FLAGS="$CMAKE_FLAGS -DPREFER_LUA=ON"
-        DEPS_CMAKE_FLAGS="$DEPS_CMAKE_FLAGS -DUSE_BUNDLED_LUAJIT=OFF"
-    - os: linux
-      # Travis creates a cache per compiler. Set a different value here to
-      # store 32-bit dependencies in a separate cache.
-      compiler: gcc
-      env: BUILD_32BIT=ON
-    - os: osx
-      compiler: clang
-      osx_image: xcode10.1  # macOS 10.13
-    - os: osx
-      compiler: gcc
-      osx_image: xcode10.1  # macOS 10.13
-    - if: branch = master
-      os: linux
-      env: CI_TARGET=lint
-    - stage: Flaky builds
-      os: linux
-      compiler: gcc
-      env: GCOV=gcov CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_GCOV=ON"
-    - os: linux
-      compiler: clang
-      env: CLANG_SANITIZER=TSAN
-  allow_failures:
-    - env: GCOV=gcov CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_GCOV=ON"
-    - env: CLANG_SANITIZER=TSAN
-  fast_finish: true
-
-before_install: ci/before_install.sh
-install:        ci/install.sh
-before_script:  ci/before_script.sh
-script:         ci/script.sh
-before_cache:   ci/before_cache.sh
+anchors:
+  envs: &common-job-env
+    # Do not fall back to cache for "master" for PR on "release" branch:
+    # adds the target branch to the cache key.
+    FOR_TRAVIS_CACHE=$TRAVIS_BRANCH
 
 addons:
   apt:
-    packages:
+    packages: &common-apt-packages
       - apport
       - autoconf
       - automake
       - build-essential
-      - clang-4.0
+      - clang
       - cmake
       - cscope
-      - g++-multilib
       - gcc-multilib
       - gdb
       - gperf
@@ -123,6 +81,88 @@ addons:
     packages:
       - ccache
       - ninja
+
+jobs:
+  include:
+    - stage: baseline
+      name: clang-asan
+      os: linux
+      compiler: clang
+      # Use Lua so that ASAN can test our embedded Lua support. 8fec4d53d0f6
+      env:
+        - CLANG_SANITIZER=ASAN_UBSAN
+        - CMAKE_FLAGS="$CMAKE_FLAGS -DPREFER_LUA=ON"
+        - *common-job-env
+    - name: gcc-functionaltest-lua
+      os: linux
+      compiler: gcc
+      env:
+        - FUNCTIONALTEST=functionaltest-lua
+        - CMAKE_FLAGS="$CMAKE_FLAGS -DPREFER_LUA=ON"
+        - DEPS_CMAKE_FLAGS="$DEPS_CMAKE_FLAGS -DUSE_BUNDLED_LUAJIT=OFF"
+        - *common-job-env
+    - name: gcc-32bit
+      os: linux
+      # Travis creates a cache per compiler. Set a different value here to
+      # store 32-bit dependencies in a separate cache.
+      compiler: gcc
+      env:
+        - BUILD_32BIT=ON
+        # Minimum required CMake.
+        - CMAKE_URL=https://cmake.org/files/v2.8/cmake-2.8.12-Linux-i386.sh
+        - *common-job-env
+    - if: branch = master AND commit_message !~ /\[skip.lint\]/
+      name: lint
+      os: linux
+      env:
+        - CI_TARGET=lint
+        - *common-job-env
+
+    - stage: second stage
+      name: "macOS: clang"
+      os: osx
+      compiler: clang
+      osx_image: xcode10.2  # macOS 10.14
+      env:
+        - *common-job-env
+    - name: "macOS: gcc"
+      os: osx
+      compiler: gcc
+      osx_image: xcode10.2  # macOS 10.14
+      env:
+        - *common-job-env
+
+    - name: gcc-coverage (gcc 9)
+      os: linux
+      compiler: gcc-9
+      env:
+        - GCOV=gcov
+        - CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_GCOV=ON"
+        - GCOV_ERROR_FILE="/tmp/libgcov-errors.log"
+        - *common-job-env
+      addons:
+        apt:
+          sources:
+            - sourceline: 'ppa:ubuntu-toolchain-r/test'
+          packages:
+            - *common-apt-packages
+            - gcc-9
+
+    - name: clang-tsan
+      os: linux
+      compiler: clang
+      env:
+        - CLANG_SANITIZER=TSAN
+        - *common-job-env
+  allow_failures:
+    - name: clang-tsan
+  fast_finish: true
+
+before_install: ci/before_install.sh
+install:        ci/install.sh
+before_script:  ci/before_script.sh
+script:         ci/script.sh
+before_cache:   ci/before_cache.sh
 
 branches:
   only:

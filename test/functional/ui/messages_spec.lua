@@ -5,6 +5,7 @@ local eval = helpers.eval
 local eq = helpers.eq
 local command = helpers.command
 local set_method_error = helpers.set_method_error
+local meths = helpers.meths
 
 
 describe('ui/ext_messages', function()
@@ -21,10 +22,36 @@ describe('ui/ext_messages', function()
       [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
       [5] = {foreground = Screen.colors.Blue1},
       [6] = {bold = true, reverse = true},
+      [7] = {background = Screen.colors.Yellow},
+      [8] = {foreground = Screen.colors.Red},
     })
   end)
   after_each(function()
     os.remove('Xtest')
+  end)
+
+  it('msg_clear follows msg_show kind of confirm', function()
+    feed('iline 1<esc>')
+    feed(':call confirm("test")<cr>')
+    screen:expect{grid=[[
+      line ^1                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={ {
+      content = {{"\ntest\n[O]k: ", 4}},
+      kind = 'confirm',
+    }}}
+
+    feed('<cr>')
+    screen:expect{grid=[[
+      line ^1                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]]}
   end)
 
   it('msg_show kind=confirm,confirm_sub,emsg,wmsg,quickfix', function()
@@ -276,6 +303,65 @@ describe('ui/ext_messages', function()
       {kind="echoerr", content={{"fail", 2}}},
       {kind="echoerr", content={{"extrafail", 2}}},
       {kind="echoerr", content={{"problem", 2}}}
+    }}
+  end)
+
+  it('shortmess-=S', function()
+    command('set shortmess-=S')
+    feed('iline 1\nline 2<esc>')
+
+    feed('/line<cr>')
+    screen:expect{grid=[[
+      {7:^line} 1                   |
+      {7:line} 2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={
+      {content = {{"/line      [1/2] W"}}, kind = "search_count"}
+    }}
+
+    feed('n')
+    screen:expect{grid=[[
+      {7:line} 1                   |
+      {7:^line} 2                   |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={
+      {content = {{"/line        [2/2]"}}, kind = "search_count"}
+    }}
+  end)
+
+  it(':hi Group output', function()
+    feed(':hi ErrorMsg<cr>')
+    screen:expect{grid=[[
+      ^                         |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={
+      {content = {{"\nErrorMsg      " }, {"xxx", 2}, {" "},
+                  {"ctermfg=", 5 }, { "15 " }, { "ctermbg=", 5 }, { "1 " },
+                  {"guifg=", 5 }, { "White " }, { "guibg=", 5 }, { "Red" }},
+       kind = ""}
+    }}
+  end)
+
+  it("doesn't crash with column adjustment #10069", function()
+    feed(':let [x,y] = [1,2]<cr>')
+    feed(':let x y<cr>')
+    screen:expect{grid=[[
+      ^                         |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={
+      {content = {{ "x                     #1" }}, kind = ""},
+      {content = {{ "y                     #2" }}, kind = ""},
+      {content = {{ "Press ENTER or type command to continue", 4 }}, kind = "return_prompt"}
     }}
   end)
 
@@ -679,6 +765,31 @@ describe('ui/ext_messages', function()
       end
     end}
   end)
+
+  it('wildmode=list', function()
+    screen:try_resize(25, 7)
+    screen:set_option('ext_popupmenu', false)
+
+    command('set wildmenu wildmode=list')
+    feed(':set wildm<tab>')
+    screen:expect{grid=[[
+      ^                         |
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+      {1:~                        }|
+    ]], messages={{
+        content = {{'wildmenu  wildmode'}},
+        kind = '',
+     }},
+    cmdline={{
+      firstc = ':',
+      content = {{ 'set wildm' }},
+      pos = 9,
+    }}}
+  end)
 end)
 
 describe('ui/builtin messages', function()
@@ -692,6 +803,8 @@ describe('ui/builtin messages', function()
       [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
       [3] = {bold = true, reverse = true},
       [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+      [5] = {foreground = Screen.colors.Blue1},
+      [6] = {bold = true, foreground = Screen.colors.Magenta},
     })
   end)
 
@@ -711,6 +824,78 @@ describe('ui/builtin messages', function()
         set_method_error("complete\nerror\n\nmessage")
       end
     end}
+  end)
+
+  it(':hi Group output', function()
+    screen:try_resize(70,7)
+    feed(':hi ErrorMsg<cr>')
+    screen:expect([[
+                                                                            |
+      {1:~                                                                     }|
+      {1:~                                                                     }|
+      {3:                                                                      }|
+      :hi ErrorMsg                                                          |
+      ErrorMsg       {2:xxx} {5:ctermfg=}15 {5:ctermbg=}1 {5:guifg=}White {5:guibg=}Red         |
+      {4:Press ENTER or type command to continue}^                               |
+    ]])
+
+    feed('<cr>')
+    screen:try_resize(30,7)
+    feed(':hi ErrorMsg<cr>')
+    screen:expect([[
+      :hi ErrorMsg                  |
+      ErrorMsg       {2:xxx} {5:ctermfg=}15 |
+                         {5:ctermbg=}1  |
+                         {5:guifg=}White|
+                         {5:guibg=}Red  |
+      {4:Press ENTER or type command to}|
+      {4: continue}^                     |
+    ]])
+    feed('<cr>')
+
+    -- screen size doesn't affect internal output #10285
+    eq('ErrorMsg       xxx ctermfg=15 ctermbg=1 guifg=White guibg=Red',
+       meths.command_output("hi ErrorMsg"))
+  end)
+
+  it(':syntax list langGroup output', function()
+    command("syntax on")
+    command("set syntax=vim")
+    screen:try_resize(110,7)
+    feed(':syntax list vimComment<cr>')
+    screen:expect([[
+      {6:--- Syntax items ---}                                                                                          |
+      vimComment     {5:xxx} {5:match} /\s"[^\-:.%#=*].*$/ms=s+1,lc=1  {5:excludenl} {5:contains}=@vimCommentGroup,vimCommentString |
+                                                                                                                    |
+                         {5:match} /\<endif\s\+".*$/ms=s+5,lc=5  {5:contains}=@vimCommentGroup,vimCommentString             |
+                         {5:match} /\<else\s\+".*$/ms=s+4,lc=4  {5:contains}=@vimCommentGroup,vimCommentString              |
+                         {5:links to} Comment                                                                           |
+      {4:Press ENTER or type command to continue}^                                                                       |
+    ]])
+
+    feed('<cr>')
+    screen:try_resize(55,7)
+    feed(':syntax list vimComment<cr>')
+    screen:expect([[
+                                                             |
+                         {5:match} /\<endif\s\+".*$/ms=s+5,lc=5  |
+      {5:contains}=@vimCommentGroup,vimCommentString             |
+                         {5:match} /\<else\s\+".*$/ms=s+4,lc=4  {5:c}|
+      {5:ontains}=@vimCommentGroup,vimCommentString              |
+                         {5:links to} Comment                    |
+      {4:Press ENTER or type command to continue}^                |
+    ]])
+    feed('<cr>')
+
+    -- ignore final whitespace inside string
+    -- luacheck: push ignore
+    eq([[--- Syntax items ---
+vimComment     xxx match /\s"[^\-:.%#=*].*$/ms=s+1,lc=1  excludenl contains=@vimCommentGroup,vimCommentString 
+                   match /\<endif\s\+".*$/ms=s+5,lc=5  contains=@vimCommentGroup,vimCommentString 
+                   match /\<else\s\+".*$/ms=s+4,lc=4  contains=@vimCommentGroup,vimCommentString 
+                   links to Comment]],
+       meths.command_output('syntax list vimComment'))
+    -- luacheck: pop
   end)
 end)
 

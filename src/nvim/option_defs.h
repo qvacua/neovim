@@ -173,6 +173,7 @@ enum {
   SHM_COMPLETIONMENU = 'c',  ///< Completion menu messages.
   SHM_RECORDING      = 'q',  ///< Short recording message.
   SHM_FILEINFO       = 'F',  ///< No file info messages.
+  SHM_SEARCHCOUNT    = 'S',  ///< Search sats: '[1/10]'
 };
 /// Represented by 'a' flag.
 #define SHM_ALL_ABBREVIATIONS ((char_u[]) { \
@@ -180,28 +181,29 @@ enum {
   0, \
 })
 
-/* characters for p_go: */
-#define GO_ASEL         'a'             /* autoselect */
-#define GO_ASELML       'A'             /* autoselect modeless selection */
-#define GO_BOT          'b'             /* use bottom scrollbar */
-#define GO_CONDIALOG    'c'             /* use console dialog */
-#define GO_TABLINE      'e'             /* may show tabline */
-#define GO_FORG         'f'             /* start GUI in foreground */
-#define GO_GREY         'g'             /* use grey menu items */
-#define GO_HORSCROLL    'h'             /* flexible horizontal scrolling */
-#define GO_ICON         'i'             /* use Vim icon */
-#define GO_LEFT         'l'             /* use left scrollbar */
-#define GO_VLEFT        'L'             /* left scrollbar with vert split */
-#define GO_MENUS        'm'             /* use menu bar */
-#define GO_NOSYSMENU    'M'             /* don't source system menu */
-#define GO_POINTER      'p'             /* pointer enter/leave callbacks */
-#define GO_ASELPLUS     'P'             /* autoselectPlus */
-#define GO_RIGHT        'r'             /* use right scrollbar */
-#define GO_VRIGHT       'R'             /* right scrollbar with vert split */
-#define GO_TOOLBAR      'T'             /* add toolbar */
-#define GO_FOOTER       'F'             /* add footer */
-#define GO_VERTICAL     'v'             /* arrange dialog buttons vertically */
-#define GO_ALL          "aAbcefFghilmMprTv" /* all possible flags for 'go' */
+// characters for p_go:
+#define GO_ASEL         'a'             // autoselect
+#define GO_ASELML       'A'             // autoselect modeless selection
+#define GO_BOT          'b'             // use bottom scrollbar
+#define GO_CONDIALOG    'c'             // use console dialog
+#define GO_TABLINE      'e'             // may show tabline
+#define GO_FORG         'f'             // start GUI in foreground
+#define GO_GREY         'g'             // use grey menu items
+#define GO_HORSCROLL    'h'             // flexible horizontal scrolling
+#define GO_ICON         'i'             // use Vim icon
+#define GO_LEFT         'l'             // use left scrollbar
+#define GO_VLEFT        'L'             // left scrollbar with vert split
+#define GO_MENUS        'm'             // use menu bar
+#define GO_NOSYSMENU    'M'             // don't source system menu
+#define GO_POINTER      'p'             // pointer enter/leave callbacks
+#define GO_ASELPLUS     'P'             // autoselectPlus
+#define GO_RIGHT        'r'             // use right scrollbar
+#define GO_VRIGHT       'R'             // right scrollbar with vert split
+#define GO_TOOLBAR      'T'             // add toolbar
+#define GO_FOOTER       'F'             // add footer
+#define GO_VERTICAL     'v'             // arrange dialog buttons vertically
+#define GO_KEEPWINSIZE  'k'             // keep GUI window size
+#define GO_ALL          "aAbcefFghilmMprTvk"  // all possible flags for 'go'
 
 /* flags for 'comments' option */
 #define COM_NEST        'n'             /* comments strings nest */
@@ -364,6 +366,7 @@ static char *(p_cb_values[]) = {"unnamed", "unnamedplus", NULL};
 # define CB_UNNAMEDMASK         (CB_UNNAMED | CB_UNNAMEDPLUS)
 EXTERN long p_cwh;              // 'cmdwinheight'
 EXTERN long p_ch;               // 'cmdheight'
+EXTERN long p_columns;          // 'columns'
 EXTERN int p_confirm;           // 'confirm'
 EXTERN int p_cp;                // 'compatible'
 EXTERN char_u   *p_cot;         // 'completeopt'
@@ -474,7 +477,8 @@ EXTERN char_u   *p_langmap;     // 'langmap'
 EXTERN int p_lnr;               // 'langnoremap'
 EXTERN int p_lrm;               // 'langremap'
 EXTERN char_u   *p_lm;          // 'langmenu'
-EXTERN long     *p_linespace;   // 'linespace'
+EXTERN long     p_lines;        // 'lines'
+EXTERN long     p_linespace;    // 'linespace'
 EXTERN char_u   *p_lispwords;   // 'lispwords'
 EXTERN long p_ls;               // 'laststatus'
 EXTERN long p_stal;             // 'showtabline'
@@ -494,6 +498,7 @@ EXTERN long p_mmd;              // 'maxmapdepth'
 EXTERN long p_mmp;              // 'maxmempattern'
 EXTERN long p_mis;              // 'menuitems'
 EXTERN char_u   *p_msm;         // 'mkspellmem'
+EXTERN long p_mle;              // 'modelineexpr'
 EXTERN long p_mls;              // 'modelines'
 EXTERN char_u   *p_mouse;       // 'mouse'
 EXTERN char_u   *p_mousem;      // 'mousemodel'
@@ -508,6 +513,13 @@ EXTERN char_u   *p_pm;          // 'patchmode'
 EXTERN char_u   *p_path;        // 'path'
 EXTERN char_u   *p_cdpath;      // 'cdpath'
 EXTERN long p_pyx;              // 'pyxversion'
+EXTERN char_u *p_rdb;           // 'redrawdebug'
+EXTERN unsigned rdb_flags;
+# ifdef IN_OPTION_C
+static char *(p_rdb_values[]) = { "compositor", NULL };
+# endif
+# define RDB_COMPOSITOR         0x001
+
 EXTERN long p_rdt;              // 'redrawtime'
 EXTERN int p_remap;             // 'remap'
 EXTERN long p_re;               // 'regexpengine'
@@ -813,6 +825,7 @@ enum {
   , WV_WINHL
   , WV_FCS
   , WV_LCS
+  , WV_WINBL
   , WV_COUNT        // must be the last one
 };
 

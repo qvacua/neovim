@@ -49,6 +49,8 @@ static bool valid_screen = true;
 static bool msg_scroll_mode = false;
 static int msg_first_invalid = 0;
 
+static int dbghl_normal, dbghl_clear, dbghl_composed, dbghl_recompose;
+
 void ui_comp_init(void)
 {
   if (compositor != NULL) {
@@ -81,6 +83,13 @@ void ui_comp_init(void)
   ui_attach_impl(compositor);
 }
 
+void ui_comp_syn_init(void)
+{
+  dbghl_normal = syn_check_group((char_u *)S_LEN("RedrawDebugNormal"));
+  dbghl_clear = syn_check_group((char_u *)S_LEN("RedrawDebugClear"));
+  dbghl_composed = syn_check_group((char_u *)S_LEN("RedrawDebugComposed"));
+  dbghl_recompose = syn_check_group((char_u *)S_LEN("RedrawDebugRecompose"));
+}
 
 void ui_comp_attach(UI *ui)
 {
@@ -290,10 +299,14 @@ static void compose_line(Integer row, Integer startcol, Integer endcol,
 {
   // in case we start on the right half of a double-width char, we need to
   // check the left half. But skip it in output if it wasn't doublewidth.
-  int skip = 0;
+  int skipstart = 0, skipend = 0;
   if (startcol > 0 && (flags & kLineFlagInvalid)) {
     startcol--;
-    skip = 1;
+    skipstart = 1;
+  }
+  if (endcol < default_grid.Columns && (flags & kLineFlagInvalid)) {
+    endcol++;
+    skipend = 1;
   }
 
   int col = (int)startcol;
@@ -329,13 +342,24 @@ static void compose_line(Integer row, Integer startcol, Integer endcol,
     memcpy(linebuf+(col-startcol), grid->chars+off, n * sizeof(*linebuf));
     memcpy(attrbuf+(col-startcol), grid->attrs+off, n * sizeof(*attrbuf));
 
-    // 'pumblend'
-    if (grid == &pum_grid && p_pb) {
-      for (int i = col-(int)startcol; i < until-startcol; i++) {
-        bool thru = strequal((char *)linebuf[i], " ");  // negative space
-        attrbuf[i] = (sattr_T)hl_blend_attrs(bg_attrs[i], attrbuf[i], thru);
+    // 'pumblend' and 'winblend'
+    if (grid->blending) {
+      int width;
+      for (int i = col-(int)startcol; i < until-startcol; i += width) {
+        width = 1;
+        // negative space
+        bool thru = strequal((char *)linebuf[i], " ") && bg_line[i][0] != NUL;
+        if (i+1 < endcol-startcol && bg_line[i+1][0] == NUL) {
+          width = 2;
+          thru &= strequal((char *)linebuf[i+1], " ");
+        }
+        attrbuf[i] = (sattr_T)hl_blend_attrs(bg_attrs[i], attrbuf[i], &thru);
+        if (width == 2) {
+          attrbuf[i+1] = (sattr_T)hl_blend_attrs(bg_attrs[i+1],
+                                                 attrbuf[i+1], &thru);
+        }
         if (thru) {
-          memcpy(linebuf[i], bg_line[i], sizeof(linebuf[i]));
+          memcpy(linebuf[i], bg_line[i], (size_t)width * sizeof(linebuf[i]));
         }
       }
     }
@@ -345,20 +369,27 @@ static void compose_line(Integer row, Integer startcol, Integer endcol,
     if (linebuf[col-startcol][0] == NUL) {
       linebuf[col-startcol][0] = ' ';
       linebuf[col-startcol][1] = NUL;
+      if (col == endcol-1) {
+        skipend = 0;
+      }
     } else if (n > 1 && linebuf[col-startcol+1][0] == NUL) {
-      skip = 0;
+      skipstart = 0;
     }
     if (grid->comp_col+grid->Columns > until
         && grid->chars[off+n][0] == NUL) {
       linebuf[until-1-startcol][0] = ' ';
       linebuf[until-1-startcol][1] = '\0';
       if (col == startcol && n == 1) {
-        skip = 0;
+        skipstart = 0;
       }
     }
 
     col = until;
   }
+  if (linebuf[endcol-startcol-1][0] == NUL) {
+    skipend = 0;
+  }
+
   assert(endcol <= chk_width);
   assert(row < chk_height);
 
@@ -368,14 +399,48 @@ static void compose_line(Integer row, Integer startcol, Integer endcol,
     flags = flags & ~kLineFlagWrap;
   }
 
-  ui_composed_call_raw_line(1, row, startcol+skip, endcol, endcol, 0, flags,
-                            (const schar_T *)linebuf+skip,
-                            (const sattr_T *)attrbuf+skip);
+  ui_composed_call_raw_line(1, row, startcol+skipstart,
+                            endcol-skipend, endcol-skipend, 0, flags,
+                            (const schar_T *)linebuf+skipstart,
+                            (const sattr_T *)attrbuf+skipstart);
 }
+
+static void compose_debug(Integer startrow, Integer endrow, Integer startcol,
+                          Integer endcol, int syn_id, bool delay)
+{
+  if (!(rdb_flags & RDB_COMPOSITOR)) {
+    return;
+  }
+
+  endrow = MIN(endrow, default_grid.Rows);
+  endcol = MIN(endcol, default_grid.Columns);
+  int attr = syn_id2attr(syn_id);
+
+  for (int row = (int)startrow; row < endrow; row++) {
+    ui_composed_call_raw_line(1, row, startcol, startcol, endcol, attr, false,
+                              (const schar_T *)linebuf,
+                              (const sattr_T *)attrbuf);
+  }
+
+
+  if (delay) {
+    debug_delay(endrow-startrow);
+  }
+}
+
+static void debug_delay(Integer lines)
+{
+  ui_call_flush();
+  uint64_t wd = (uint64_t)labs(p_wd);
+  uint64_t factor = (uint64_t)MAX(MIN(lines, 5), 1);
+  os_microdelay(factor * wd * 1000u, true);
+}
+
 
 static void compose_area(Integer startrow, Integer endrow,
                          Integer startcol, Integer endcol)
 {
+  compose_debug(startrow, endrow, startcol, endcol, dbghl_recompose, true);
   endrow = MIN(endrow, default_grid.Rows);
   endcol = MIN(endcol, default_grid.Columns);
   if (endcol <= startcol) {
@@ -419,9 +484,12 @@ static void ui_comp_raw_line(UI *ui, Integer grid, Integer row,
   assert(clearcol <= default_grid.Columns);
   if (flags & kLineFlagInvalid
       || kv_size(layers) > curgrid->comp_index+1
-      || (p_pb && curgrid == &pum_grid)) {
+      || curgrid->blending) {
+    compose_debug(row, row+1, startcol, clearcol, dbghl_composed, true);
     compose_line(row, startcol, clearcol, flags);
   } else {
+    compose_debug(row, row+1, startcol, endcol, dbghl_normal, false);
+    compose_debug(row, row+1, endcol, clearcol, dbghl_clear, true);
     ui_composed_call_raw_line(1, row, startcol, endcol, clearcol, clearattr,
                               flags, chunk, attrs);
   }
@@ -467,7 +535,8 @@ static void ui_comp_grid_scroll(UI *ui, Integer grid, Integer top,
   bot += curgrid->comp_row;
   left += curgrid->comp_col;
   right += curgrid->comp_col;
-  if (!msg_scroll_mode && kv_size(layers) > curgrid->comp_index+1) {
+  bool covered = kv_size(layers) > curgrid->comp_index+1 || curgrid->blending;
+  if (!msg_scroll_mode && covered) {
     // TODO(bfredl):
     // 1. check if rectangles actually overlap
     // 2. calulate subareas that can scroll.
@@ -480,6 +549,9 @@ static void ui_comp_grid_scroll(UI *ui, Integer grid, Integer top,
   } else {
     msg_first_invalid = MIN(msg_first_invalid, (int)top);
     ui_composed_call_grid_scroll(1, top, bot, left, right, rows, cols);
+    if (rdb_flags & RDB_COMPOSITOR) {
+      debug_delay(2);
+    }
   }
 }
 

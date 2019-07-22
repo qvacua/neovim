@@ -116,6 +116,7 @@ static const char *msg_ext_kind = NULL;
 static Array msg_ext_chunks = ARRAY_DICT_INIT;
 static garray_T msg_ext_last_chunk = GA_INIT(sizeof(char), 40);
 static sattr_T msg_ext_last_attr = -1;
+static size_t msg_ext_cur_len = 0;
 
 static bool msg_ext_overwrite = false;  ///< will overwrite last message
 static int msg_ext_visible = 0;  ///< number of messages currently visible
@@ -926,8 +927,9 @@ void ex_messages(void *const eap_p)
  */
 void msg_end_prompt(void)
 {
-  need_wait_return = FALSE;
-  emsg_on_display = FALSE;
+  msg_ext_clear_later();
+  need_wait_return = false;
+  emsg_on_display = false;
   cmdline_row = msg_row;
   msg_col = 0;
   msg_clr_eos();
@@ -1805,8 +1807,13 @@ void msg_puts_attr_len(const char *const str, const ptrdiff_t len, int attr)
   // different, e.g. for Win32 console) or we just don't know where the
   // cursor is.
   if (msg_use_printf()) {
+    int saved_msg_col = msg_col;
     msg_puts_printf(str, len);
-  } else {
+    if (headless_mode) {
+      msg_col = saved_msg_col;
+    }
+  }
+  if (!msg_use_printf() || (headless_mode && default_grid.chars)) {
     msg_puts_display((const char_u *)str, len, attr, false);
   }
 }
@@ -1871,8 +1878,9 @@ static void msg_puts_display(const char_u *str, int maxlen, int attr,
       msg_ext_last_attr = attr;
     }
     // Concat pieces with the same highlight
-    ga_concat_len(&msg_ext_last_chunk, (char *)str,
-                  strnlen((char *)str, maxlen));  // -V781
+    size_t len = strnlen((char *)str, maxlen);             // -V781
+    ga_concat_len(&msg_ext_last_chunk, (char *)str, len);
+    msg_ext_cur_len += len;
     return;
   }
 
@@ -2053,7 +2061,7 @@ int msg_scrollsize(void)
 /*
  * Scroll the screen up one line for displaying the next message line.
  */
-static void msg_scroll_up(void)
+void msg_scroll_up(void)
 {
   if (!msg_did_scroll) {
     ui_call_win_scroll_over_start();
@@ -2764,6 +2772,7 @@ void msg_ext_ui_flush(void)
     }
     msg_ext_kind = NULL;
     msg_ext_chunks = (Array)ARRAY_DICT_INIT;
+    msg_ext_cur_len = 0;
     msg_ext_overwrite = false;
   }
 }
@@ -2776,6 +2785,7 @@ void msg_ext_flush_showmode(void)
     msg_ext_emit_chunk();
     ui_call_msg_showmode(msg_ext_chunks);
     msg_ext_chunks = (Array)ARRAY_DICT_INIT;
+    msg_ext_cur_len = 0;
   }
 }
 
@@ -2791,12 +2801,22 @@ void msg_ext_clear(bool force)
   msg_ext_keep_after_cmdline = false;
 }
 
-void msg_ext_check_prompt(void)
+void msg_ext_clear_later(void)
 {
-  // Redraw after cmdline is expected to clear messages.
-  if (msg_ext_did_cmdline) {
+  if (msg_ext_is_visible()) {
+    msg_ext_need_clear = true;
+    if (must_redraw < VALID) {
+      must_redraw = VALID;
+    }
+  }
+}
+
+void msg_ext_check_clear(void)
+{
+  // Redraw after cmdline or prompt is expected to clear messages.
+  if (msg_ext_need_clear) {
     msg_ext_clear(true);
-    msg_ext_did_cmdline = false;
+    msg_ext_need_clear = false;
   }
 }
 
@@ -3002,7 +3022,10 @@ void give_warning(char_u *message, bool hl) FUNC_ATTR_NONNULL_ARG(1)
   } else {
     keep_msg_attr = 0;
   }
-  msg_ext_set_kind("wmsg");
+
+  if (msg_ext_kind == NULL) {
+    msg_ext_set_kind("wmsg");
+  }
 
   if (msg_attr((const char *)message, keep_msg_attr) && msg_scrolled == 0) {
     set_keep_msg(message, keep_msg_attr);
@@ -3027,6 +3050,14 @@ void msg_advance(int col)
 {
   if (msg_silent != 0) {        /* nothing to advance to */
     msg_col = col;              /* for redirection, may fill it up later */
+    return;
+  }
+  if (ui_has(kUIMessages)) {
+    // TODO(bfredl): use byte count as a basic proxy.
+    // later on we might add proper support for formatted messages.
+    while (msg_ext_cur_len < (size_t)col) {
+      msg_putchar(' ');
+    }
     return;
   }
   if (col >= Columns)           /* not enough room */

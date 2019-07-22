@@ -153,6 +153,8 @@ static bool conceal_cursor_used = false;
 
 static bool redraw_popupmenu = false;
 
+static bool resizing = false;
+
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "screen.c.generated.h"
 #endif
@@ -169,6 +171,7 @@ void redraw_later(int type)
 }
 
 void redraw_win_later(win_T *wp, int type)
+  FUNC_ATTR_NONNULL_ALL
 {
   if (!exiting && wp->w_redr_type < type) {
     wp->w_redr_type = type;
@@ -241,6 +244,7 @@ redrawWinline(
     win_T *wp,
     linenr_T lnum
 )
+  FUNC_ATTR_NONNULL_ALL
 {
   if (lnum >= wp->w_topline
       && lnum < wp->w_botline) {
@@ -269,14 +273,16 @@ void update_curbuf(int type)
 /// and redraw_all_later() to mark parts of the screen as needing a redraw.
 ///
 /// @param type set to a NOT_VALID to force redraw of entire screen
-void update_screen(int type)
+int update_screen(int type)
 {
   static int did_intro = FALSE;
   int did_one;
 
   // Don't do anything if the screen structures are (not yet) valid.
-  if (!default_grid.chars) {
-    return;
+  // A VimResized autocmd can invoke redrawing in the middle of a resize,
+  // which would bypass the checks in screen_resize for popupmenu etc.
+  if (!default_grid.chars || resizing) {
+    return FAIL;
   }
 
   if (must_redraw) {
@@ -299,9 +305,10 @@ void update_screen(int type)
   if (!redrawing() || updating_screen) {
     redraw_later(type);                 /* remember type for next time */
     must_redraw = type;
-    if (type > INVERTED_ALL)
-      curwin->w_lines_valid = 0;        /* don't use w_lines[].wl_size now */
-    return;
+    if (type > INVERTED_ALL) {
+      curwin->w_lines_valid = 0;  // don't use w_lines[].wl_size now
+    }
+    return FAIL;
   }
 
   updating_screen = TRUE;
@@ -336,8 +343,7 @@ void update_screen(int type)
       type = CLEAR;
     } else if (type != CLEAR) {
       check_for_delay(false);
-      grid_ins_lines(&default_grid, 0, msg_scrolled, (int)Rows,
-                     0, (int)Columns);
+      grid_ins_lines(&default_grid, 0, msg_scrolled, Rows, 0, Columns);
       FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
         if (wp->w_floating) {
           continue;
@@ -369,7 +375,7 @@ void update_screen(int type)
     ui_comp_set_screen_valid(false);
   }
   win_ui_flush_positions();
-  msg_ext_check_prompt();
+  msg_ext_check_clear();
 
   /* reset cmdline_row now (may have been changed temporarily) */
   compute_cmdrow();
@@ -482,13 +488,13 @@ void update_screen(int type)
   }
 
   end_search_hl();
+
   // May need to redraw the popup menu.
-  if (pum_drawn() && redraw_popupmenu) {
+  if (pum_drawn() && must_redraw_pum) {
     pum_redraw();
   }
 
   send_grid_resize = false;
-  redraw_popupmenu = false;
 
   /* Reset b_mod_set flags.  Going through all windows is probably faster
    * than going through all buffers (there could be many buffers). */
@@ -511,28 +517,30 @@ void update_screen(int type)
 
   // either cmdline is cleared, not drawn or mode is last drawn
   cmdline_was_last_drawn = false;
+  return OK;
 }
 
-/*
- * Return TRUE if the cursor line in window "wp" may be concealed, according
- * to the 'concealcursor' option.
- */
-int conceal_cursor_line(win_T *wp)
+// Return true if the cursor line in window "wp" may be concealed, according
+// to the 'concealcursor' option.
+bool conceal_cursor_line(const win_T *wp)
+  FUNC_ATTR_NONNULL_ALL
 {
   int c;
 
-  if (*wp->w_p_cocu == NUL)
-    return FALSE;
-  if (get_real_state() & VISUAL)
+  if (*wp->w_p_cocu == NUL) {
+    return false;
+  }
+  if (get_real_state() & VISUAL) {
     c = 'v';
-  else if (State & INSERT)
+  } else if (State & INSERT) {
     c = 'i';
-  else if (State & NORMAL)
+  } else if (State & NORMAL) {
     c = 'n';
-  else if (State & CMDLINE)
+  } else if (State & CMDLINE) {
     c = 'c';
-  else
-    return FALSE;
+  } else {
+    return false;
+  }
   return vim_strchr(wp->w_p_cocu, c) != NULL;
 }
 
@@ -554,7 +562,8 @@ void conceal_check_cursor_line(void)
 ///
 /// If true, both old and new cursorline will need
 /// need to be redrawn when moving cursor within windows.
-bool win_cursorline_standout(win_T *wp)
+bool win_cursorline_standout(const win_T *wp)
+  FUNC_ATTR_NONNULL_ALL
 {
   return wp->w_p_cul || (wp->w_p_cole > 0 && !conceal_cursor_line(wp));
 }
@@ -1457,7 +1466,7 @@ static void win_update(win_T *wp)
       // Last line isn't finished: Display "@@@" in the last screen line.
       grid_puts_len(&wp->w_grid, (char_u *)"@@", 2, scr_row, 0, at_attr);
 
-      grid_fill(&wp->w_grid, scr_row, scr_row + 1, 2, (int)wp->w_grid.Columns,
+      grid_fill(&wp->w_grid, scr_row, scr_row + 1, 2, wp->w_grid.Columns,
                 '@', ' ', at_attr);
       set_empty_rows(wp, srow);
       wp->w_botline = lnum;
@@ -1606,7 +1615,8 @@ static void win_draw_end(win_T *wp, int c1, int c2, bool draw_margin, int row,
     }
   }
 
-  int attr = hl_combine_attr(wp->w_hl_attr_normal, win_hl_attr(wp, hl));
+  int attr = hl_combine_attr(wp->w_hl_attr_normal,
+                             hl ? win_hl_attr(wp, hl) : 0);
 
   if (wp->w_p_rl) {
     grid_fill(&wp->w_grid, row, endrow, wp->w_wincol, W_ENDCOL(wp) - 1 - n,
@@ -1709,7 +1719,6 @@ static void fold_line(win_T *wp, long fold_count, foldinfo_T *foldinfo, linenr_T
   int col;
   int txtcol;
   int off;
-  int ri;
 
   /* Build the fold line:
    * 1. Add the cmdwin_type for the command-line window
@@ -1753,15 +1762,18 @@ static void fold_line(win_T *wp, long fold_count, foldinfo_T *foldinfo, linenr_T
     col += fdc;
   }
 
-# define RL_MEMSET(p, v, l)  if (wp->w_p_rl) { \
-    for (ri = 0; ri < l; ri++) { \
-      linebuf_attr[off + (wp->w_grid.Columns - (p) - (l)) + ri] = v; \
+# define RL_MEMSET(p, v, l) \
+  do { \
+    if (wp->w_p_rl) { \
+      for (int ri = 0; ri < l; ri++) { \
+        linebuf_attr[off + (wp->w_grid.Columns - (p) - (l)) + ri] = v; \
+      } \
+    } else { \
+      for (int ri = 0; ri < l; ri++) { \
+        linebuf_attr[off + (p) + ri] = v; \
+      } \
     } \
-  } else { \
-    for (ri = 0; ri < l; ri++) { \
-      linebuf_attr[off + (p) + ri] = v; \
-    } \
-  }
+  } while (0)
 
   /* Set all attributes of the 'number' or 'relativenumber' column and the
    * text */
@@ -1775,7 +1787,9 @@ static void fold_line(win_T *wp, long fold_count, foldinfo_T *foldinfo, linenr_T
           if (len > len_max) {
               len = len_max;
           }
-          copy_text_attr(off + col, (char_u *)"  ", len,
+          char_u space_buf[18] = "                  ";
+          assert((size_t)len_max <= sizeof(space_buf));
+          copy_text_attr(off + col, space_buf, len,
                          win_hl_attr(wp, HLF_FL));
           col += len;
       }
@@ -2061,7 +2075,8 @@ win_line (
   int row;                            // row in the window, excl w_winrow
   ScreenGrid *grid = &wp->w_grid;     // grid specfic to the window
 
-  char_u extra[18];                   // line number and 'fdc' must fit in here
+  char_u extra[57];                   // sign, line number and 'fdc' must
+                                      // fit in here
   int n_extra = 0;                    // number of extra chars
   char_u      *p_extra = NULL;        // string of extra chars, plus NUL
   char_u      *p_extra_free = NULL;   // p_extra needs to be freed
@@ -2074,7 +2089,7 @@ win_line (
   int lcs_eol_one = wp->w_p_lcs_chars.eol;     // 'eol'  until it's been used
   int lcs_prec_todo = wp->w_p_lcs_chars.prec;  // 'prec' until it's been used
 
-  /* saved "extra" items for when draw_state becomes WL_LINE (again) */
+  // saved "extra" items for when draw_state becomes WL_LINE (again)
   int saved_n_extra = 0;
   char_u      *saved_p_extra = NULL;
   int saved_c_extra = 0;
@@ -2712,15 +2727,24 @@ win_line (
                                               sign_idx, count);
                   if (text_sign != 0) {
                       p_extra = sign_get_text(text_sign);
-                      int symbol_blen = (int)STRLEN(p_extra);
                       if (p_extra != NULL) {
+                          int symbol_blen = (int)STRLEN(p_extra);
+
                           c_extra = NUL;
                           c_final = NUL;
+
+                          // TODO(oni-link): Is sign text already extended to
+                          // full cell width?
+                          assert((size_t)win_signcol_width(wp)
+                                 >= mb_string2cells(p_extra));
                           // symbol(s) bytes + (filling spaces) (one byte each)
                           n_extra = symbol_blen +
                             (win_signcol_width(wp) - mb_string2cells(p_extra));
+
+                          assert(sizeof(extra) > (size_t)symbol_blen);
                           memset(extra, ' ', sizeof(extra));
-                          STRNCPY(extra, p_extra, STRLEN(p_extra));
+                          memcpy(extra, p_extra, symbol_blen);
+
                           p_extra = extra;
                           p_extra[n_extra] = NUL;
                       }
@@ -3753,15 +3777,14 @@ win_line (
       n_attr3 = 1;
     }
 
-    /*
-     * At end of the text line or just after the last character.
-     */
+    // At end of the text line or just after the last character.
     if (c == NUL) {
-      long prevcol = (long)(ptr - line) - (c == NUL);
+      long prevcol = (long)(ptr - line) - 1;
 
-      /* we're not really at that column when skipping some text */
-      if ((long)(wp->w_p_wrap ? wp->w_skipcol : wp->w_leftcol) > prevcol)
-        ++prevcol;
+      // we're not really at that column when skipping some text
+      if ((long)(wp->w_p_wrap ? wp->w_skipcol : wp->w_leftcol) > prevcol) {
+        prevcol++;
+      }
 
       // Invert at least one char, used for Visual and empty line or
       // highlight match at end of line. If it's beyond the last
@@ -3784,8 +3807,7 @@ win_line (
           && ((area_attr != 0 && vcol == fromcol
                && (VIsual_mode != Ctrl_V
                    || lnum == VIsual.lnum
-                   || lnum == curwin->w_cursor.lnum)
-               && c == NUL)
+                   || lnum == curwin->w_cursor.lnum))
               // highlight 'hlsearch' match at end of line
               || prevcol_hl_flag)) {
         int n = 0;
@@ -4012,7 +4034,7 @@ win_line (
         && filler_todo <= 0
         && (wp->w_p_rl ? col == 0 : col == grid->Columns - 1)
         && (*ptr != NUL
-            || (wp->w_p_list && lcs_eol_one > 0)
+            || lcs_eol_one > 0
             || (n_extra && (c_extra != NUL || *p_extra != NUL)))) {
       c = wp->w_p_lcs_chars.ext;
       char_attr = win_hl_attr(wp, HLF_AT);
@@ -4026,14 +4048,15 @@ win_line (
       }
     }
 
-    /* advance to the next 'colorcolumn' */
-    if (draw_color_col)
+    // advance to the next 'colorcolumn'
+    if (draw_color_col) {
       draw_color_col = advance_color_col(VCOL_HLC, &color_cols);
+    }
 
-    /* Highlight the cursor column if 'cursorcolumn' is set.  But don't
-     * highlight the cursor position itself.
-     * Also highlight the 'colorcolumn' if it is different than
-     * 'cursorcolumn' */
+    // Highlight the cursor column if 'cursorcolumn' is set.  But don't
+    // highlight the cursor position itself.
+    // Also highlight the 'colorcolumn' if it is different than
+    // 'cursorcolumn'
     vcol_save_attr = -1;
     if (draw_state == WL_LINE && !lnum_in_visual_area
         && search_attr == 0 && area_attr == 0) {
@@ -4052,10 +4075,8 @@ win_line (
       char_attr = hl_combine_attr(line_attr_lowprio, char_attr);
     }
 
-    /*
-     * Store character to be displayed.
-     * Skip characters that are left of the screen for 'nowrap'.
-     */
+    // Store character to be displayed.
+    // Skip characters that are left of the screen for 'nowrap'.
     vcol_prev = vcol;
     if (draw_state < WL_LINE || n_skip <= 0) {
       //
@@ -4550,17 +4571,21 @@ void redraw_statuslines(void)
 /*
  * Redraw all status lines at the bottom of frame "frp".
  */
-void win_redraw_last_status(frame_T *frp)
+void win_redraw_last_status(const frame_T *frp)
+  FUNC_ATTR_NONNULL_ARG(1)
 {
-  if (frp->fr_layout == FR_LEAF)
-    frp->fr_win->w_redr_status = TRUE;
-  else if (frp->fr_layout == FR_ROW) {
-    for (frp = frp->fr_child; frp != NULL; frp = frp->fr_next)
+  if (frp->fr_layout == FR_LEAF) {
+    frp->fr_win->w_redr_status = true;
+  } else if (frp->fr_layout == FR_ROW) {
+    FOR_ALL_FRAMES(frp, frp->fr_child) {
       win_redraw_last_status(frp);
-  } else { /* frp->fr_layout == FR_COL */
+    }
+  } else {
+    assert(frp->fr_layout == FR_COL);
     frp = frp->fr_child;
-    while (frp->fr_next != NULL)
+    while (frp->fr_next != NULL) {
       frp = frp->fr_next;
+    }
     win_redraw_last_status(frp);
   }
 }
@@ -4641,7 +4666,7 @@ win_redr_status_matches (
     int showtail
 )
 {
-#define L_MATCH(m) (showtail ? sm_gettail(matches[m]) : matches[m])
+#define L_MATCH(m) (showtail ? sm_gettail(matches[m], false) : matches[m])
   int row;
   char_u      *buf;
   int len;
@@ -4765,12 +4790,12 @@ win_redr_status_matches (
 
   row = cmdline_row - 1;
   if (row >= 0) {
-    if (wild_menu_showing == 0) {
+    if (wild_menu_showing == 0 || wild_menu_showing == WM_LIST) {
       if (msg_scrolled > 0) {
         /* Put the wildmenu just above the command line.  If there is
          * no room, scroll the screen one line up. */
         if (cmdline_row == Rows - 1) {
-          grid_del_lines(&default_grid, 0, 1, (int)Rows, 0, (int)Columns);
+          msg_scroll_up();
           msg_scrolled++;
         } else {
           cmdline_row++;
@@ -4798,7 +4823,7 @@ win_redr_status_matches (
       grid_puts(&default_grid, selstart, row, selstart_col, HL_ATTR(HLF_WM));
     }
 
-    grid_fill(&default_grid, row, row + 1, clen, (int)Columns,
+    grid_fill(&default_grid, row, row + 1, clen, Columns,
               fillchar, fillchar, attr);
   }
 
@@ -5141,7 +5166,7 @@ win_redr_custom (
   /*
    * Draw each snippet with the specified highlighting.
    */
-  screen_puts_line_start(row);
+  grid_puts_line_start(&default_grid, row);
 
   curattr = attr;
   p = buf;
@@ -5164,7 +5189,7 @@ win_redr_custom (
   grid_puts(&default_grid, p >= buf + len ? (char_u *)"" : p, row, col,
             curattr);
 
-  grid_puts_line_flush(&default_grid, false);
+  grid_puts_line_flush(false);
 
   if (wp == NULL) {
     // Fill the tab_page_click_defs array for clicking in the tab pages line.
@@ -5310,18 +5335,20 @@ void grid_puts(ScreenGrid *grid, char_u *text, int row, int col, int attr)
   grid_puts_len(grid, text, -1, row, col, attr);
 }
 
+static ScreenGrid *put_dirty_grid = NULL;
 static int put_dirty_row = -1;
 static int put_dirty_first = INT_MAX;
 static int put_dirty_last = 0;
 
-/// Start a group of screen_puts_len calls that builds a single screen line.
+/// Start a group of grid_puts_len calls that builds a single grid line.
 ///
-/// Must be matched with a screen_puts_line_flush call before moving to
+/// Must be matched with a grid_puts_line_flush call before moving to
 /// another line.
-void screen_puts_line_start(int row)
+void grid_puts_line_start(ScreenGrid *grid, int row)
 {
   assert(put_dirty_row == -1);
   put_dirty_row = row;
+  put_dirty_grid = grid;
 }
 
 /// like grid_puts(), but output "text[len]".  When "len" is -1 output up to
@@ -5353,10 +5380,10 @@ void grid_puts_len(ScreenGrid *grid, char_u *text, int textlen, int row,
   }
 
   if (put_dirty_row == -1) {
-    screen_puts_line_start(row);
+    grid_puts_line_start(grid, row);
     do_flush = true;
   } else {
-    if (row != put_dirty_row) {
+    if (grid != put_dirty_grid || row != put_dirty_row) {
       abort();
     }
   }
@@ -5459,31 +5486,31 @@ void grid_puts_len(ScreenGrid *grid, char_u *text, int textlen, int row,
   }
 
   if (do_flush) {
-    grid_puts_line_flush(grid, true);
+    grid_puts_line_flush(true);
   }
 }
 
-/// End a group of screen_puts_len calls and send the screen buffer to the UI
+/// End a group of grid_puts_len calls and send the screen buffer to the UI
 /// layer.
 ///
-/// @param grid       The grid which contains the buffer.
 /// @param set_cursor Move the visible cursor to the end of the changed region.
 ///                   This is a workaround for not yet refactored code paths
 ///                   and shouldn't be used in new code.
-void grid_puts_line_flush(ScreenGrid *grid, bool set_cursor)
+void grid_puts_line_flush(bool set_cursor)
 {
   assert(put_dirty_row != -1);
   if (put_dirty_first < put_dirty_last) {
     if (set_cursor) {
-      ui_grid_cursor_goto(grid->handle, put_dirty_row,
-                          MIN(put_dirty_last, grid->Columns-1));
+      ui_grid_cursor_goto(put_dirty_grid->handle, put_dirty_row,
+                          MIN(put_dirty_last, put_dirty_grid->Columns-1));
     }
-    ui_line(grid, put_dirty_row, put_dirty_first, put_dirty_last,
+    ui_line(put_dirty_grid, put_dirty_row, put_dirty_first, put_dirty_last,
             put_dirty_last, 0, false);
     put_dirty_first = INT_MAX;
     put_dirty_last = 0;
   }
   put_dirty_row = -1;
+  put_dirty_grid = NULL;
 }
 
 /*
@@ -5971,7 +5998,14 @@ void grid_assign_handle(ScreenGrid *grid)
 /// needed.
 void screenalloc(void)
 {
-  static bool entered = false;  // avoid recursiveness
+  // It's possible that we produce an out-of-memory message below, which
+  // will cause this function to be called again.  To break the loop, just
+  // return here.
+  if (resizing) {
+    return;
+  }
+  resizing = true;
+
   int retry_count = 0;
 
 retry:
@@ -5985,17 +6019,9 @@ retry:
       || Rows == 0
       || Columns == 0
       || (!full_screen && default_grid.chars == NULL)) {
+    resizing = false;
     return;
   }
-
-  /*
-   * It's possible that we produce an out-of-memory message below, which
-   * will cause this function to be called again.  To break the loop, just
-   * return here.
-   */
-  if (entered)
-    return;
-  entered = TRUE;
 
   /*
    * Note that the window sizes are updated before reallocating the arrays,
@@ -6037,8 +6063,7 @@ retry:
 
   must_redraw = CLEAR;  // need to clear the screen later
 
-  entered = FALSE;
-  --RedrawingDisabled;
+  RedrawingDisabled--;
 
   /*
    * Do not apply autocommands more than 3 times to avoid an endless loop
@@ -6050,14 +6075,16 @@ retry:
     * jump back to check if we need to allocate the screen again. */
     goto retry;
   }
+
+  resizing = false;
 }
 
 void grid_alloc(ScreenGrid *grid, int rows, int columns, bool copy, bool valid)
 {
   int new_row;
   ScreenGrid new = *grid;
-
-  size_t ncells = (size_t)((rows+1) * columns);
+  assert(rows >= 0 && columns >= 0);
+  size_t ncells = (size_t)rows * columns;
   new.chars = xmalloc(ncells * sizeof(schar_T));
   new.attrs = xmalloc(ncells * sizeof(sattr_T));
   new.line_offset = xmalloc((size_t)(rows * sizeof(unsigned)));
@@ -6595,6 +6622,9 @@ void unshowmode(bool force)
 // Clear the mode message.
 void clearmode(void)
 {
+  const int save_msg_row = msg_row;
+  const int save_msg_col = msg_col;
+
   msg_ext_ui_flush();
   msg_pos_mode();
   if (reg_recording != 0) {
@@ -6602,6 +6632,9 @@ void clearmode(void)
   }
   msg_clr_eos();
   msg_ext_flush_showmode();
+
+  msg_col = save_msg_col;
+  msg_row = save_msg_row;
 }
 
 static void recording_mode(int attr)
@@ -6617,7 +6650,7 @@ static void recording_mode(int attr)
 /*
  * Draw the tab pages line at the top of the Vim window.
  */
-static void draw_tabline(void)
+void draw_tabline(void)
 {
   int tabcount = 0;
   int tabwidth = 0;
@@ -6775,13 +6808,11 @@ static void draw_tabline(void)
       c = '_';
     else
       c = ' ';
-    grid_fill(&default_grid, 0, 1, col, (int)Columns, c, c,
-              attr_fill);
+    grid_fill(&default_grid, 0, 1, col, Columns, c, c, attr_fill);
 
     /* Put an "X" for closing the current tab if there are several. */
     if (first_tabpage->tp_next != NULL) {
-      grid_putchar(&default_grid, 'X', 0, (int)Columns - 1,
-                   attr_nosel);
+      grid_putchar(&default_grid, 'X', 0, Columns - 1, attr_nosel);
       tab_page_click_defs[Columns - 1] = (StlClickDefinition) {
         .type = kStlClickTabClose,
         .tabnr = 999,
@@ -7144,6 +7175,8 @@ void screen_resize(int width, int height)
   check_shellsize();
   height = Rows;
   width = Columns;
+  p_lines = Rows;
+  p_columns = Columns;
   ui_call_grid_resize(1, width, height);
 
   send_grid_resize = true;

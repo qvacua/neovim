@@ -335,7 +335,7 @@ static int linelen(int *has_tab)
   len = linetabsize(line);
   // Check for embedded TAB.
   if (has_tab != NULL) {
-    *has_tab = STRRCHR(first, TAB) != NULL;
+    *has_tab = vim_strchr(first, TAB) != NULL;
   }
   *last = save;
 
@@ -900,9 +900,7 @@ int do_move(linenr_T line1, linenr_T line2, linenr_T dest)
   changed_lines(last_line - num_lines + 1, 0, last_line + 1, -extra, false);
 
   // send update regarding the new lines that were added
-  if (kv_size(curbuf->update_channels)) {
-    buf_updates_send_changes(curbuf, dest + 1, num_lines, 0, true);
-  }
+  buf_updates_send_changes(curbuf, dest + 1, num_lines, 0, true);
 
   /*
    * Now we delete the original text -- webb
@@ -939,9 +937,7 @@ int do_move(linenr_T line1, linenr_T line2, linenr_T dest)
   }
 
   // send nvim_buf_lines_event regarding lines that were deleted
-  if (kv_size(curbuf->update_channels)) {
-    buf_updates_send_changes(curbuf, line1 + extra, 0, num_lines, true);
-  }
+  buf_updates_send_changes(curbuf, line1 + extra, 0, num_lines, true);
 
   return OK;
 }
@@ -1234,7 +1230,7 @@ static void do_filter(
 
   /* Create the shell command in allocated memory. */
   cmd_buf = make_filter_cmd(cmd, itmp, otmp);
-  ui_cursor_goto((int)Rows - 1, 0);
+  ui_cursor_goto(Rows - 1, 0);
 
   if (do_out) {
     if (u_save((linenr_T)(line2), (linenr_T)(line2 + 1)) == FAIL) {
@@ -1938,11 +1934,12 @@ void do_wqall(exarg_T *eap)
   int error = 0;
   int save_forceit = eap->forceit;
 
-  if (eap->cmdidx == CMD_xall || eap->cmdidx == CMD_wqall)
-    exiting = TRUE;
+  if (eap->cmdidx == CMD_xall || eap->cmdidx == CMD_wqall) {
+    exiting = true;
+  }
 
   FOR_ALL_BUFFERS(buf) {
-    if (!bufIsChanged(buf)) {
+    if (!bufIsChanged(buf) || bt_dontwrite(buf)) {
       continue;
     }
     /*
@@ -2080,7 +2077,7 @@ int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, 
     }
     if (curbufIsChanged()) {
       no_wait_return--;
-      EMSG(_(e_nowrtmsg));
+      no_write_message();
       retval = GETFILE_NOT_WRITTEN;     // File has been changed.
       goto theend;
     }
@@ -4074,12 +4071,10 @@ skip:
     i = curbuf->b_ml.ml_line_count - old_line_count;
     changed_lines(first_line, 0, last_line - i, i, false);
 
-    if (kv_size(curbuf->update_channels)) {
-      int64_t num_added = last_line - first_line;
-      int64_t num_removed = num_added - i;
-      buf_updates_send_changes(curbuf, first_line, num_added, num_removed,
-                               do_buf_event);
-    }
+    int64_t num_added = last_line - first_line;
+    int64_t num_removed = num_added - i;
+    buf_updates_send_changes(curbuf, first_line, num_added, num_removed,
+                             do_buf_event);
   }
 
   xfree(sub_firstline);   /* may have to free allocated copy of the line */

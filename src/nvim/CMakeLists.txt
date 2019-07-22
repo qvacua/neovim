@@ -7,6 +7,7 @@ if(USE_GCOV)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+  add_definitions(-DUSE_GCOV)
 endif()
 endif()
 
@@ -138,7 +139,6 @@ set(CONV_SOURCES
   eval.c
   ex_cmds.c
   ex_docmd.c
-  ex_getln.c
   fileio.c
   mbyte.c
   memline.c
@@ -163,8 +163,8 @@ if(NOT MSVC)
   set_source_files_properties(
     ${CONV_SOURCES} PROPERTIES COMPILE_FLAGS "${COMPILE_FLAGS} -Wno-conversion")
   # gperf generates ANSI-C with incorrect linkage, ignore it.
-  check_c_compiler_flag(-Wno-static-in-inline HAS_WNO_STATIC_IN_INLINE_FLAG)
-  if(HAS_WNO_STATIC_IN_INLINE_FLAG)
+  check_c_compiler_flag(-Wstatic-in-inline HAS_WSTATIC_IN_INLINE)
+  if(HAS_WSTATIC_IN_INLINE)
     set_source_files_properties(
       eval.c PROPERTIES COMPILE_FLAGS "${COMPILE_FLAGS} -Wno-static-in-inline -Wno-conversion")
   else()
@@ -383,6 +383,7 @@ endif()
 
 # Put these last on the link line, since multiple things may depend on them.
 list(APPEND NVIM_LINK_LIBRARIES
+  ${LIBLUV_LIBRARIES}
   ${LIBUV_LIBRARIES}
   ${MSGPACK_LIBRARIES}
   ${LIBVTERM_LIBRARIES}

@@ -1108,9 +1108,8 @@ static int current_tab_nr(tabpage_T *tab)
 #define CURRENT_TAB_NR current_tab_nr(curtab)
 #define LAST_TAB_NR current_tab_nr(NULL)
 
-/*
-* Figure out the address type for ":wincmd".
-*/
+
+/// Figure out the address type for ":wincmd".
 static void get_wincmd_addr_type(char_u *arg, exarg_T *eap)
 {
   switch (*arg) {
@@ -1156,13 +1155,13 @@ static void get_wincmd_addr_type(char_u *arg, exarg_T *eap)
     case Ctrl_I:
     case 'd':
     case Ctrl_D:
-      /* window size or any count */
-      eap->addr_type = ADDR_LINES;
+      // window size or any count
+      eap->addr_type = ADDR_LINES;     // -V1037
       break;
 
     case Ctrl_HAT:
     case '^':
-      /* buffer number */
+      // buffer number
       eap->addr_type = ADDR_BUFFERS;
       break;
 
@@ -1177,7 +1176,7 @@ static void get_wincmd_addr_type(char_u *arg, exarg_T *eap)
     case 'W':
     case 'x':
     case Ctrl_X:
-      /* window number */
+      // window number
       eap->addr_type = ADDR_WINDOWS;
       break;
 
@@ -1192,7 +1191,7 @@ static void get_wincmd_addr_type(char_u *arg, exarg_T *eap)
     case Ctrl_P:
     case '=':
     case CAR:
-      /* no count */
+      // no count
       eap->addr_type = 0;
       break;
   }
@@ -2217,11 +2216,19 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     ea.arg = skipwhite(p);
   }
 
-  /*
-   * 7. Switch on command name.
-   *
-   * The "ea" structure holds the arguments that can be used.
-   */
+  // The :try command saves the emsg_silent flag, reset it here when
+  // ":silent! try" was used, it should only apply to :try itself.
+  if (ea.cmdidx == CMD_try && did_esilent > 0) {
+    emsg_silent -= did_esilent;
+    if (emsg_silent < 0) {
+      emsg_silent = 0;
+    }
+    did_esilent = 0;
+  }
+
+  // 7. Execute the command.
+  //
+  // The "ea" structure holds the arguments that can be used.
   ea.cmdlinep = cmdlinep;
   ea.getline = fgetline;
   ea.cookie = cookie;
@@ -3750,12 +3757,12 @@ static linenr_T get_address(exarg_T *eap,
         // Start the search just like for the above do_search().
         pos.col = (*cmd != '?') ? MAXCOL : 0;
         pos.coladd = 0;
-        if (searchit(curwin, curbuf, &pos,
+        if (searchit(curwin, curbuf, &pos, NULL,
                      *cmd == '?' ? BACKWARD : FORWARD,
                      (char_u *)"", 1L, SEARCH_MSG,
-                     i, (linenr_T)0, NULL, NULL) != FAIL)
+                     i, (linenr_T)0, NULL, NULL) != FAIL) {
           lnum = pos.lnum;
-        else {
+        } else {
           cmd = NULL;
           goto error;
         }
@@ -6010,7 +6017,7 @@ static void ex_highlight(exarg_T *eap)
  */
 void not_exiting(void)
 {
-  exiting = FALSE;
+  exiting = false;
 }
 
 static bool before_quit_autocmds(win_T *wp, bool quit_all, int forceit)
@@ -6208,7 +6215,7 @@ ex_win_close(
       }
       need_hide = false;
     } else {
-      EMSG(_(e_nowrtmsg));
+      no_write_message();
       return;
     }
   }
@@ -6414,7 +6421,7 @@ static void ex_stop(exarg_T *eap)
     apply_autocmds(EVENT_VIMSUSPEND, NULL, NULL, false, NULL);
 
     // TODO(bfredl): the TUI should do this on suspend
-    ui_cursor_goto((int)Rows - 1, 0);
+    ui_cursor_goto(Rows - 1, 0);
     ui_call_grid_scroll(1, 0, Rows, 0, Columns, 1, 0);
     ui_flush();
     ui_call_suspend();  // call machine specific function
@@ -6918,16 +6925,17 @@ static void ex_resize(exarg_T *eap)
 
   n = atol((char *)eap->arg);
   if (cmdmod.split & WSP_VERT) {
-    if (*eap->arg == '-' || *eap->arg == '+')
+    if (*eap->arg == '-' || *eap->arg == '+') {
       n += curwin->w_width;
-    else if (n == 0 && eap->arg[0] == NUL)      /* default is very wide */
-      n = 9999;
+    } else if (n == 0 && eap->arg[0] == NUL) {  // default is very wide
+      n = Columns;
+    }
     win_setwidth_win(n, wp);
   } else {
     if (*eap->arg == '-' || *eap->arg == '+') {
       n += curwin->w_height;
     } else if (n == 0 && eap->arg[0] == NUL) {  // default is very high
-      n = 9999;
+      n = Rows-1;
     }
     win_setheight_win(n, wp);
   }
@@ -7411,6 +7419,12 @@ void do_sleep(long msec)
     LOOP_PROCESS_EVENTS_UNTIL(&main_loop, main_loop.events, (int)next, got_int);
     os_breakcheck();
   }
+
+  // If CTRL-C was typed to interrupt the sleep, drop the CTRL-C from the
+  // input buffer, otherwise a following call to input() fails.
+  if (got_int) {
+    (void)vpeekc();
+  }
 }
 
 static void do_exmap(exarg_T *eap, int isabbrev)
@@ -7861,6 +7875,22 @@ static void ex_redrawstatus(exarg_T *eap)
   update_screen(
       VIsual_active ? INVERTED :
       0);
+  RedrawingDisabled = r;
+  p_lz = p;
+  ui_flush();
+}
+
+// ":redrawtabline": force redraw of the tabline
+static void ex_redrawtabline(exarg_T *eap FUNC_ATTR_UNUSED)
+{
+  const int r = RedrawingDisabled;
+  const int p = p_lz;
+
+  RedrawingDisabled = 0;
+  p_lz = false;
+
+  draw_tabline();
+
   RedrawingDisabled = r;
   p_lz = p;
   ui_flush();
@@ -8444,24 +8474,23 @@ static void ex_tag_cmd(exarg_T *eap, char_u *name)
   int cmd;
 
   switch (name[1]) {
-  case 'j': cmd = DT_JUMP;              /* ":tjump" */
+  case 'j': cmd = DT_JUMP;              // ":tjump"
     break;
-  case 's': cmd = DT_SELECT;            /* ":tselect" */
+  case 's': cmd = DT_SELECT;            // ":tselect"
     break;
-  case 'p': cmd = DT_PREV;              /* ":tprevious" */
+  case 'p':                             // ":tprevious"
+  case 'N': cmd = DT_PREV;              // ":tNext"
     break;
-  case 'N': cmd = DT_PREV;              /* ":tNext" */
+  case 'n': cmd = DT_NEXT;              // ":tnext"
     break;
-  case 'n': cmd = DT_NEXT;              /* ":tnext" */
+  case 'o': cmd = DT_POP;               // ":pop"
     break;
-  case 'o': cmd = DT_POP;               /* ":pop" */
+  case 'f':                             // ":tfirst"
+  case 'r': cmd = DT_FIRST;             // ":trewind"
     break;
-  case 'f':                             /* ":tfirst" */
-  case 'r': cmd = DT_FIRST;             /* ":trewind" */
+  case 'l': cmd = DT_LAST;              // ":tlast"
     break;
-  case 'l': cmd = DT_LAST;              /* ":tlast" */
-    break;
-  default:                              /* ":tag" */
+  default:                              // ":tag"
     if (p_cst && *eap->arg != NUL) {
       ex_cstag(eap);
       return;
@@ -9314,26 +9343,30 @@ static frame_T *ses_skipframe(frame_T *fr)
 {
   frame_T     *frc;
 
-  for (frc = fr; frc != NULL; frc = frc->fr_next)
-    if (ses_do_frame(frc))
+  FOR_ALL_FRAMES(frc, fr) {
+    if (ses_do_frame(frc)) {
       break;
+    }
+  }
   return frc;
 }
 
-/*
- * Return TRUE if frame "fr" has a window somewhere that we want to save in
- * the Session.
- */
-static int ses_do_frame(frame_T *fr)
+// Return true if frame "fr" has a window somewhere that we want to save in
+// the Session.
+static bool ses_do_frame(const frame_T *fr)
+  FUNC_ATTR_NONNULL_ARG(1)
 {
-  frame_T     *frc;
+  const frame_T *frc;
 
-  if (fr->fr_layout == FR_LEAF)
+  if (fr->fr_layout == FR_LEAF) {
     return ses_do_win(fr->fr_win);
-  for (frc = fr->fr_child; frc != NULL; frc = frc->fr_next)
-    if (ses_do_frame(frc))
-      return TRUE;
-  return FALSE;
+  }
+  FOR_ALL_FRAMES(frc, fr->fr_child) {
+    if (ses_do_frame(frc)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// Return non-zero if window "wp" is to be stored in the Session.
@@ -9576,7 +9609,7 @@ ses_arglist(
   if (fputs(cmd, fd) < 0 || put_eol(fd) == FAIL) {
     return FAIL;
   }
-  if (put_line(fd, "silent! argdel *") == FAIL) {
+  if (put_line(fd, "%argdel") == FAIL) {
     return FAIL;
   }
   for (int i = 0; i < gap->ga_len; ++i) {
@@ -10145,7 +10178,7 @@ Dictionary commands_array(buf_T *buf)
   Dictionary rv = ARRAY_DICT_INIT;
   Object obj = NIL;
   (void)obj;  // Avoid "dead assignment" warning.
-  char str[10];
+  char str[20];
   garray_T *gap = (buf == NULL) ? &ucmds : &buf->b_ucmds;
 
   for (int i = 0; i < gap->ga_len; i++) {

@@ -81,7 +81,7 @@ local dedent = helpers.dedent
 local get_session = helpers.get_session
 local create_callindex = helpers.create_callindex
 
-local inspect = require('inspect')
+local inspect = require('vim.inspect')
 
 local function isempty(v)
   return type(v) == 'table' and next(v) == nil
@@ -165,6 +165,7 @@ function Screen.new(width, height)
     showmode = {},
     showcmd = {},
     ruler = {},
+    hl_groups = {},
     _default_attr_ids = nil,
     _default_attr_ignore = nil,
     _mouse_enabled = true,
@@ -322,7 +323,7 @@ function Screen:expect(expected, attr_ids, attr_ignore)
     assert(not (attr_ids ~= nil or attr_ignore ~= nil))
     local is_key = {grid=true, attr_ids=true, attr_ignore=true, condition=true,
                     any=true, mode=true, unchanged=true, intermediate=true,
-                    reset=true, timeout=true, request_cb=true}
+                    reset=true, timeout=true, request_cb=true, hl_groups=true}
     for _, v in ipairs(ext_keys) do
       is_key[v] = true
     end
@@ -418,9 +419,10 @@ screen:redraw_debug() to show all intermediate screen states.  ]])
     -- (e.g. no external cmdline visible). Some extensions require
     -- preprocessing to represent highlights in a reproducible way.
     local extstate = self:_extstate_repr(attr_state)
-    if expected['mode'] ~= nil then
-      extstate['mode'] = self.mode
+    if expected.mode ~= nil then
+      extstate.mode = self.mode
     end
+
     -- Convert assertion errors into invalid screen state descriptions.
     for _, k in ipairs(concat_tables(ext_keys, {'mode'})) do
       -- Empty states are considered the default and need not be mentioned.
@@ -431,7 +433,30 @@ screen:redraw_debug() to show all intermediate screen states.  ]])
         end
       end
     end
+
+    if expected.hl_groups ~= nil then
+      for name, id in pairs(expected.hl_groups) do
+        local expected_hl = attr_state.ids[id]
+        local actual_hl = self._attr_table[self.hl_groups[name]][(self._options.rgb and 1) or 2]
+        local status, res = pcall(eq, expected_hl, actual_hl, "highlight "..name)
+        if not status then
+          return tostring(res)
+        end
+      end
+    end
   end, expected)
+end
+
+function Screen:expect_unchanged(waittime_ms, ignore_attrs, request_cb)
+  waittime_ms = waittime_ms and waittime_ms or 100
+  -- Collect the current screen state.
+  self:sleep(waittime_ms, request_cb)
+  local kwargs = self:get_snapshot(nil, ignore_attrs)
+  -- Wait for potential changes.
+  self:sleep(waittime_ms, request_cb)
+  kwargs.unchanged = true
+  -- Check that screen state did not change.
+  self:expect(kwargs)
 end
 
 function Screen:_wait(check, flags)
@@ -464,8 +489,8 @@ function Screen:_wait(check, flags)
     immediate_seen = true
   end
 
-  -- for an unchanged test, flags.timeout means the time during the state is
-  -- expected to be unchanged, so always wait this full time.
+  -- For an "unchanged" test, flags.timeout is the time during which the state
+  -- must not change, so always wait this full time.
   if (flags.unchanged or flags.intermediate) and flags.timeout ~= nil then
     minimal_timeout = timeout
   end
@@ -492,7 +517,7 @@ function Screen:_wait(check, flags)
       end
     elseif success_seen and #args > 0 then
       failure_after_success = true
-      --print(require('inspect')(args))
+      -- print(inspect(args))
     end
 
     return true
@@ -576,8 +601,7 @@ end
 function Screen:_redraw(updates)
   local did_flush = false
   for k, update in ipairs(updates) do
-    -- print('--')
-    -- print(require('inspect')(update))
+    -- print('--', inspect(update))
     local method = update[1]
     for i = 2, #update do
       local handler_name = '_handle_'..method
@@ -837,6 +861,10 @@ function Screen:_handle_hl_attr_define(id, rgb_attrs, cterm_attrs, info)
   self._new_attrs = true
 end
 
+function Screen:_handle_hl_group_set(name, id)
+  self.hl_groups[name] = id
+end
+
 function Screen:get_hl(val)
   if self._options.ext_newgrid then
     return self._attr_table[val][1]
@@ -946,6 +974,14 @@ function Screen:_handle_cmdline_show(content, pos, firstc, prompt, indent, level
   if firstc == '' then firstc = nil end
   if prompt == '' then prompt = nil end
   if indent == 0 then indent = nil end
+
+  -- check position is valid #10000
+  local len = 0
+  for _, chunk in ipairs(content) do
+    len = len + string.len(chunk[2])
+  end
+  assert(pos <= len)
+
   self.cmdline[level] = {content=content, pos=pos, firstc=firstc,
                          prompt=prompt, indent=indent}
 end
@@ -1186,7 +1222,13 @@ function Screen:render(headers, attr_state, preview)
   return rv
 end
 
-function Screen:print_snapshot(attrs, ignore)
+local remove_all_metatables = function(item, path)
+  if path[#path] ~= inspect.METATABLE then return item end
+end
+
+-- Returns the current screen state in the form of a screen:expect()
+-- keyword-args map.
+function Screen:get_snapshot(attrs, ignore)
   attrs = attrs or self._default_attr_ids
   if ignore == nil then
     ignore = self._default_attr_ignore
@@ -1209,15 +1251,32 @@ function Screen:print_snapshot(attrs, ignore)
   local lines = self:render(true, attr_state, true)
 
   local ext_state = self:_extstate_repr(attr_state)
-  local keys = false
   for k, v in pairs(ext_state) do
     if isempty(v) then
       ext_state[k] = nil -- deleting keys while iterating is ok
-    else
-      keys = true
     end
   end
 
+  -- Build keyword-args for screen:expect().
+  local kwargs = {}
+  if attr_state.modified then
+    kwargs['attr_ids'] = {}
+    for i, a in pairs(attr_state.ids) do
+      kwargs['attr_ids'][i] = a
+    end
+  end
+  kwargs['grid'] = table.concat(lines, '\n')
+  for _, k in ipairs(ext_keys) do
+    if ext_state[k] ~= nil then
+      kwargs[k] = ext_state[k]
+    end
+  end
+
+  return kwargs, ext_state, attr_state
+end
+
+function Screen:print_snapshot(attrs, ignore)
+  local kwargs, ext_state, attr_state = self:get_snapshot(attrs, ignore)
   local attrstr = ""
   if attr_state.modified then
     local attrstrs = {}
@@ -1231,19 +1290,18 @@ function Screen:print_snapshot(attrs, ignore)
       local keyval = (type(i) == "number") and "["..tostring(i).."]" or i
       table.insert(attrstrs, "  "..keyval.." = "..dict..",")
     end
-    attrstr = (", "..(keys and "attr_ids=" or "")
-               .."{\n"..table.concat(attrstrs, "\n").."\n}")
+    attrstr = (", attr_ids={\n"..table.concat(attrstrs, "\n").."\n}")
   end
-  print( "\nscreen:expect"..(keys and "{grid=" or "(").."[[")
-  print( table.concat(lines, '\n'))
+  print( "\nscreen:expect{grid=[[")
+  print(kwargs.grid)
   io.stdout:write( "]]"..attrstr)
   for _, k in ipairs(ext_keys) do
     if ext_state[k] ~= nil then
-      -- TODO(bfredl): improve formating, remove ext metatables
-      io.stdout:write(", "..k.."="..inspect(ext_state[k]))
+      -- TODO(bfredl): improve formatting
+      io.stdout:write(", "..k.."="..inspect(ext_state[k],{process=remove_all_metatables}))
     end
   end
-  print((keys and "}" or ")").."\n")
+  print("}\n")
   io.stdout:flush()
 end
 
@@ -1327,7 +1385,7 @@ end
 
 
 function Screen:_pprint_hlstate(item)
-    --print(require('inspect')(item))
+    -- print(inspect(item))
     local attrdict = "{"..self:_pprint_attrs(item[1]).."}, "
     local attrdict2, hlinfo
     if self._hlstate_cterm then
@@ -1400,16 +1458,16 @@ function Screen:_get_attr_id(attr_state, attrs, hl_id)
     end
     return "UNEXPECTED "..self:_pprint_attrs(self._attr_table[hl_id][1])
   else
-    for id, a in pairs(attr_state.ids) do
-      if self:_equal_attrs(a, attrs) then
-         return id
-       end
-    end
     if self:_equal_attrs(attrs, {}) or
         attr_state.ignore == true or
         self:_attr_index(attr_state.ignore, attrs) ~= nil then
       -- ignore this attrs
       return nil
+    end
+    for id, a in pairs(attr_state.ids) do
+      if self:_equal_attrs(a, attrs) then
+         return id
+       end
     end
     if attr_state.mutable then
       table.insert(attr_state.ids, attrs)

@@ -26,9 +26,9 @@ local nvim_prog = (
   or global_helpers.test_build_dir .. '/bin/nvim'
 )
 -- Default settings for the test session.
-local nvim_set  = 'set shortmess+=I background=light noswapfile noautoindent'
+local nvim_set  = 'set shortmess+=IS background=light noswapfile noautoindent'
                   ..' laststatus=1 undodir=. directory=. viewdir=. backupdir=.'
-                  ..' belloff= noshowcmd noruler nomore'
+                  ..' belloff= wildoptions-=pum noshowcmd noruler nomore'
 local nvim_argv = {nvim_prog, '-u', 'NONE', '-i', 'NONE',
                    '--cmd', nvim_set, '--embed'}
 -- Directory containing nvim.
@@ -430,6 +430,7 @@ local function clear(...)
         'PATH',
         'NVIM_LOG_FILE',
         'NVIM_RPLUGIN_MANIFEST',
+        'GCOV_ERROR_FILE',
       }) do
         if not env_tbl[k] then
           env_tbl[k] = os.getenv(k)
@@ -685,6 +686,10 @@ local curbufmeths = create_callindex(curbuf)
 local curwinmeths = create_callindex(curwin)
 local curtabmeths = create_callindex(curtab)
 
+local function exec_lua(code, ...)
+  return meths.execute_lua(code, {...})
+end
+
 local function redir_exec(cmd)
   meths.set_var('__redir_exec_cmd', cmd)
   nvim_command([[
@@ -777,6 +782,7 @@ local module = {
   curwinmeths = curwinmeths,
   eval = nvim_eval,
   exc_exec = exc_exec,
+  exec_lua = exec_lua,
   expect = expect,
   expect_any = expect_any,
   expect_msg_seq = expect_msg_seq,

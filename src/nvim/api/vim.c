@@ -27,8 +27,10 @@
 #include "nvim/types.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/screen.h"
+#include "nvim/memline.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
+#include "nvim/popupmnu.h"
 #include "nvim/edit.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
@@ -207,7 +209,7 @@ void nvim_feedkeys(String keys, String mode, Boolean escape_csi)
 /// @return Number of bytes actually written (can be fewer than
 ///         requested if the buffer becomes full).
 Integer nvim_input(String keys)
-  FUNC_API_SINCE(1) FUNC_API_ASYNC
+  FUNC_API_SINCE(1) FUNC_API_FAST
 {
   return (Integer)input_enqueue(keys);
 }
@@ -236,7 +238,7 @@ Integer nvim_input(String keys)
 /// @param[out] err Error details, if any
 void nvim_input_mouse(String button, String action, String modifier,
                       Integer grid, Integer row, Integer col, Error *err)
-  FUNC_API_SINCE(6) FUNC_API_ASYNC
+  FUNC_API_SINCE(6) FUNC_API_FAST
 {
   if (button.data == NULL || action.data == NULL) {
     goto error;
@@ -977,11 +979,20 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
                            BLN_NOOPT | BLN_NEW | (listed ? BLN_LISTED : 0));
   try_end(err);
   if (buf == NULL) {
-    if (!ERROR_SET(err)) {
-      api_set_error(err, kErrorTypeException, "Failed to create buffer");
-    }
-    return 0;
+    goto fail;
   }
+
+  // Open the memline for the buffer. This will avoid spurious autocmds when
+  // a later nvim_buf_set_lines call would have needed to "open" the buffer.
+  try_start();
+  block_autocmds();
+  int status = ml_open(buf);
+  unblock_autocmds();
+  try_end(err);
+  if (status == FAIL) {
+    goto fail;
+  }
+
   if (scratch) {
     aco_save_T aco;
     aucmd_prepbuf(&aco, buf);
@@ -991,6 +1002,12 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
     aucmd_restbuf(&aco);
   }
   return buf->b_fnum;
+
+fail:
+  if (!ERROR_SET(err)) {
+    api_set_error(err, kErrorTypeException, "Failed to create buffer");
+  }
+  return 0;
 }
 
 /// Open a new window.
@@ -1047,6 +1064,19 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
 ///   - `external`: GUI should display the window as an external
 ///       top-level window. Currently accepts no other positioning
 ///       configuration together with this.
+///   - `style`: Configure the apparance of the window. Currently only takes
+///       one non-empty value:
+///       - "minimal"  Nvim will display the window with many UI options
+///                    disabled. This is useful when displaing a temporary
+///                    float where the text should not be edited. Disables
+///                    'number', 'relativenumber', 'cursorline', 'cursorcolumn',
+///                    'spell' and 'list' options. 'signcolumn' is changed to
+///                    `auto`. The end-of-buffer region is hidden by setting
+///                    `eob` flag of 'fillchars' to a space char, and clearing
+///                    the |EndOfBuffer| region in 'winhighlight'.
+///
+///       top-level window. Currently accepts no other positioning
+///       configuration together with this.
 /// @param[out] err Error details, if any
 ///
 /// @return Window handle, or 0 on error
@@ -1067,6 +1097,11 @@ Window nvim_open_win(Buffer buffer, Boolean enter, Dictionary config,
   }
   if (buffer > 0) {
     nvim_win_set_buf(wp->handle, buffer, err);
+  }
+
+  if (fconfig.style == kWinStyleMinimal) {
+    win_set_minimal_style(wp);
+    didset_window_options(wp);
   }
   return wp->handle;
 }
@@ -1245,7 +1280,7 @@ Dictionary nvim_get_color_map(void)
 ///
 /// @returns Dictionary { "mode": String, "blocking": Boolean }
 Dictionary nvim_get_mode(void)
-  FUNC_API_SINCE(2) FUNC_API_ASYNC
+  FUNC_API_SINCE(2) FUNC_API_FAST
 {
   Dictionary rv = ARRAY_DICT_INIT;
   char *modestr = get_mode();
@@ -1331,7 +1366,7 @@ Dictionary nvim_get_commands(Dictionary opts, Error *err)
 ///
 /// @returns 2-tuple [{channel-id}, {api-metadata}]
 Array nvim_get_api_info(uint64_t channel_id)
-  FUNC_API_SINCE(1) FUNC_API_ASYNC FUNC_API_REMOTE_ONLY
+  FUNC_API_SINCE(1) FUNC_API_FAST FUNC_API_REMOTE_ONLY
 {
   Array rv = ARRAY_DICT_INIT;
 
@@ -1641,7 +1676,7 @@ typedef kvec_withinit_t(ExprASTConvStackItem, 16) ExprASTConvStack;
 /// @param[out] err Error details, if any
 Dictionary nvim_parse_expression(String expr, String flags, Boolean highlight,
                                  Error *err)
-  FUNC_API_SINCE(4) FUNC_API_ASYNC
+  FUNC_API_SINCE(4) FUNC_API_FAST
 {
   int pflags = 0;
   for (size_t i = 0 ; i < flags.size ; i++) {
@@ -2229,16 +2264,33 @@ void nvim_select_popupmenu_item(Integer item, Boolean insert, Boolean finish,
 }
 
 /// NB: if your UI doesn't use hlstate, this will not return hlstate first time
-Array nvim__inspect_cell(Integer row, Integer col, Error *err)
+Array nvim__inspect_cell(Integer grid, Integer row, Integer col, Error *err)
 {
   Array ret = ARRAY_DICT_INIT;
-  if (row < 0 || row >= default_grid.Rows
-      || col < 0 || col >= default_grid.Columns) {
+
+  // TODO(bfredl): if grid == 0 we should read from the compositor's buffer.
+  // The only problem is that it does not yet exist.
+  ScreenGrid *g = &default_grid;
+  if (grid == pum_grid.handle) {
+    g = &pum_grid;
+  } else if (grid > 1) {
+    win_T *wp = get_win_by_grid_handle((handle_T)grid);
+    if (wp != NULL && wp->w_grid.chars != NULL) {
+      g = &wp->w_grid;
+    } else {
+      api_set_error(err, kErrorTypeValidation,
+                    "No grid with the given handle");
+      return ret;
+    }
+  }
+
+  if (row < 0 || row >= g->Rows
+      || col < 0 || col >= g->Columns) {
     return ret;
   }
-  size_t off = default_grid.line_offset[(size_t)row] + (size_t)col;
-  ADD(ret, STRING_OBJ(cstr_to_string((char *)default_grid.chars[off])));
-  int attr = default_grid.attrs[off];
+  size_t off = g->line_offset[(size_t)row] + (size_t)col;
+  ADD(ret, STRING_OBJ(cstr_to_string((char *)g->chars[off])));
+  int attr = g->attrs[off];
   ADD(ret, DICTIONARY_OBJ(hl_get_attr_by_id(attr, true, err)));
   // will not work first time
   if (!highlight_use_hlstate()) {

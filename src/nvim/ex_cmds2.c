@@ -611,7 +611,7 @@ static int dbg_parsearg(char_u *arg, garray_T *gap)
   return OK;
 }
 
-/// ":breakadd".
+/// ":breakadd".  Also used for ":profile".
 void ex_breakadd(exarg_T *eap)
 {
   struct debuggy *bp;
@@ -1274,9 +1274,9 @@ bool check_changed(buf_T *buf, int flags)
       return bufIsChanged(buf);
     }
     if (flags & CCGD_EXCMD) {
-      EMSG(_(e_nowrtmsg));
+      no_write_message();
     } else {
-      EMSG(_(e_nowrtmsg_nobang));
+      no_write_message_nobang();
     }
     return true;
   }
@@ -3039,6 +3039,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   int save_debug_break_level = debug_break_level;
   scriptitem_T            *si = NULL;
   proftime_T wait_start;
+  bool trigger_source_post = false;
 
   p = expand_env_save(fname);
   if (p == NULL) {
@@ -3059,6 +3060,10 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
       && apply_autocmds(EVENT_SOURCECMD, fname_exp, fname_exp,
                         false, curbuf)) {
     retval = aborting() ? FAIL : OK;
+    if (retval == OK) {
+      // Apply SourcePost autocommands.
+      apply_autocmds(EVENT_SOURCEPOST, fname_exp, fname_exp, false, curbuf);
+    }
     goto theend;
   }
 
@@ -3181,7 +3186,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
     }
     si = &SCRIPT_ITEM(current_SID);
     si->sn_name = fname_exp;
-    fname_exp = NULL;
+    fname_exp = vim_strsave(si->sn_name);  // used for autocmd
     if (file_id_ok) {
       si->file_id_valid = true;
       si->file_id = file_id;
@@ -3261,6 +3266,10 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
     time_pop(rel_time);
   }
 
+  if (!got_int) {
+    trigger_source_post = true;
+  }
+
   // After a "finish" in debug mode, need to break at first command of next
   // sourced file.
   if (save_debug_break_level > ex_nesting_level
@@ -3277,6 +3286,10 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   xfree(cookie.nextline);
   xfree(firstline);
   convert_setup(&cookie.conv, NULL, NULL);
+
+  if (trigger_source_post) {
+    apply_autocmds(EVENT_SOURCEPOST, fname_exp, fname_exp, false, curbuf);
+  }
 
 theend:
   xfree(fname_exp);

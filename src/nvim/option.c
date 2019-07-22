@@ -74,6 +74,7 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/ui.h"
+#include "nvim/ui_compositor.h"
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/os/os.h"
@@ -253,6 +254,7 @@ typedef struct vimoption {
 #define P_RWINONLY     0x10000000U  ///< only redraw current window
 #define P_NDNAME       0x20000000U  ///< only normal dir name chars allowed
 #define P_UI_OPTION    0x40000000U  ///< send option to remote ui
+#define P_MLE          0x80000000U  ///< under control of 'modelineexpr'
 
 #define HIGHLIGHT_INIT \
   "8:SpecialKey,~:EndOfBuffer,z:TermCursor,Z:TermCursorNC,@:NonText," \
@@ -315,7 +317,7 @@ static char_u SHM_ALL[] = {
   SHM_RO, SHM_MOD, SHM_FILE, SHM_LAST, SHM_TEXT, SHM_LINES, SHM_NEW, SHM_WRI,
   SHM_ABBREVIATIONS, SHM_WRITE, SHM_TRUNC, SHM_TRUNCALL, SHM_OVER,
   SHM_OVERALL, SHM_SEARCH, SHM_ATTENTION, SHM_INTRO, SHM_COMPLETIONMENU,
-  SHM_RECORDING, SHM_FILEINFO,
+  SHM_RECORDING, SHM_FILEINFO, SHM_SEARCHCOUNT,
   0,
 };
 
@@ -626,7 +628,11 @@ void set_init_1(void)
       char *p;
 # ifdef UNIX
       if (*names[n] == NUL) {
+#  ifdef __APPLE__
+        p = "/private/tmp";
+#  else
         p = "/tmp";
+#  endif
         mustfree = false;
       } else
 # endif
@@ -1321,6 +1327,11 @@ int do_set(
       if (opt_flags & OPT_MODELINE) {
         if (flags & (P_SECURE | P_NO_ML)) {
           errmsg = (char_u *)_("E520: Not allowed in a modeline");
+          goto skip;
+        }
+        if ((flags & P_MLE) && !p_mle) {
+          errmsg = (char_u *)_(
+              "E992: Not allowed in a modeline when 'modelineexpr' is off");
           goto skip;
         }
         // In diff mode some options are overruled.  This avoids that
@@ -2166,10 +2177,8 @@ static char_u *option_expand(int opt_idx, char_u *val)
   return NameBuff;
 }
 
-/*
- * After setting various option values: recompute variables that depend on
- * option values.
- */
+// After setting various option values: recompute variables that depend on
+// option values.
 static void didset_options(void)
 {
   // initialize the table for 'iskeyword' et.al.
@@ -2182,8 +2191,10 @@ static void didset_options(void)
   (void)opt_strings_flags(p_vop, p_ssop_values, &vop_flags, true);
   (void)opt_strings_flags(p_fdo, p_fdo_values, &fdo_flags, true);
   (void)opt_strings_flags(p_dy, p_dy_values, &dy_flags, true);
+  (void)opt_strings_flags(p_rdb, p_rdb_values, &rdb_flags, true);
   (void)opt_strings_flags(p_tc, p_tc_values, &tc_flags, false);
   (void)opt_strings_flags(p_ve, p_ve_values, &ve_flags, true);
+  (void)opt_strings_flags(p_wop, p_wop_values, &wop_flags, true);
   (void)spell_check_msm();
   (void)spell_check_sps();
   (void)compile_cap_prog(curwin->w_s);
@@ -2638,6 +2649,10 @@ did_set_string_option(
     }
   } else if (varp == &p_vop) {  // 'viewoptions'
     if (opt_strings_flags(p_vop, p_ssop_values, &vop_flags, true) != OK) {
+      errmsg = e_invarg;
+    }
+  } else if (varp == &p_rdb) {  // 'redrawdebug'
+    if (opt_strings_flags(p_rdb, p_rdb_values, &rdb_flags, true) != OK) {
       errmsg = e_invarg;
     }
   } else if (varp == &p_sbo) {  // 'scrollopt'
@@ -3752,7 +3767,8 @@ static bool parse_winhl_opt(win_T *wp)
     size_t nlen = (size_t)(colon-p);
     char *hi = colon+1;
     char *commap = xstrchrnul(hi, ',');
-    int hl_id = syn_check_group((char_u *)hi, (int)(commap-hi));
+    int len = (int)(commap-hi);
+    int hl_id = len ? syn_check_group((char_u *)hi, len) : -1;
 
     if (strncmp("Normal", p, nlen) == 0) {
       w_hl_id_normal = hl_id;
@@ -4149,7 +4165,6 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
   char_u      *errmsg = NULL;
   long old_value = *(long *)varp;
   long old_Rows = Rows;                 // remember old Rows
-  long old_Columns = Columns;           // remember old Columns
   long        *pp = (long *)varp;
 
   // Disallow changing some options from secure mode.
@@ -4264,7 +4279,7 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
   } else if (pp == &curwin->w_p_nuw || pp == &curwin->w_allbuf_opt.wo_nuw) {
     if (value < 1) {
       errmsg = e_positive;
-    } else if (value > 10) {
+    } else if (value > 20) {
       errmsg = e_invarg;
     }
   } else if (pp == &curbuf->b_p_iminsert || pp == &p_iminsert) {
@@ -4381,11 +4396,10 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
     }
   } else if (pp == &p_pb) {
     p_pb = MAX(MIN(p_pb, 100), 0);
-    if (old_value != 0) {
-      hl_invalidate_blends();
-    }
+    hl_invalidate_blends();
+    pum_grid.blending = (p_pb > 0);
     if (pum_drawn()) {
-      pum_recompose();
+      pum_redraw();
     }
   } else if (pp == &p_pyx) {
     if (p_pyx != 0 && p_pyx != 2 && p_pyx != 3) {
@@ -4408,40 +4422,50 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
     }
   } else if (pp == &curwin->w_p_nuw) {
     curwin->w_nrwidth_line_count = 0;
+  } else if (pp == &curwin->w_p_winbl && value != old_value) {
+    // 'floatblend'
+    curwin->w_p_winbl = MAX(MIN(curwin->w_p_winbl, 100), 0);
+    curwin->w_hl_needs_update = true;
+    curwin->w_grid.blending = curwin->w_p_winbl > 0;
   }
 
 
   // Check the (new) bounds for Rows and Columns here.
-  if (Rows < min_rows() && full_screen) {
+  if (p_lines < min_rows() && full_screen) {
     if (errbuf != NULL) {
       vim_snprintf((char *)errbuf, errbuflen,
           _("E593: Need at least %d lines"), min_rows());
       errmsg = errbuf;
     }
-    Rows = min_rows();
+    p_lines = min_rows();
   }
-  if (Columns < MIN_COLUMNS && full_screen) {
+  if (p_columns < MIN_COLUMNS && full_screen) {
     if (errbuf != NULL) {
       vim_snprintf((char *)errbuf, errbuflen,
           _("E594: Need at least %d columns"), MIN_COLUMNS);
       errmsg = errbuf;
     }
-    Columns = MIN_COLUMNS;
+    p_columns = MIN_COLUMNS;
   }
-  limit_screen_size();
 
+  // True max size is defined by check_shellsize()
+  p_lines = MIN(p_lines, INT_MAX);
+  p_columns = MIN(p_columns, INT_MAX);
 
   // If the screen (shell) height has been changed, assume it is the
   // physical screenheight.
-  if (old_Rows != Rows || old_Columns != Columns) {
+  if (p_lines != Rows || p_columns != Columns) {
     // Changing the screen size is not allowed while updating the screen.
     if (updating_screen) {
       *pp = old_value;
     } else if (full_screen) {
-      screen_resize((int)Columns, (int)Rows);
+      screen_resize((int)p_columns, (int)p_lines);
     } else {
+      // TODO(bfredl): is this branch ever needed?
       // Postpone the resizing; check the size and cmdline position for
       // messages.
+      Rows = (int)p_lines;
+      Columns = (int)p_columns;
       check_shellsize();
       if (cmdline_row > Rows - p_ch && Rows > p_ch) {
         assert(p_ch >= 0 && Rows - p_ch <= INT_MAX);
@@ -5027,6 +5051,11 @@ showoptions(
     // collect the items in items[]
     item_count = 0;
     for (p = &options[0]; p->fullname != NULL; p++) {
+      // apply :filter /pat/
+      if (message_filtered((char_u *)p->fullname)) {
+        continue;
+      }
+
       varp = NULL;
       if (opt_flags != 0) {
         if (p->indir != PV_NONE) {
@@ -5054,8 +5083,8 @@ showoptions(
      * display the items
      */
     if (run == 1) {
-      assert(Columns <= LONG_MAX - GAP
-             && Columns + GAP >= LONG_MIN + 3
+      assert(Columns <= INT_MAX - GAP
+             && Columns + GAP >= INT_MIN + 3
              && (Columns + GAP - 3) / INC >= INT_MIN
              && (Columns + GAP - 3) / INC <= INT_MAX);
       cols = (int)((Columns + GAP - 3) / INC);
@@ -5703,6 +5732,7 @@ static char_u *get_varp(vimoption_T *p)
   case PV_WINHL:  return (char_u *)&(curwin->w_p_winhl);
   case PV_FCS:    return (char_u *)&(curwin->w_p_fcs);
   case PV_LCS:    return (char_u *)&(curwin->w_p_lcs);
+  case PV_WINBL:  return (char_u *)&(curwin->w_p_winbl);
   default:        IEMSG(_("E356: get_varp ERROR"));
   }
   // always return a valid pointer to avoid a crash!
@@ -5782,6 +5812,7 @@ void copy_winopt(winopt_T *from, winopt_T *to)
   to->wo_winhl = vim_strsave(from->wo_winhl);
   to->wo_fcs = vim_strsave(from->wo_fcs);
   to->wo_lcs = vim_strsave(from->wo_lcs);
+  to->wo_winbl = from->wo_winbl;
   check_winopt(to);             // don't want NULL pointers
 }
 
@@ -5844,7 +5875,8 @@ void didset_window_options(win_T *wp)
   briopt_check(wp);
   set_chars_option(wp, &wp->w_p_fcs);
   set_chars_option(wp, &wp->w_p_lcs);
-  parse_winhl_opt(wp);
+  parse_winhl_opt(wp);  // sets w_hl_needs_update also for w_p_winbl
+  wp->w_grid.blending = wp->w_p_winbl > 0;
 }
 
 

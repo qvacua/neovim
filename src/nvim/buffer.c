@@ -29,6 +29,7 @@
 #include "nvim/api/vim.h"
 #include "nvim/ascii.h"
 #include "nvim/assert.h"
+#include "nvim/channel.h"
 #include "nvim/vim.h"
 #include "nvim/buffer.h"
 #include "nvim/charset.h"
@@ -1425,7 +1426,7 @@ do_buffer(
       }
     }
     if (bufIsChanged(curbuf)) {
-      EMSG(_(e_nowrtmsg));
+      no_write_message();
       return FAIL;
     }
   }
@@ -1624,6 +1625,16 @@ void do_autochdir(void)
       shorten_fnames(true);
     }
   }
+}
+
+void no_write_message(void)
+{
+  EMSG(_("E37: No write since last change (add ! to override)"));
+}
+
+void no_write_message_nobang(void)
+{
+  EMSG(_("E37: No write since last change"));
 }
 
 //
@@ -1836,6 +1847,8 @@ buf_T * buflist_new(char_u *ffname, char_u *sfname, linenr_T lnum, int flags)
   buf->b_p_bl = (flags & BLN_LISTED) ? true : false;    // init 'buflisted'
   kv_destroy(buf->update_channels);
   kv_init(buf->update_channels);
+  kv_destroy(buf->update_callbacks);
+  kv_init(buf->update_callbacks);
   if (!(flags & BLN_DUMMY)) {
     // Tricky: these autocommands may change the buffer list.  They could also
     // split the window with re-using the one empty buffer. This may result in
@@ -2530,6 +2543,11 @@ void get_winopts(buf_T *buf)
   } else
     copy_winopt(&curwin->w_allbuf_opt, &curwin->w_onebuf_opt);
 
+  if (curwin->w_float_config.style == kWinStyleMinimal) {
+    didset_window_options(curwin);
+    win_set_minimal_style(curwin);
+  }
+
   // Set 'foldlevel' to 'foldlevelstart' if it's not negative.
   if (p_fdls >= 0) {
     curwin->w_p_fdl = p_fdls;
@@ -2593,14 +2611,23 @@ void buflist_list(exarg_T *eap)
       continue;
     }
 
+    const int changed_char = (buf->b_flags & BF_READERR)
+      ? 'x'
+      : (bufIsChanged(buf) ? '+' : ' ');
+    int ro_char = !MODIFIABLE(buf) ? '-' : (buf->b_p_ro ? '=' : ' ');
+    if (buf->terminal) {
+      ro_char = channel_job_running((uint64_t)buf->b_p_channel) ? 'R' : 'F';
+    }
+
     msg_putchar('\n');
-    len = vim_snprintf((char *)IObuff, IOSIZE - 20, "%3d%c%c%c%c%c \"%s\"",
+    len = vim_snprintf(
+        (char *)IObuff, IOSIZE - 20, "%3d%c%c%c%c%c \"%s\"",
         buf->b_fnum,
         buf->b_p_bl ? ' ' : 'u',
         buf == curbuf ? '%' : (curwin->w_alt_fnum == buf->b_fnum ? '#' : ' '),
         buf->b_ml.ml_mfp == NULL ? ' ' : (buf->b_nwindows == 0 ? 'h' : 'a'),
-        !MODIFIABLE(buf) ? '-' : (buf->b_p_ro ? '=' : ' '),
-        (buf->b_flags & BF_READERR) ? 'x' : (bufIsChanged(buf) ? '+' : ' '),
+        ro_char,
+        changed_char,
         NameBuff);
 
     if (len > IOSIZE - 20) {
@@ -3339,7 +3366,6 @@ int build_stl_str_hl(
   char_u      *usefmt = fmt;
   const int save_must_redraw = must_redraw;
   const int save_redr_type = curwin->w_redr_type;
-  const int save_highlight_shcnaged = need_highlight_changed;
 
   // When the format starts with "%!" then evaluate it as an expression and
   // use the result as the actual format string.
@@ -4403,12 +4429,12 @@ int build_stl_str_hl(
     cur_tab_rec->def.func = NULL;
   }
 
-  // We do not want redrawing a stausline, ruler, title, etc. to trigger
-  // another redraw, it may cause an endless loop.  This happens when a
-  // statusline changes a highlight group.
-  must_redraw = save_must_redraw;
-  curwin->w_redr_type = save_redr_type;
-  need_highlight_changed = save_highlight_shcnaged;
+  // When inside update_screen we do not want redrawing a stausline, ruler,
+  // title, etc. to trigger another redraw, it may cause an endless loop.
+  if (updating_screen) {
+    must_redraw = save_must_redraw;
+    curwin->w_redr_type = save_redr_type;
+  }
 
   return width;
 }
@@ -5221,8 +5247,8 @@ char_u *buf_spname(buf_T *buf)
   // There is no _file_ when 'buftype' is "nofile", b_sfname
   // contains the name as specified by the user.
   if (bt_nofile(buf)) {
-    if (buf->b_sfname != NULL) {
-      return buf->b_sfname;
+    if (buf->b_fname != NULL) {
+      return buf->b_fname;
     }
     return (char_u *)_("[Scratch]");
   }
@@ -5256,91 +5282,27 @@ bool find_win_for_buf(buf_T *buf, win_T **wp, tabpage_T **tp)
   return false;
 }
 
-static int sign_compare(const void *a1, const void *a2)
-{
-    const signlist_T *s1 = *(const signlist_T **)a1;
-    const signlist_T *s2 = *(const signlist_T **)a2;
-
-    // Sort by line number, priority and id
-
-    if (s1->lnum > s2->lnum) {
-        return 1;
-    }
-    if (s1->lnum < s2->lnum) {
-        return -1;
-    }
-    if (s1->priority > s2->priority) {
-        return -1;
-    }
-    if (s1->priority < s2->priority) {
-        return 1;
-    }
-    if (s1->id > s2->id) {
-        return -1;
-    }
-    if (s1->id < s2->id) {
-        return 1;
-    }
-
-    return 0;
-}
-
 int buf_signcols(buf_T *buf)
 {
     if (buf->b_signcols_max == -1) {
         signlist_T *sign;  // a sign in the signlist
-        signlist_T **signs_array;
-        signlist_T **prev_sign;
-        int nr_signs = 0, i = 0, same;
-
-        // Count the number of signs
-        for (sign = buf->b_signlist; sign != NULL; sign = sign->next) {
-            nr_signs++;
-        }
-
-        // Make an array of all the signs
-        signs_array = xcalloc((size_t)nr_signs, sizeof(*sign));
-        for (sign = buf->b_signlist; sign != NULL; sign = sign->next) {
-            signs_array[i] = sign;
-            i++;
-        }
-
-        // Sort the array
-        qsort(signs_array, (size_t)nr_signs, sizeof(signlist_T *),
-              sign_compare);
-
-        // Find the maximum amount of signs existing in a single line
         buf->b_signcols_max = 0;
+        int linesum = 0;
+        linenr_T curline = 0;
 
-        same = 1;
-        for (i = 1; i < nr_signs; i++) {
-            if (signs_array[i - 1]->lnum != signs_array[i]->lnum) {
-                if (buf->b_signcols_max < same) {
-                    buf->b_signcols_max = same;
-                }
-                same = 1;
-            } else {
-                same++;
+        FOR_ALL_SIGNS_IN_BUF(buf, sign) {
+          if (sign->lnum > curline) {
+            if (linesum > buf->b_signcols_max) {
+              buf->b_signcols_max = linesum;
             }
+            curline = sign->lnum;
+            linesum = 0;
+          }
+          linesum++;
         }
-
-        if (nr_signs > 0 && buf->b_signcols_max < same) {
-            buf->b_signcols_max = same;
+        if (linesum > buf->b_signcols_max) {
+          buf->b_signcols_max = linesum;
         }
-
-        // Recreate the linked list with the sorted order of the array
-        buf->b_signlist = NULL;
-        prev_sign = &buf->b_signlist;
-
-        for (i = 0; i < nr_signs; i++) {
-            sign = signs_array[i];
-            sign->next = NULL;
-            *prev_sign = sign;
-
-            prev_sign = &sign->next;
-        }
-
-        xfree(signs_array);
 
         // Check if we need to redraw
         if (buf->b_signcols_max != buf->b_signcols) {

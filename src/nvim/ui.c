@@ -345,15 +345,15 @@ void ui_line(ScreenGrid *grid, int row, int startcol, int endcol, int clearcol,
                    flags, (const schar_T *)grid->chars + off,
                    (const sattr_T *)grid->attrs + off);
 
-  if (p_wd) {  // 'writedelay': flush & delay each time.
-    int old_row = cursor_row, old_col = cursor_col;
-    handle_T old_grid = cursor_grid_handle;
+  // 'writedelay': flush & delay each time.
+  if (p_wd && !(rdb_flags & RDB_COMPOSITOR)) {
     // If 'writedelay' is active, set the cursor to indicate what was drawn.
-    ui_grid_cursor_goto(grid->handle, row, MIN(clearcol, (int)Columns-1));
-    ui_flush();
+    ui_call_grid_cursor_goto(grid->handle, row,
+                             MIN(clearcol, (int)grid->Columns-1));
+    ui_call_flush();
     uint64_t wd = (uint64_t)labs(p_wd);
     os_microdelay(wd * 1000u, true);
-    ui_grid_cursor_goto(old_grid, old_row, old_col);
+    pending_cursor_update = true;  // restore the cursor later
   }
 }
 
@@ -374,6 +374,14 @@ void ui_grid_cursor_goto(handle_T grid_handle, int new_row, int new_col)
   cursor_col = new_col;
   cursor_grid_handle = grid_handle;
   pending_cursor_update = true;
+}
+
+/// moving the cursor grid will implicitly move the cursor
+void ui_check_cursor_grid(handle_T grid_handle)
+{
+  if (cursor_grid_handle == grid_handle) {
+    pending_cursor_update = true;
+  }
 }
 
 void ui_mode_info_set(void)

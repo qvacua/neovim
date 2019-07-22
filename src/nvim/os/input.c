@@ -50,6 +50,11 @@ void input_init(void)
   input_buffer = rbuffer_new(INPUT_BUFFER_SIZE + MAX_KEY_CODE_LEN);
 }
 
+void input_global_fd_init(int fd)
+{
+  global_fd = fd;
+}
+
 /// Global TTY (or pipe for "-es") input stream, before UI starts.
 int input_global_fd(void)
 {
@@ -62,7 +67,7 @@ void input_start(int fd)
     return;
   }
 
-  global_fd = fd;
+  input_global_fd_init(fd);
   rstream_init_fd(&main_loop, &read_stream, fd, READ_BUFFER_SIZE);
   rstream_start(&read_stream, input_read_cb, NULL);
 }
@@ -316,10 +321,10 @@ static unsigned int handle_mouse_event(char **ptr, uint8_t *buf,
       // Make sure the mouse position is valid.  Some terminals may
       // return weird values.
       if (col >= Columns) {
-        col = (int)Columns - 1;
+        col = Columns - 1;
       }
       if (row >= Rows) {
-        row = (int)Rows - 1;
+        row = Rows - 1;
       }
       mouse_grid = 0;
       mouse_row = row;

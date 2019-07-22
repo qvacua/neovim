@@ -46,7 +46,7 @@ describe('startup', function()
     ]])
   end)
   it('in a TTY: has("ttyin")==1 has("ttyout")==1', function()
-    local screen = Screen.new(25, 3)
+    local screen = Screen.new(25, 4)
     screen:attach()
     if iswin() then
       command([[set shellcmdflag=/s\ /c shellxquote=\"]])
@@ -58,6 +58,7 @@ describe('startup', function()
             ..[[, shellescape(v:progpath))]])
     screen:expect([[
       ^                         |
+      ~                        |
       1 1                      |
                                |
     ]])
@@ -96,7 +97,7 @@ describe('startup', function()
     end)
   end)
   it('input from pipe (implicit) #7679', function()
-    local screen = Screen.new(25, 3)
+    local screen = Screen.new(25, 4)
     screen:attach()
     if iswin() then
       command([[set shellcmdflag=/s\ /c shellxquote=\"]])
@@ -109,6 +110,7 @@ describe('startup', function()
             ..[[, shellescape(v:progpath))]])
     screen:expect([[
       ^foo                      |
+      ~                        |
       0 1                      |
                                |
     ]])
@@ -218,6 +220,11 @@ describe('startup', function()
   it('does not crash if --embed is given twice', function()
     clear{args={'--embed'}}
     eq(2, eval('1+1'))
+  end)
+
+  it('does not crash when expanding cdpath during early_init', function()
+    clear{env={CDPATH='~doesnotexist'}}
+    eq(',~doesnotexist', eval('&cdpath'))
   end)
 end)
 

@@ -24,6 +24,7 @@
 #include "nvim/message.h"
 #include "nvim/assert.h"
 #include "nvim/misc1.h"
+#include "nvim/option.h"
 #include "nvim/path.h"
 #include "nvim/strings.h"
 
@@ -229,7 +230,7 @@ int os_exepath(char *buffer, size_t *size)
 /// Checks if the file `name` is executable.
 ///
 /// @param[in]  name     Filename to check.
-/// @param[out] abspath  Returns resolved executable path, if not NULL.
+/// @param[out,allocated] abspath  Returns resolved exe path, if not NULL.
 /// @param[in] use_path  Also search $PATH.
 ///
 /// @return true if `name` is executable and
@@ -238,10 +239,10 @@ int os_exepath(char *buffer, size_t *size)
 ///   - is absolute.
 ///
 /// @return `false` otherwise.
-bool os_can_exe(const char_u *name, char_u **abspath, bool use_path)
+bool os_can_exe(const char *name, char **abspath, bool use_path)
   FUNC_ATTR_NONNULL_ARG(1)
 {
-  bool no_path = !use_path || path_is_absolute(name);
+  bool no_path = !use_path || path_is_absolute((char_u *)name);
   // If the filename is "qualified" (relative or absolute) do not check $PATH.
 #ifdef WIN32
   no_path |= (name[0] == '.'
@@ -254,11 +255,11 @@ bool os_can_exe(const char_u *name, char_u **abspath, bool use_path)
 
   if (no_path) {
 #ifdef WIN32
-    if (is_executable_ext((char *)name, abspath)) {
+    if (is_executable_ext(name, abspath)) {
 #else
     // Must have path separator, cannot execute files in the current directory.
-    if ((const char_u *)gettail_dir((const char *)name) != name
-        && is_executable((char *)name, abspath)) {
+    if (gettail_dir(name) != name
+        && is_executable(name, abspath)) {
 #endif
       return true;
     } else {
@@ -270,10 +271,13 @@ bool os_can_exe(const char_u *name, char_u **abspath, bool use_path)
 }
 
 /// Returns true if `name` is an executable file.
-static bool is_executable(const char *name, char_u **abspath)
+///
+/// @param[in]            name     Filename to check.
+/// @param[out,allocated] abspath  Returns full exe path, if not NULL.
+static bool is_executable(const char *name, char **abspath)
   FUNC_ATTR_NONNULL_ARG(1)
 {
-  int32_t mode = os_getperm((const char *)name);
+  int32_t mode = os_getperm(name);
 
   if (mode < 0) {
     return false;
@@ -291,7 +295,7 @@ static bool is_executable(const char *name, char_u **abspath)
   const bool ok = (r == 0);
 #endif
   if (ok && abspath != NULL) {
-    *abspath = save_abs_path((char_u *)name);
+    *abspath = save_abs_path(name);
   }
   return ok;
 }
@@ -300,7 +304,7 @@ static bool is_executable(const char *name, char_u **abspath)
 /// Checks if file `name` is executable under any of these conditions:
 /// - extension is in $PATHEXT and `name` is executable
 /// - result of any $PATHEXT extension appended to `name` is executable
-static bool is_executable_ext(char *name, char_u **abspath)
+static bool is_executable_ext(char *name, char **abspath)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   const bool is_unix_shell = strstr((char *)path_tail(p_sh), "sh") != NULL;
@@ -312,7 +316,8 @@ static bool is_executable_ext(char *name, char_u **abspath)
   if (!pathext) {
     pathext = ".com;.exe;.bat;.cmd";
   }
-  for (const char *ext = pathext; *ext; ext++) {
+  const char *ext = pathext;
+  while (*ext) {
     // If $PATHEXT itself contains dot:
     if (ext[0] == '.' && (ext[1] == '\0' || ext[1] == ENV_SEPCHAR)) {
       if (is_executable(name, abspath)) {
@@ -320,13 +325,17 @@ static bool is_executable_ext(char *name, char_u **abspath)
       }
       // Skip it.
       ext++;
+      if (*ext) {
+        ext++;
+      }
       continue;
     }
 
-    const char *ext_end = xstrchrnul(ext, ENV_SEPCHAR);
-    size_t ext_len = (size_t)(ext_end - ext);
+    const char *ext_end = ext;
+    size_t ext_len =
+      copy_option_part((char_u **)&ext_end, (char_u *)buf_end,
+                       sizeof(os_buf) - (size_t)(buf_end - os_buf), ENV_SEPSTR);
     if (ext_len != 0) {
-      STRLCPY(buf_end, ext, ext_len + 1);
       bool in_pathext = nameext_len == ext_len
         && 0 == mb_strnicmp((char_u *)nameext, (char_u *)ext, ext_len);
 
@@ -347,7 +356,7 @@ static bool is_executable_ext(char *name, char_u **abspath)
 /// @param[out] abspath  Returns resolved executable path, if not NULL.
 ///
 /// @return `true` if `name` is an executable inside `$PATH`.
-static bool is_executable_in_path(const char_u *name, char_u **abspath)
+static bool is_executable_in_path(const char *name, char **abspath)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   const char *path_env = os_getenv("PATH");
@@ -358,13 +367,13 @@ static bool is_executable_in_path(const char_u *name, char_u **abspath)
 #ifdef WIN32
   // Prepend ".;" to $PATH.
   size_t pathlen = strlen(path_env);
-  char *path = memcpy(xmallocz(pathlen + 3), "." ENV_SEPSTR, 2);
+  char *path = memcpy(xmallocz(pathlen + 2), "." ENV_SEPSTR, 2);
   memcpy(path + 2, path_env, pathlen);
 #else
   char *path = xstrdup(path_env);
 #endif
 
-  size_t buf_len = STRLEN(name) + strlen(path) + 2;
+  size_t buf_len = strlen(name) + strlen(path) + 2;
   char *buf = xmalloc(buf_len);
 
   // Walk through all entries in $PATH to check if "name" exists there and
@@ -376,7 +385,7 @@ static bool is_executable_in_path(const char_u *name, char_u **abspath)
 
     // Combine the $PATH segment with `name`.
     STRLCPY(buf, p, e - p + 1);
-    append_path(buf, (char *)name, buf_len);
+    append_path(buf, name, buf_len);
 
 #ifdef WIN32
     if (is_executable_ext(buf, abspath)) {
@@ -744,6 +753,22 @@ bool os_path_exists(const char_u *path)
 {
   uv_stat_t statbuf;
   return os_stat((char *)path, &statbuf) == kLibuvSuccess;
+}
+
+/// Sets file access and modification times.
+///
+/// @see POSIX utime(2)
+///
+/// @param path   File path.
+/// @param atime  Last access time.
+/// @param mtime  Last modification time.
+///
+/// @return 0 on success, or negative error code.
+int os_file_settime(const char *path, double atime, double mtime)
+{
+  int r;
+  RUN_UV_FS_FUNC(r, uv_fs_utime, path, atime, mtime, NULL);
+  return r;
 }
 
 /// Check if a file is readable.

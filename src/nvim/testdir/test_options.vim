@@ -92,9 +92,6 @@ function! Test_path_keep_commas()
 endfunction
 
 func Test_filetype_valid()
-  if !has('autocmd')
-    return
-  endif
   set ft=valid_name
   call assert_equal("valid_name", &filetype)
   set ft=valid-name
@@ -180,6 +177,15 @@ func Test_thesaurus()
   call Check_dir_option('thesaurus')
 endfun
 
+func Test_complete()
+  " Trailing single backslash used to cause invalid memory access.
+  set complete=s\
+  new
+  call feedkeys("i\<C-N>\<Esc>", 'xt')
+  bwipe!
+  set complete&
+endfun
+
 func Test_set_completion()
   call feedkeys(":set di\<C-A>\<C-B>\"\<CR>", 'tx')
   call assert_equal('"set dictionary diff diffexpr diffopt digraph directory display', @:)
@@ -216,6 +222,7 @@ func Test_set_completion()
 
   call feedkeys(":set tags=./\\\\ dif\<C-A>\<C-B>\"\<CR>", 'tx')
   call assert_equal('"set tags=./\\ diff diffexpr diffopt', @:)
+  set tags&
   let &shellslash = shellslash
 endfunc
 
@@ -224,7 +231,7 @@ func Test_set_errors()
   call assert_fails('set backupcopy=', 'E474:')
   call assert_fails('set regexpengine=3', 'E474:')
   call assert_fails('set history=10001', 'E474:')
-  call assert_fails('set numberwidth=11', 'E474:')
+  call assert_fails('set numberwidth=21', 'E474:')
   call assert_fails('set colorcolumn=-a')
   call assert_fails('set colorcolumn=a')
   call assert_fails('set colorcolumn=1,')
@@ -305,14 +312,23 @@ func Test_set_ttytype()
   endif
 endfunc
 
-func Test_complete()
-  " Trailing single backslash used to cause invalid memory access.
-  set complete=s\
-  new
-  call feedkeys("i\<C-N>\<Esc>", 'xt')
-  bwipe!
-  set complete&
-endfun
+func Test_set_all()
+  set tw=75
+  set iskeyword=a-z,A-Z
+  set nosplitbelow
+  let out = execute('set all')
+  call assert_match('textwidth=75', out)
+  call assert_match('iskeyword=a-z,A-Z', out)
+  call assert_match('nosplitbelow', out)
+  set tw& iskeyword& splitbelow&
+endfunc
+
+func Test_set_values()
+  " The file is only generated when running "make test" in the src directory.
+  if filereadable('opt_test.vim')
+    source opt_test.vim
+  endif
+endfunc
 
 func ResetIndentexpr()
   set indentexpr=
@@ -325,6 +341,65 @@ func Test_set_indentexpr()
   call feedkeys("i\<c-f>", 'x')
   call assert_equal('', &indentexpr)
   bwipe!
+endfunc
+
+func Test_backupskip()
+  " Option 'backupskip' may contain several comma-separated path
+  " specifications if one or more of the environment variables TMPDIR, TMP,
+  " or TEMP is defined.  To simplify testing, convert the string value into a
+  " list.
+  let bsklist = split(&bsk, ',')
+
+  if has("mac")
+    let found = (index(bsklist, '/private/tmp/*') >= 0)
+    call assert_true(found, '/private/tmp not in option bsk: ' . &bsk)
+  elseif has("unix")
+    let found = (index(bsklist, '/tmp/*') >= 0)
+    call assert_true(found, '/tmp not in option bsk: ' . &bsk)
+  endif
+
+  " If our test platform is Windows, the path(s) in option bsk will use
+  " backslash for the path separator and the components could be in short
+  " (8.3) format.  As such, we need to replace the backslashes with forward
+  " slashes and convert the path components to long format.  The expand()
+  " function will do this but it cannot handle comma-separated paths.  This is
+  " why bsk was converted from a string into a list of strings above.
+  "
+  " One final complication is that the wildcard "/*" is at the end of each
+  " path and so expand() might return a list of matching files.  To prevent
+  " this, we need to remove the wildcard before calling expand() and then
+  " append it afterwards.
+  if has('win32')
+    let item_nbr = 0
+    while item_nbr < len(bsklist)
+      let path_spec = bsklist[item_nbr]
+      let path_spec = strcharpart(path_spec, 0, strlen(path_spec)-2)
+      let path_spec = substitute(expand(path_spec), '\\', '/', 'g')
+      let bsklist[item_nbr] = path_spec . '/*'
+      let item_nbr += 1
+    endwhile
+  endif
+
+  " Option bsk will also include these environment variables if defined.
+  " If they're defined, verify they appear in the option value.
+  for var in  ['$TMPDIR', '$TMP', '$TEMP']
+    if exists(var)
+      let varvalue = substitute(expand(var), '\\', '/', 'g')
+      let varvalue = substitute(varvalue, '/$', '', '')
+      let varvalue .= '/*'
+      let found = (index(bsklist, varvalue) >= 0)
+      call assert_true(found, var . ' (' . varvalue . ') not in option bsk: ' . &bsk)
+    endif
+  endfor
+
+  " Duplicates should be filtered out (option has P_NODUP)
+  let backupskip = &backupskip
+  set backupskip=
+  set backupskip+=/test/dir
+  set backupskip+=/other/dir
+  set backupskip+=/test/dir
+  call assert_equal('/test/dir,/other/dir', &backupskip)
+  let &backupskip = backupskip
 endfunc
 
 func Test_copy_winopt()
@@ -393,24 +468,6 @@ func Test_shortmess_F()
   call assert_match('bar', execute('file'))
   set shortmess&
   bwipe
-endfunc
-
-func Test_set_all()
-  set tw=75
-  set iskeyword=a-z,A-Z
-  set nosplitbelow
-  let out = execute('set all')
-  call assert_match('textwidth=75', out)
-  call assert_match('iskeyword=a-z,A-Z', out)
-  call assert_match('nosplitbelow', out)
-  set tw& iskeyword& splitbelow&
-endfunc
-
-func Test_set_values()
-  " The file is only generated when running "make test" in the src directory.
-  if filereadable('opt_test.vim')
-    source opt_test.vim
-  endif
 endfunc
 
 func Test_shortmess_F2()

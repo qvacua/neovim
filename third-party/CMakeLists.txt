@@ -1,12 +1,12 @@
 # This is not meant to be included by the top-level.
 cmake_minimum_required (VERSION 2.8.12)
-project(NVIM_DEPS)
+project(NVIM_DEPS C)
 
 # Needed for: check_c_compiler_flag()
 include(CheckCCompilerFlag)
 
 # Point CMake at any custom modules we may ship
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" "${PROJECT_SOURCE_DIR}/../cmake")
 
 # In Windows/MSVC CMAKE_BUILD_TYPE changes the paths/linking of the build
 # recipes (libuv, msgpack), make sure it is set
@@ -101,6 +101,7 @@ set(DEPS_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
 
 if(CMAKE_OSX_SYSROOT)
   set(DEPS_C_COMPILER "${DEPS_C_COMPILER} -isysroot${CMAKE_OSX_SYSROOT}")
+  set(DEPS_CXX_COMPILER "${DEPS_CXX_COMPILER} -isysroot${CMAKE_OSX_SYSROOT}")
 endif()
 
 # Cross compiling: use these for dependencies built for the
@@ -124,23 +125,24 @@ endif()
 include(ExternalProject)
 
 if(WIN32)
-  set(LIBUV_URL https://github.com/neovim/libuv/archive/327f762644ccb964715cb99d08db0f1df43f651e.tar.gz)
-  set(LIBUV_SHA256 76e4ac06c7c74aeb471342c7f2d4a054af51ff054d399fac9f26e8fd5821dc92)
+  # "nvim" branch of https://github.com/neovim/libuv
+  set(LIBUV_URL https://github.com/neovim/libuv/archive/eeae18d085de25f138c23966f98a179f0fb609e7.tar.gz)
+  set(LIBUV_SHA256 c37d0b7cb1defe69ae8dbb4d712c0d7cf838d6539178e8bcf71c72579ab5b666)
 else()
-  set(LIBUV_URL https://github.com/libuv/libuv/archive/v1.26.0.tar.gz)
-  set(LIBUV_SHA256 e414cf74615b7dae768f0f5667092f1d4975f5067c087bcbe0641e241ebe4693)
+  set(LIBUV_URL https://github.com/libuv/libuv/archive/v1.30.0.tar.gz)
+  set(LIBUV_SHA256 44c8fdadf3b3f393006a4ac4ba144020673a3f9cd72bed1fbb2c366ebcf0d199)
 endif()
 
 set(MSGPACK_URL https://github.com/msgpack/msgpack-c/releases/download/cpp-3.0.0/msgpack-3.0.0.tar.gz)
 set(MSGPACK_SHA256 bfbb71b7c02f806393bc3cbc491b40523b89e64f83860c58e3e54af47de176e4)
 
-set(LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/7dbf0b05f1228c1c719866db5e5f3d58f87f74c8.tar.gz)
-set(LUAJIT_SHA256 cbae019b5e396164eb5f0d07777b55cc03931bb944f83c61a010c053c9f5fd5b)
+# https://github.com/LuaJIT/LuaJIT/tree/v2.0
+set(LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/61464b0a5b685489bee7b6680c0e9663f2143a84.tar.gz)
+set(LUAJIT_SHA256 033fa4ef19f559ef18a9b9fb017d0cb8be58befe05ab604e92814234910f1c68)
 
 set(LUA_URL https://www.lua.org/ftp/lua-5.1.5.tar.gz)
 set(LUA_SHA256 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333)
 
-# NOTE: Version must match LUAROCKS_VERSION in third-party/cmake/BuildLuarocks.cmake
 set(LUAROCKS_URL https://github.com/luarocks/luarocks/archive/v2.4.4.tar.gz)
 set(LUAROCKS_SHA256 9eb3d0738fd02ad8bf39bcedccac4e83e9b5fff2bcca247c3584b925b2075d9c)
 
@@ -153,8 +155,12 @@ set(LIBTERMKEY_SHA256 cecbf737f35d18f433c8d7864f63c0f878af41f8bd0255a3ebb16010dc
 set(LIBVTERM_URL https://github.com/neovim/libvterm/archive/b45b648cab73f9667bde7c0c6045b285e22b3ecd.tar.gz)
 set(LIBVTERM_SHA256 37cc123deff29327efa654358c2ebaaf8589da03754ca5adb8ec47be386a0433)
 
-set(LUV_URL https://github.com/luvit/luv/archive/1.9.1-1.tar.gz)
-set(LUV_SHA256 562b9efaad30aa051a40eac9ade0c3df48bb8186763769abe47ec3fb3edb1268)
+set(LUV_VERSION 1.30.0-0)
+set(LUV_URL https://github.com/luvit/luv/archive/${LUV_VERSION}.tar.gz)
+set(LUV_SHA256 6e468fa17bf222ca8ce0bfffdbdf947fc897da48643a12955db92f80e2c852f5)
+
+set(LUA_COMPAT53_URL https://github.com/keplerproject/lua-compat-5.3/archive/v0.7.tar.gz)
+set(LUA_COMPAT53_SHA256 bec3a23114a3d9b3218038309657f0f506ad10dfbc03bb54e91da7e5ffdba0a2)
 
 set(GPERF_URL https://github.com/neovim/deps/raw/ff5b4b18a87397a8564016071ae64f64bcd8c635/opt/gperf-3.1.tar.gz)
 set(GPERF_SHA256 588546b945bba4b70b6a3a616e80b4ab466e3f33024a352fc2198112cdbb3ae2)
@@ -186,6 +192,9 @@ endif()
 
 if(USE_BUNDLED_LIBTERMKEY)
   include(BuildLibtermkey)
+  if(USE_BUNDLED_UNIBILIUM)
+    add_dependencies(libtermkey unibilium)
+  endif()
 endif()
 
 if(USE_BUNDLED_LIBVTERM)
@@ -228,9 +237,9 @@ if(USE_BUNDLED_LIBICONV)
   include(BuildLibiconv)
 endif()
 
-include(GetBinaryDeps)
-
 if(WIN32)
+  include(GetBinaryDeps)
+
   GetBinaryDep(TARGET wintools
     INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory . ${DEPS_INSTALL_DIR}/bin)
 

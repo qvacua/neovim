@@ -1,5 +1,7 @@
 " Test for the search command
 
+source shared.vim
+
 func Test_search_cmdline()
   " See test/functional/legacy/search_spec.lua
   throw 'skipped: Nvim does not support test_override()'
@@ -288,14 +290,51 @@ func Test_searchpair()
   new
   call setline(1, ['other code here', '', '[', '" cursor here', ']'])
   4
-  let a=searchpair('\[','',']','bW')
+  let a = searchpair('\[','',']','bW')
   call assert_equal(3, a)
   set nomagic
   4
-  let a=searchpair('\[','',']','bW')
+  let a = searchpair('\[','',']','bW')
   call assert_equal(3, a)
   set magic
   q!
+endfunc
+
+func Test_searchpair_errors()
+  call assert_fails("call searchpair([0], 'middle', 'end', 'bW', 'skip', 99, 100)", 'E730: using List as a String')
+  call assert_fails("call searchpair('start', {-> 0}, 'end', 'bW', 'skip', 99, 100)", 'E729: using Funcref as a String')
+  call assert_fails("call searchpair('start', 'middle', {'one': 1}, 'bW', 'skip', 99, 100)", 'E731: using Dictionary as a String')
+  call assert_fails("call searchpair('start', 'middle', 'end', 'flags', 'skip', 99, 100)", 'E475: Invalid argument: flags')
+  call assert_fails("call searchpair('start', 'middle', 'end', 'bW', 0, 99, 100)", 'E475: Invalid argument: 0')
+  call assert_fails("call searchpair('start', 'middle', 'end', 'bW', 'func', -99, 100)", 'E475: Invalid argument: -99')
+  call assert_fails("call searchpair('start', 'middle', 'end', 'bW', 'func', 99, -100)", 'E475: Invalid argument: -100')
+endfunc
+
+func Test_searchpair_skip()
+    func Zero()
+	return 0
+    endfunc
+    func Partial(x)
+	return a:x
+    endfunc
+    new
+    call setline(1, ['{', 'foo', 'foo', 'foo', '}'])
+    3 | call assert_equal(1, searchpair('{', '', '}', 'bWn', ''))
+    3 | call assert_equal(1, searchpair('{', '', '}', 'bWn', '0'))
+    3 | call assert_equal(1, searchpair('{', '', '}', 'bWn', {-> 0}))
+    3 | call assert_equal(1, searchpair('{', '', '}', 'bWn', function('Zero')))
+    3 | call assert_equal(1, searchpair('{', '', '}', 'bWn', function('Partial', [0])))
+    bw!
+endfunc
+
+func Test_searchpair_leak()
+  new
+  call setline(1, 'if one else another endif')
+
+  " The error in the skip expression caused memory to leak.
+  call assert_fails("call searchpair('\\<if\\>', '\\<else\\>', '\\<endif\\>', '', '\"foo\" 2')", 'E15:')
+
+  bwipe!
 endfunc
 
 func Test_searchc()
@@ -608,4 +647,26 @@ func Test_search_match_at_curpos()
   call assert_equal([3, 5], [line('.'), col('.')])
 
   close!
+endfunc
+
+func Test_search_display_pattern()
+  new
+  call setline(1, ['foo', 'bar', 'foobar'])
+
+  call cursor(1, 1)
+  let @/ = 'foo'
+  let pat = escape(@/, '()*?'. '\s\+')
+  let g:a = execute(':unsilent :norm! n')
+  call assert_match(pat, g:a)
+
+  " right-left
+  if exists("+rightleft")
+    set rl
+    call cursor(1, 1)
+    let @/ = 'foo'
+    let pat = 'oof/\s\+'
+    let g:a = execute(':unsilent :norm! n')
+    call assert_match(pat, g:a)
+    set norl
+  endif
 endfunc

@@ -35,8 +35,11 @@ if &lines < 24 || &columns < 80
   echoerr error
   split test.log
   $put =error
-  w
-  cquit
+  write
+  split messages
+  call append(line('$'), error)
+  write
+  qa!
 endif
 
 " Common with all tests on all systems.
@@ -121,7 +124,10 @@ func RunTheTest(test)
     exe 'call ' . a:test
   else
     try
+      let s:test = a:test
+      au VimLeavePre * call EarlyExit(s:test)
       exe 'call ' . a:test
+      au! VimLeavePre
     catch /^\cskipped/
       call add(s:messages, '    Skipped')
       call add(s:skipped, 'SKIPPED ' . a:test . ': ' . substitute(v:exception, '^\S*\s\+', '',  ''))
@@ -175,6 +181,15 @@ func AfterTheTest()
   endif
 endfunc
 
+func EarlyExit(test)
+  " It's OK for the test we use to test the quit detection.
+  if a:test != 'Test_zz_quit_detected()'
+    call add(v:errors, 'Test caused Vim to exit: ' . a:test)
+  endif
+
+  call FinishTesting()
+endfunc
+
 " This function can be called by a test if it wants to abort testing.
 func FinishTesting()
   call AfterTheTest()
@@ -200,7 +215,11 @@ func FinishTesting()
     write
   endif
 
-  let message = 'Executed ' . s:done . (s:done > 1 ? ' tests' : ' test')
+  if s:done == 0
+    let message = 'NO tests executed'
+  else
+    let message = 'Executed ' . s:done . (s:done > 1 ? ' tests' : ' test')
+  endif
   echo message
   call add(s:messages, message)
   if s:fail > 0
@@ -244,7 +263,8 @@ else
 endif
 
 " Names of flaky tests.
-let s:flaky = [
+let s:flaky_tests = [
+      \ 'Test_cursorhold_insert()',
       \ 'Test_exit_callback_interval()',
       \ 'Test_oneshot()',
       \ 'Test_out_cb()',
@@ -261,6 +281,9 @@ let s:flaky = [
       \ 'Test_lambda_with_timer()',
       \ ]
 
+" Pattern indicating a common flaky test failure.
+let s:flaky_errors_re = 'StopVimInTerminal\|VerifyScreenDump'
+
 " Locate Test_ functions and execute them.
 redir @q
 silent function /^Test_
@@ -276,28 +299,49 @@ endif
 for s:test in sort(s:tests)
   " Silence, please!
   set belloff=all
+  let prev_error = ''
+  let total_errors = []
+  let run_nr = 1
 
   call RunTheTest(s:test)
 
-  if len(v:errors) > 0 && index(s:flaky, s:test) >= 0
-    call add(s:messages, 'Found errors in ' . s:test . ':')
-    call extend(s:messages, v:errors)
-    call add(s:messages, 'Flaky test failed, running it again')
-    let first_run = v:errors
+  " Repeat a flaky test.  Give up when:
+  " - it fails again with the same message
+  " - it fails five times (with a different mesage)
+  if len(v:errors) > 0
+        \ && (index(s:flaky_tests, s:test) >= 0
+        \      || v:errors[0] =~ s:flaky_errors_re)
+    while 1
+      call add(s:messages, 'Found errors in ' . s:test . ':')
+      call extend(s:messages, v:errors)
 
-    " Flakiness is often caused by the system being very busy.  Sleep a couple
-    " of seconds to have a higher chance of succeeding the second time.
-    sleep 2
+      call add(total_errors, 'Run ' . run_nr . ':')
+      call extend(total_errors, v:errors)
 
-    let v:errors = []
-    call RunTheTest(s:test)
-    if len(v:errors) > 0
-      let second_run = v:errors
-      let v:errors = ['First run:']
-      call extend(v:errors, first_run)
-      call add(v:errors, 'Second run:')
-      call extend(v:errors, second_run)
-    endif
+      if run_nr == 5 || prev_error == v:errors[0]
+        call add(total_errors, 'Flaky test failed too often, giving up')
+        let v:errors = total_errors
+        break
+      endif
+
+      call add(s:messages, 'Flaky test failed, running it again')
+
+      " Flakiness is often caused by the system being very busy.  Sleep a
+      " couple of seconds to have a higher chance of succeeding the second
+      " time.
+      sleep 2
+
+      let prev_error = v:errors[0]
+      let v:errors = []
+      let run_nr += 1
+
+      call RunTheTest(s:test)
+
+      if len(v:errors) == 0
+        " Test passed on rerun.
+        break
+      endif
+    endwhile
   endif
 
   call AfterTheTest()

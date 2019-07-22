@@ -12,22 +12,29 @@ Various commands					*various*
 1. Various commands					*various-cmds*
 
 							*CTRL-L*
-CTRL-L			Clear and redraw the screen.  The redraw may happen
+CTRL-L			Clears and redraws the screen.  The redraw may happen
 			later, after processing typeahead.
 
+							*:mod* *:mode*
+:mod[e]			Clears and redraws the screen.
+
 							*:redr* *:redraw*
-:redr[aw][!]		Redraw the screen right now.  When ! is included it is
-			cleared first.
-			Useful to update the screen halfway through executing
-			a script or function (or a mapping if 'lazyredraw'
-			set).
+:redr[aw][!]		Redraws pending screen updates now, or the entire
+			screen if "!" is included.  To CLEAR the screen use
+			|:mode| or |CTRL-L|.
+			Useful to update the screen during a script or
+			function (or a mapping if 'lazyredraw' set).
 
 						*:redraws* *:redrawstatus*
-:redraws[tatus][!]	Redraw the status line of the current window.  When !
-			is included all status lines are redrawn.
-			Useful to update the status line(s) when 'statusline'
-			includes an item that doesn't cause automatic
-			updating.
+:redraws[tatus][!]	Redraws the status line of the current window, or all
+			status lines if "!" is included.
+			Useful if 'statusline' includes an item that doesn't
+			cause automatic updating.
+
+						*:redrawt* *:redrawtabline*
+:redrawt[abline]	Redraw the tabline.  Useful to update the tabline when
+			'tabline' includes an item that doesn't trigger
+			automatic updating.
 
 							*N<Del>*
 <Del>			When entering a number: Remove the last digit.
@@ -356,7 +363,20 @@ g8			Print the hex values of the bytes used in the
 			The pattern is matched against the relevant part of
 			the output, not necessarily the whole line. Only some
 			commands support filtering, try it out to check if it
-			works.
+			works. Some of the commands that support filtering:
+			   |:#|          - filter whole line
+			   |:clist|      - filter by file name or module name
+			   |:command|    - filter by command name
+			   |:files|      - filter by file name
+			   |:highlight|  - filter by highlight group
+			   |:jumps|      - filter by file name
+			   |:let|        - filter by variable name
+			   |:list|       - filter whole line
+			   |:llist|      - filter by file name or module name
+			   |:marks|      - filter by text in the current file,
+					   or file name for other files
+			   |:oldfiles|   - filter by file name
+			   |:set|        - filter by variable name
 
 			Only normal messages are filtered, error messages are
 			not.

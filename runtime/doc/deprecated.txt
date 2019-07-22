@@ -44,6 +44,11 @@ Functions ~
 *jobclose()*		Obsolete name for |chanclose()|
 *jobsend()*		Obsolete name for |chansend()|
 *last_buffer_nr()*	Obsolete name for bufnr("$").
+*rpcstop()*		Deprecated. Instead use |jobstop()| to stop any job,
+			or chanclose(id, "rpc") to close RPC communication
+			without stopping the job. Use chanclose(id) to close
+			any socket.
+
 
 Modifiers ~
 *cpo-<*
@@ -58,6 +63,10 @@ Normal commands ~
 
 Options ~
 *'cscopeverbose'*	Enabled by default. Use |:silent| instead.
+*'exrc'* *'ex'*		Security risk: downloaded files could include
+			a malicious .nvimrc or .exrc file. See 'secure'.
+			Recommended alternative: define an autocommand in your
+			|vimrc| to set options for a matching directory.
 'gd'
 'gdefault'		Enables the |:substitute| flag 'g' by default.
 *'fe'*			'fenc'+'enc' before Vim 6.0; no longer used.

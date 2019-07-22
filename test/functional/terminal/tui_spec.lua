@@ -182,6 +182,21 @@ describe('TUI', function()
     ]])
   end)
 
+  it('handles pasting a specific amount of text', function()
+    -- Need extra time for this test, specially in ASAN.
+    screen.timeout = 60000
+    feed_data('i\027[200~'..string.rep('z', 64)..'\027[201~')
+    screen:expect([[
+      zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz|
+      zzzzzzzzzzzzzz{1: }                                   |
+      {4:~                                                 }|
+      {4:~                                                 }|
+      {5:[No Name] [+]                                     }|
+      {3:-- INSERT --}                                      |
+      {3:-- TERMINAL --}                                    |
+    ]])
+  end)
+
   it('can handle arbitrarily long bursts of input', function()
     -- Need extra time for this test, specially in ASAN.
     screen.timeout = 60000
@@ -268,14 +283,13 @@ describe('TUI', function()
   end)
 end)
 
-describe('TUI with non-tty file descriptors', function()
-  before_each(helpers.clear)
-
+describe('TUI', function()
+  before_each(clear)
   after_each(function()
-    os.remove('testF') -- ensure test file is removed
+    os.remove('testF')
   end)
 
-  it('can handle pipes as stdout and stderr', function()
+  it('with non-tty (pipe) stdout/stderr', function()
     local screen = thelpers.screen_setup(0, '"'..nvim_prog
       ..' -u NONE -i NONE --cmd \'set noswapfile noshowcmd noruler\' --cmd \'normal iabc\' > /dev/null 2>&1 && cat testF && rm testF"')
     feed_data(':w testF\n:q\n')
@@ -286,6 +300,22 @@ describe('TUI with non-tty file descriptors', function()
                                                         |
       [Process exited 0]{1: }                               |
                                                         |
+      {3:-- TERMINAL --}                                    |
+    ]])
+  end)
+
+  it('<C-h> #10134', function()
+    local screen = thelpers.screen_setup(0, '["'..nvim_prog
+      ..[[", "-u", "NONE", "-i", "NONE", "--cmd", "set noruler", "--cmd", ':nnoremap <C-h> :echomsg "\<C-h\>"<CR>']]..']')
+
+    command([[call chansend(b:terminal_job_id, "\<C-h>")]])
+    screen:expect([[
+      {1: }                                                 |
+      {4:~                                                 }|
+      {4:~                                                 }|
+      {4:~                                                 }|
+      {5:[No Name]                                         }|
+      <C-h>                                             |
       {3:-- TERMINAL --}                                    |
     ]])
   end)
@@ -714,7 +744,9 @@ describe("TUI 't_Co' (terminal colors)", function()
 
   -- others:
 
-  it("TERM=interix uses 8 colors", function()
+  -- TODO(blueyed): this is made pending, since it causes failure + later hang
+  --                when using non-compatible libvterm (#9494/#10179).
+  pending("TERM=interix uses 8 colors", function()
     assert_term_colors("interix", nil, 8)
   end)
 
@@ -856,9 +888,9 @@ describe('TUI background color', function()
     screen:expect{any='did OptionSet, yay!'}
   end)
 
-  local function assert_bg(color, bg)
-    it('handles '..color..' as '..bg, function()
-      feed_data('\027]11;rgb:'..color..'\007')
+  it("handles deferred background color", function()
+    local last_bg = 'dark'
+    local function wait_for_bg(bg)
       -- Retry until the terminal response is handled.
       retry(100, nil, function()
         feed_data(':echo &background\n')
@@ -875,45 +907,76 @@ describe('TUI background color', function()
           ]], bg)
         })
       end)
-    end)
-  end
+      last_bg = bg
+    end
 
-  assert_bg('0000/0000/0000', 'dark')
-  assert_bg('ffff/ffff/ffff', 'light')
-  assert_bg('000/000/000', 'dark')
-  assert_bg('fff/fff/fff', 'light')
-  assert_bg('00/00/00', 'dark')
-  assert_bg('ff/ff/ff', 'light')
-  assert_bg('0/0/0', 'dark')
-  assert_bg('f/f/f', 'light')
+    local function assert_bg(colorspace, color, bg)
+      -- Ensure the opposite of the expected bg is active.
+      local other_bg = (bg == 'dark' and 'light' or 'dark')
+      if last_bg ~= other_bg then
+        feed_data(other_bg == 'light' and '\027]11;rgb:f/f/f\007'
+                                      or  '\027]11;rgb:0/0/0\007')
+        wait_for_bg(other_bg)
+      end
 
-  assert_bg('f/0/0', 'dark')
-  assert_bg('0/f/0', 'light')
-  assert_bg('0/0/f', 'dark')
+      feed_data('\027]11;'..colorspace..':'..color..'\007')
+      wait_for_bg(bg)
+    end
 
-  assert_bg('1/1/1', 'dark')
-  assert_bg('2/2/2', 'dark')
-  assert_bg('3/3/3', 'dark')
-  assert_bg('4/4/4', 'dark')
-  assert_bg('5/5/5', 'dark')
-  assert_bg('6/6/6', 'dark')
-  assert_bg('7/7/7', 'dark')
-  assert_bg('8/8/8', 'light')
-  assert_bg('9/9/9', 'light')
-  assert_bg('a/a/a', 'light')
-  assert_bg('b/b/b', 'light')
-  assert_bg('c/c/c', 'light')
-  assert_bg('d/d/d', 'light')
-  assert_bg('e/e/e', 'light')
+    assert_bg('rgb', '0000/0000/0000', 'dark')
+    assert_bg('rgb', 'ffff/ffff/ffff', 'light')
+    assert_bg('rgb', '000/000/000', 'dark')
+    assert_bg('rgb', 'fff/fff/fff', 'light')
+    assert_bg('rgb', '00/00/00', 'dark')
+    assert_bg('rgb', 'ff/ff/ff', 'light')
+    assert_bg('rgb', '0/0/0', 'dark')
+    assert_bg('rgb', 'f/f/f', 'light')
 
-  assert_bg('0/e/0', 'light')
-  assert_bg('0/d/0', 'light')
-  assert_bg('0/c/0', 'dark')
-  assert_bg('0/b/0', 'dark')
+    assert_bg('rgb', 'f/0/0', 'dark')
+    assert_bg('rgb', '0/f/0', 'light')
+    assert_bg('rgb', '0/0/f', 'dark')
 
-  assert_bg('f/0/f', 'dark')
-  assert_bg('f/1/f', 'dark')
-  assert_bg('f/2/f', 'dark')
-  assert_bg('f/3/f', 'light')
-  assert_bg('f/4/f', 'light')
+    assert_bg('rgb', '1/1/1', 'dark')
+    assert_bg('rgb', '2/2/2', 'dark')
+    assert_bg('rgb', '3/3/3', 'dark')
+    assert_bg('rgb', '4/4/4', 'dark')
+    assert_bg('rgb', '5/5/5', 'dark')
+    assert_bg('rgb', '6/6/6', 'dark')
+    assert_bg('rgb', '7/7/7', 'dark')
+    assert_bg('rgb', '8/8/8', 'light')
+    assert_bg('rgb', '9/9/9', 'light')
+    assert_bg('rgb', 'a/a/a', 'light')
+    assert_bg('rgb', 'b/b/b', 'light')
+    assert_bg('rgb', 'c/c/c', 'light')
+    assert_bg('rgb', 'd/d/d', 'light')
+    assert_bg('rgb', 'e/e/e', 'light')
+
+    assert_bg('rgb', '0/e/0', 'light')
+    assert_bg('rgb', '0/d/0', 'light')
+    assert_bg('rgb', '0/c/0', 'dark')
+    assert_bg('rgb', '0/b/0', 'dark')
+
+    assert_bg('rgb', 'f/0/f', 'dark')
+    assert_bg('rgb', 'f/1/f', 'dark')
+    assert_bg('rgb', 'f/2/f', 'dark')
+    assert_bg('rgb', 'f/3/f', 'light')
+    assert_bg('rgb', 'f/4/f', 'light')
+
+    assert_bg('rgba', '0000/0000/0000/0000', 'dark')
+    assert_bg('rgba', '0000/0000/0000/ffff', 'dark')
+    assert_bg('rgba', 'ffff/ffff/ffff/0000', 'light')
+    assert_bg('rgba', 'ffff/ffff/ffff/ffff', 'light')
+    assert_bg('rgba', '000/000/000/000', 'dark')
+    assert_bg('rgba', '000/000/000/fff', 'dark')
+    assert_bg('rgba', 'fff/fff/fff/000', 'light')
+    assert_bg('rgba', 'fff/fff/fff/fff', 'light')
+    assert_bg('rgba', '00/00/00/00', 'dark')
+    assert_bg('rgba', '00/00/00/ff', 'dark')
+    assert_bg('rgba', 'ff/ff/ff/00', 'light')
+    assert_bg('rgba', 'ff/ff/ff/ff', 'light')
+    assert_bg('rgba', '0/0/0/0', 'dark')
+    assert_bg('rgba', '0/0/0/f', 'dark')
+    assert_bg('rgba', 'f/f/f/0', 'light')
+    assert_bg('rgba', 'f/f/f/f', 'light')
+  end)
 end)

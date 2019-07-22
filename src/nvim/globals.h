@@ -88,18 +88,15 @@ EXTERN struct nvim_stats_s {
 #define NO_BUFFERS      1       // not all buffers loaded yet
 //                      0          not starting anymore
 
-/*
- * Number of Rows and Columns in the screen.
- * Must be long to be able to use them as options in option.c.
- * Note: Use default_grid.Rows and default_grid.Columns to access items in
- * default_grid.chars[]. They may have different values when the screen
- * wasn't (re)allocated yet after setting Rows or Columns (e.g., when starting
- * up).
- */
+// Number of Rows and Columns in the screen.
+// Note: Use default_grid.Rows and default_grid.Columns to access items in
+// default_grid.chars[]. They may have different values when the screen
+// wasn't (re)allocated yet after setting Rows or Columns (e.g., when starting
+// up).
 #define DFLT_COLS       80              // default value for 'columns'
 #define DFLT_ROWS       24              // default value for 'lines'
-EXTERN long Rows INIT(= DFLT_ROWS);     // nr of rows in the screen
-EXTERN long Columns INIT(= DFLT_COLS);  // nr of columns in the screen
+EXTERN int Rows INIT(= DFLT_ROWS);     // nr of rows in the screen
+EXTERN int Columns INIT(= DFLT_COLS);  // nr of columns in the screen
 
 // We use 64-bit file functions here, if available.  E.g. ftello() returns
 // off_t instead of long, which helps if long is 32 bit and off_t is 64 bit.
@@ -435,10 +432,11 @@ EXTERN win_T    *firstwin;              /* first window */
 EXTERN win_T    *lastwin;               /* last window */
 EXTERN win_T    *prevwin INIT(= NULL);  /* previous window */
 # define ONE_WINDOW (firstwin == lastwin)
-/*
- * When using this macro "break" only breaks out of the inner loop. Use "goto"
- * to break out of the tabpage loop.
- */
+# define FOR_ALL_FRAMES(frp, first_frame) \
+  for (frp = first_frame; frp != NULL; frp = frp->fr_next)  // NOLINT
+
+// When using this macro "break" only breaks out of the inner loop. Use "goto"
+// to break out of the tabpage loop.
 # define FOR_ALL_TAB_WINDOWS(tp, wp) \
   FOR_ALL_TABS(tp) \
     FOR_ALL_WINDOWS_IN_TAB(wp, tp)
@@ -510,7 +508,7 @@ EXTERN int sc_col;              /* column for shown command */
 // First NO_SCREEN, then NO_BUFFERS, then 0 when startup finished.
 EXTERN int starting INIT(= NO_SCREEN);
 // true when planning to exit. Might keep running if there is a changed buffer.
-EXTERN int exiting INIT(= false);
+EXTERN bool exiting INIT(= false);
 // is stdin a terminal?
 EXTERN int stdin_isatty INIT(= true);
 // is stdout a terminal?
@@ -700,11 +698,10 @@ EXTERN int arrow_used;                  /* Normally FALSE, set to TRUE after
                                          * to call u_sync() */
 EXTERN int ins_at_eol INIT(= FALSE);      /* put cursor after eol when
                                              restarting edit after CTRL-O */
-EXTERN char_u   *edit_submode INIT(= NULL); /* msg for CTRL-X submode */
-EXTERN char_u   *edit_submode_pre INIT(= NULL); /* prepended to edit_submode */
-EXTERN char_u   *edit_submode_extra INIT(= NULL); /* appended to edit_submode */
-EXTERN hlf_T edit_submode_highl;        /* highl. method for extra info */
-EXTERN int ctrl_x_mode INIT(= 0);       /* Which Ctrl-X mode are we in? */
+EXTERN char_u *edit_submode INIT(= NULL);  // msg for CTRL-X submode
+EXTERN char_u *edit_submode_pre INIT(= NULL);  // prepended to edit_submode
+EXTERN char_u *edit_submode_extra INIT(= NULL);  // appended to edit_submode
+EXTERN hlf_T edit_submode_highl;        // highl. method for extra info
 
 EXTERN int no_abbr INIT(= TRUE);        /* TRUE when no abbreviations loaded */
 
@@ -757,9 +754,11 @@ EXTERN bool KeyTyped;                    // true if user typed current char
 EXTERN int KeyStuffed;                   // TRUE if current char from stuffbuf
 EXTERN int maptick INIT(= 0);            // tick for each non-mapped char
 
-EXTERN int must_redraw INIT(= 0);           /* type of redraw necessary */
-EXTERN int skip_redraw INIT(= FALSE);       /* skip redraw once */
-EXTERN int do_redraw INIT(= FALSE);         /* extra redraw once */
+EXTERN int must_redraw INIT(= 0);           // type of redraw necessary
+EXTERN bool skip_redraw INIT(= false);      // skip redraw once
+EXTERN bool do_redraw INIT(= false);        // extra redraw once
+EXTERN bool must_redraw_pum INIT(= false);  // redraw pum. NB: must_redraw
+                                            // should also be set.
 
 EXTERN int need_highlight_changed INIT(= true);
 
@@ -938,6 +937,9 @@ EXTERN char_u e_interr[] INIT(= N_("Interrupted"));
 EXTERN char_u e_invaddr[] INIT(= N_("E14: Invalid address"));
 EXTERN char_u e_invarg[] INIT(= N_("E474: Invalid argument"));
 EXTERN char_u e_invarg2[] INIT(= N_("E475: Invalid argument: %s"));
+EXTERN char_u e_invargval[] INIT(= N_("E475: Invalid value for argument %s"));
+EXTERN char_u e_invargNval[] INIT(= N_(
+    "E475: Invalid value for argument %s: %s"));
 EXTERN char_u e_duparg2[] INIT(= N_("E983: Duplicate argument: %s"));
 EXTERN char_u e_invexpr2[] INIT(= N_("E15: Invalid expression: %s"));
 EXTERN char_u e_invrange[] INIT(= N_("E16: Invalid range"));
@@ -958,6 +960,7 @@ EXTERN char_u e_streamkey[] INIT(= N_(
     "E5210: dict key '%s' already set for buffered stream in channel %"
     PRIu64));
 EXTERN char_u e_libcall[] INIT(= N_("E364: Library call failed for \"%s()\""));
+EXTERN char e_fsync[] INIT(= N_("E667: Fsync failed: %s"));
 EXTERN char_u e_mkdir[] INIT(= N_("E739: Cannot create directory %s: %s"));
 EXTERN char_u e_markinval[] INIT(= N_("E19: Mark has invalid line number"));
 EXTERN char_u e_marknotset[] INIT(= N_("E20: Mark not set"));
@@ -984,9 +987,6 @@ EXTERN char_u e_notmp[] INIT(= N_("E483: Can't get temp file name"));
 EXTERN char_u e_notopen[] INIT(= N_("E484: Can't open file %s"));
 EXTERN char_u e_notopen_2[] INIT(= N_("E484: Can't open file %s: %s"));
 EXTERN char_u e_notread[] INIT(= N_("E485: Can't read file %s"));
-EXTERN char_u e_nowrtmsg[] INIT(= N_(
-        "E37: No write since last change (add ! to override)"));
-EXTERN char_u e_nowrtmsg_nobang[] INIT(= N_("E37: No write since last change"));
 EXTERN char_u e_null[] INIT(= N_("E38: Null argument"));
 EXTERN char_u e_number_exp[] INIT(= N_("E39: Number expected"));
 EXTERN char_u e_openerrf[] INIT(= N_("E40: Can't open errorfile %s"));
@@ -1058,6 +1058,9 @@ EXTERN char_u e_cmdmap_key[] INIT(=N_(
 
 EXTERN char_u e_api_error[] INIT(=N_(
     "E5555: API call: %s"));
+
+EXTERN char e_luv_api_disabled[] INIT(=N_(
+    "E5560: %s must not be called in a lua loop callback"));
 
 EXTERN char_u e_floatonly[] INIT(=N_(
     "E5601: Cannot close window, only floating window would remain"));

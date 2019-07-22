@@ -68,7 +68,8 @@ void rpc_start(Channel *channel)
     Stream *out = channel_outstream(channel);
 #if MIN_LOG_LEVEL <= DEBUG_LOG_LEVEL
     Stream *in = channel_instream(channel);
-    DLOG("rpc ch %" PRIu64 " in-stream=%p out-stream=%p", channel->id, in, out);
+    DLOG("rpc ch %" PRIu64 " in-stream=%p out-stream=%p", channel->id,
+         (void *)in, (void *)out);
 #endif
 
     rstream_start(out, receive_msgpack, channel);
@@ -223,7 +224,7 @@ static void receive_msgpack(Stream *stream, RBuffer *rbuf, size_t c,
 
   size_t count = rbuffer_size(rbuf);
   DLOG("ch %" PRIu64 ": parsing %zu bytes from msgpack Stream: %p",
-       channel->id, count, stream);
+       channel->id, count, (void *)stream);
 
   // Feed the unpacker with data
   msgpack_unpacker_reserve_buffer(channel->rpc.unpacker, count);
@@ -343,7 +344,7 @@ static void handle_request(Channel *channel, msgpack_object *request)
   evdata->args = args;
   evdata->request_id = request_id;
   channel_incref(channel);
-  if (handler.async) {
+  if (handler.fast) {
     bool is_get_mode = handler.fn == handle_nvim_get_mode;
 
     if (is_get_mode && !input_blocking()) {

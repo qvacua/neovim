@@ -133,14 +133,14 @@ typedef struct buffheader buffheader_T;
  */
 struct buffblock {
   buffblock_T *b_next;  // pointer to next buffblock
-  char_u b_str[1];      // contents (actually longer)
+  char_u b_str[];       // contents (flexible array)
 };
 
 /*
  * header used for the stuff buffer and the redo buffer
  */
 struct buffheader {
-  buffblock_T bh_first;  // first (dummy) block of list
+  buffblock_T *bh_first;  // first block of the list
   buffblock_T *bh_curr;  // buffblock for appending
   size_t bh_index;          // index for reading
   size_t bh_space;          // space in bh_curr for appending
@@ -252,6 +252,8 @@ typedef struct {
 # define w_p_fcs w_onebuf_opt.wo_fcs    // 'fillchars'
   char_u *wo_lcs;
 # define w_p_lcs w_onebuf_opt.wo_lcs    // 'listchars'
+  long wo_winbl;
+# define w_p_winbl w_onebuf_opt.wo_winbl  // 'winblend'
 
   LastSet wo_scriptID[WV_COUNT];        // SIDs for window-local options
 # define w_p_scriptID w_onebuf_opt.wo_scriptID
@@ -452,6 +454,13 @@ typedef struct {
 ///
 /// Primary exists so that literals of relevant type can be made.
 typedef TV_DICTITEM_STRUCT(sizeof("changedtick")) ChangedtickDictItem;
+
+typedef struct {
+  LuaRef on_lines;
+  LuaRef on_changedtick;
+  LuaRef on_detach;
+} BufUpdateCallbacks;
+#define BUF_UPDATE_CALLBACKS_INIT { LUA_NOREF, LUA_NOREF, LUA_NOREF }
 
 #define BUF_HAS_QF_ENTRY 1
 #define BUF_HAS_LL_ENTRY 2
@@ -796,6 +805,7 @@ struct file_buffer {
   // array of channelids which have asked to receive updates for this
   // buffer.
   kvec_t(uint64_t) update_channels;
+  kvec_t(BufUpdateCallbacks) update_callbacks;
 
   int b_diff_failed;    // internal diff failed for this buffer
 };
@@ -962,7 +972,6 @@ struct matchitem {
 };
 
 typedef int FloatAnchor;
-typedef int FloatRelative;
 
 enum {
   kFloatAnchorEast  = 1,
@@ -975,14 +984,19 @@ enum {
 // SE -> kFloatAnchorSouth | kFloatAnchorEast
 EXTERN const char *const float_anchor_str[] INIT(= { "NW", "NE", "SW", "SE" });
 
-enum {
+typedef enum {
   kFloatRelativeEditor = 0,
   kFloatRelativeWindow = 1,
   kFloatRelativeCursor = 2,
-};
+} FloatRelative;
 
 EXTERN const char *const float_relative_str[] INIT(= { "editor", "window",
                                                        "cursor" });
+
+typedef enum {
+  kWinStyleUnused = 0,
+  kWinStyleMinimal,  /// Minimal UI: no number column, eob markers, etc
+} WinStyle;
 
 typedef struct {
   Window window;
@@ -992,12 +1006,14 @@ typedef struct {
   FloatRelative relative;
   bool external;
   bool focusable;
+  WinStyle style;
 } FloatConfig;
 
 #define FLOAT_CONFIG_INIT ((FloatConfig){ .height = 0, .width = 0, \
                                           .row = 0, .col = 0, .anchor = 0, \
                                           .relative = 0, .external = false, \
-                                          .focusable = true })
+                                          .focusable = true, \
+                                          .style = kWinStyleUnused })
 
 // Structure to store last cursor position and topline.  Used by check_lnums()
 // and reset_lnums().

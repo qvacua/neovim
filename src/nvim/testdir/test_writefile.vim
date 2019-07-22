@@ -33,12 +33,12 @@ func Test_writefile_fails_gently()
 endfunc
 
 func Test_writefile_fails_conversion()
-  if !has('multi_byte') || !has('iconv')
+  if !has('multi_byte') || !has('iconv') || system('uname -s') =~ 'SunOS'
     return
   endif
   " Without a backup file the write won't happen if there is a conversion
   " error.
-  set nobackup nowritebackup
+  set nobackup nowritebackup backupdir=. backupskip=
   new
   let contents = ["line one", "line two"]
   call writefile(contents, 'Xfile')
@@ -49,7 +49,7 @@ func Test_writefile_fails_conversion()
 
   call delete('Xfile')
   bwipe!
-  set backup& writebackup&
+  set backup& writebackup& backupdir&vim backupskip&vim
 endfunc
 
 func Test_writefile_fails_conversion2()
@@ -58,7 +58,7 @@ func Test_writefile_fails_conversion2()
   endif
   " With a backup file the write happens even if there is a conversion error,
   " but then the backup file must remain
-  set nobackup writebackup
+  set nobackup writebackup backupdir=. backupskip=
   let contents = ["line one", "line two"]
   call writefile(contents, 'Xfile_conversion_err')
   edit Xfile_conversion_err
@@ -71,6 +71,7 @@ func Test_writefile_fails_conversion2()
   call delete('Xfile_conversion_err')
   call delete('Xfile_conversion_err~')
   bwipe!
+  set backup& writebackup& backupdir&vim backupskip&vim
 endfunc
 
 func SetFlag(timer)
@@ -153,4 +154,23 @@ func Test_writefile_autowrite_nowrite()
 
   bwipe!
   set noautowrite
+endfunc
+
+func Test_writefile_sync_dev_stdout()
+  if !has('unix')
+    return
+  endif
+  if filewritable('/dev/stdout')
+    " Just check that this doesn't cause an error.
+    call writefile(['one'], '/dev/stdout', 's')
+  else
+    throw 'Skipped: /dev/stdout is not writable'
+  endif
+endfunc
+
+func Test_writefile_sync_arg()
+  " This doesn't check if fsync() works, only that the argument is accepted.
+  call writefile(['one'], 'Xtest', 's')
+  call writefile(['two'], 'Xtest', 'S')
+  call delete('Xtest')
 endfunc

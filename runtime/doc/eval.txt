@@ -610,10 +610,10 @@ Expression syntax summary, from least to most significant:
 	expr2 ? expr1 : expr1	if-then-else
 
 |expr2|	expr3
-	expr3 || expr3 ..	logical OR
+	expr3 || expr3 ...	logical OR
 
 |expr3|	expr4
-	expr4 && expr4 ..	logical AND
+	expr4 && expr4 ...	logical AND
 
 |expr4|	expr5
 	expr5 == expr5		equal
@@ -634,14 +634,15 @@ Expression syntax summary, from least to most significant:
 	expr5 isnot expr5	different |List| instance
 
 |expr5|	expr6
-	expr6 +	 expr6 ..	number addition or list concatenation
-	expr6 -	 expr6 ..	number subtraction
-	expr6 .	 expr6 ..	string concatenation
+	expr6 +	 expr6 ...	number addition, list or blob concatenation
+	expr6 -	 expr6 ...	number subtraction
+	expr6 .	 expr6 ...	string concatenation
+	expr6 .. expr6 ...	string concatenation
 
 |expr6|	expr7
-	expr7 *	 expr7 ..	number multiplication
-	expr7 /	 expr7 ..	number division
-	expr7 %	 expr7 ..	number modulo
+	expr7 *	 expr7 ...	number multiplication
+	expr7 /	 expr7 ...	number division
+	expr7 %	 expr7 ...	number modulo
 
 |expr7|	expr8
 	! expr7			logical NOT
@@ -670,7 +671,7 @@ Expression syntax summary, from least to most significant:
 	{args -> expr1}		lambda expression
 
 
-".." indicates that the operations in this level can be concatenated.
+"..." indicates that the operations in this level can be concatenated.
 Example: >
 	&nu || &list && &shell == "csh"
 
@@ -707,7 +708,9 @@ use in a variable such as "a:1".
 expr2 and expr3						*expr2* *expr3*
 ---------------
 
-					*expr-barbar* *expr-&&*
+expr3 || expr3 ..	logical OR		*expr-barbar*
+expr4 && expr4 ..	logical AND		*expr-&&*
+
 The "||" and "&&" operators take one argument on each side.  The arguments
 are (converted to) Numbers.  The result is:
 
@@ -847,18 +850,22 @@ can be matched like an ordinary character.  Examples:
 
 expr5 and expr6						*expr5* *expr6*
 ---------------
-expr6 +	 expr6 ..	Number addition or |List| concatenation	*expr-+*
-expr6 -	 expr6 ..	Number subtraction			*expr--*
-expr6 .	 expr6 ..	String concatenation			*expr-.*
+expr6 + expr6   Number addition, |List| or |Blob| concatenation	*expr-+*
+expr6 - expr6   Number subtraction				*expr--*
+expr6 . expr6   String concatenation				*expr-.*
+expr6 .. expr6  String concatenation				*expr-..*
 
 For |Lists| only "+" is possible and then both expr6 must be a list.  The
 result is a new list with the two lists Concatenated.
 
-expr7 *	 expr7 ..	Number multiplication			*expr-star*
-expr7 /	 expr7 ..	Number division				*expr-/*
-expr7 %	 expr7 ..	Number modulo				*expr-%*
+For String concatenation ".." is preferred, since "." is ambiguous, it is also
+used for |Dict| member access and floating point numbers.
 
-For all, except ".", Strings are converted to Numbers.
+expr7 * expr7  Number multiplication				*expr-star*
+expr7 / expr7  Number division					*expr-/*
+expr7 % expr7  Number modulo					*expr-%*
+
+For all, except "." and "..", Strings are converted to Numbers.
 For bitwise operators see |and()|, |or()| and |xor()|.
 
 Note the difference between "+" and ".":
@@ -1049,11 +1056,6 @@ These are INVALID:
 	3.		empty {M}
 	1e40		missing .{M}
 
-							*float-pi* *float-e*
-A few useful values to copy&paste: >
-	:let pi = 3.14159265359
-	:let e  = 2.71828182846
-
 Rationale:
 Before floating point was introduced, the text "123.456" was interpreted as
 the two numbers "123" and "456", both converted to a string and concatenated,
@@ -1062,6 +1064,15 @@ could not find it intentionally being used in Vim scripts, this backwards
 incompatibility was accepted in favor of being able to use the normal notation
 for floating point numbers.
 
+							*float-pi* *float-e*
+A few useful values to copy&paste: >
+	:let pi = 3.14159265359
+	:let e  = 2.71828182846
+Or, if you don't want to write them in as floating-point literals, you can
+also use functions, like the following: >
+	:let pi = acos(-1.0)
+	:let e  = exp(1.0)
+<
 						*floating-point-precision*
 The precision and range of floating points numbers depends on what "double"
 means in the library Vim was compiled with.  There is no way to change this at
@@ -1101,8 +1112,10 @@ A string constant accepts these special characters:
 \\	backslash
 \"	double quote
 \<xxx>	Special key named "xxx".  e.g. "\<C-W>" for CTRL-W.  This is for use
-	in mappings, the 0x80 byte is escaped.  Don't use <Char-xxxx> to get a
-	utf-8 character, use \uxxxx as mentioned above.
+	in mappings, the 0x80 byte is escaped.
+	To use the double quote character it must be escaped: "<M-\">".
+	Don't use <Char-xxxx> to get a utf-8 character, use \uxxxx as
+	mentioned above.
 
 Note that "\xff" is stored as the byte 255, which may be invalid in some
 encodings.  Use "\u00ff" to store character 255 correctly as UTF-8.
@@ -1211,8 +1224,8 @@ The arguments are optional.  Example: >
 							*closure*
 Lambda expressions can access outer scope variables and arguments.  This is
 often called a closure.  Example where "i" and "a:arg" are used in a lambda
-while they exist in the function scope.  They remain valid even after the
-function returns: >
+while they already exist in the function scope.  They remain valid even after
+the function returns: >
 	:function Foo(arg)
 	:  let i = 3
 	:  return {x -> x + i - a:arg}
@@ -1220,8 +1233,11 @@ function returns: >
 	:let Bar = Foo(4)
 	:echo Bar(6)
 <	5
-See also |:func-closure|. Lambda and closure support can be checked with: >
-        if has('lambda')
+Note that the variables must exist in the outer scope before the lamba is
+defined for this to work.  See also |:func-closure|.
+
+Lambda and closure support can be checked with: >
+	if has('lambda')
 
 Examples for using a lambda expression with |sort()|, |map()| and |filter()|: >
 	:echo map([1, 2, 3], {idx, val -> val + 1})
@@ -1990,8 +2006,10 @@ atan2({expr}, {expr})		Float   arc tangent of {expr1} / {expr2}
 browse({save}, {title}, {initdir}, {default})
 				String	put up a file requester
 browsedir({title}, {initdir})	String	put up a directory requester
+bufadd({name})			Number	add a buffer to the buffer list
 bufexists({expr})		Number	|TRUE| if buffer {expr} exists
 buflisted({expr})		Number	|TRUE| if buffer {expr} is listed
+bufload({expr})			Number	load buffer {expr} if not loaded yet
 bufloaded({expr})		Number	|TRUE| if buffer {expr} is loaded
 bufname({expr})		String	Name of the buffer {expr}
 bufnr({expr} [, {create}])	Number	Number of the buffer {expr}
@@ -2270,6 +2288,9 @@ searchpos({pattern} [, {flags} [, {stopline} [, {timeout}]]])
 server2client({clientid}, {string})
 				Number	send reply string
 serverlist()			String	get a list of available servers
+setbufline( {expr}, {lnum}, {line})
+				Number	set line {lnum} to {line} in buffer
+					{expr}
 setbufvar({expr}, {varname}, {val})	set {varname} in buffer {expr} to {val}
 setcharsearch({dict})		Dict	set character search from {dict}
 setcmdpos({pos})		Number	set cursor position in command-line
@@ -2660,6 +2681,14 @@ browsedir({title}, {initdir})
 		When the "Cancel" button is hit, something went wrong, or
 		browsing is not possible, an empty string is returned.
 
+bufadd({name})						*bufadd()*
+		Add a buffer to the buffer list with {name}.
+		If a buffer for file {name} already exists, return that buffer
+		number.  Otherwise return the buffer number of the newly
+		created buffer.  When {name} is an empty string then a new
+		buffer is always created.
+		The buffer will not have' 'buflisted' set.
+
 bufexists({expr})					*bufexists()*
 		The result is a Number, which is |TRUE| if a buffer called
 		{expr} exists.
@@ -2685,6 +2714,15 @@ bufexists({expr})					*bufexists()*
 buflisted({expr})					*buflisted()*
 		The result is a Number, which is |TRUE| if a buffer called
 		{expr} exists and is listed (has the 'buflisted' option set).
+		The {expr} argument is used like with |bufexists()|.
+
+bufload({expr})						*bufload()*
+		Ensure the buffer {expr} is loaded.  When the buffer name
+		refers to an existing file then the file is read.  Otherwise
+		the buffer will be empty.  If the buffer was already loaded
+		then there is no change.
+		If there is an existing swap file for the file of the buffer,
+		there will be no dialog, the buffer will be loaded anyway.
 		The {expr} argument is used like with |bufexists()|.
 
 bufloaded({expr})					*bufloaded()*
@@ -4691,6 +4729,7 @@ getwininfo([{winid}])					*getwininfo()*
 			height		window height (excluding winbar)
 			loclist		1 if showing a location list
 			quickfix	1 if quickfix or location list window
+			terminal	1 if a terminal window
 			tabnr		tab page number
 			topline		first displayed buffer line 
 			variables	a reference to the dictionary with
@@ -5272,9 +5311,9 @@ jobstart({cmd}[, {opts}])				*jobstart()*
 							*jobstart-options*
 		{opts} is a dictionary with these keys:
 		  |on_stdout|: stdout event handler (function name or |Funcref|)
-		  stdout_buffered : read stdout in |buffered| mode.
+		  stdout_buffered : read stdout in |channel-buffered| mode.
 		  |on_stderr|: stderr event handler (function name or |Funcref|)
-		  stderr_buffered : read stderr in |buffered| mode.
+		  stderr_buffered : read stderr in |channel-buffered| mode.
 		  |on_exit|  : exit event handler (function name or |Funcref|)
 		  cwd      : Working directory of the job; defaults to
 		             |current-directory|.
@@ -5312,10 +5351,12 @@ jobwait({ids}[, {timeout}])				*jobwait()*
 		Wait for a set of jobs to complete.
 
 		{ids} is a list of |job-id|s to wait for.
-		{timeout} is the maximum number of milliseconds to wait.
-		{timeout} of zero can be used to check if a job-id is valid,
-		without waiting.
+		{timeout} is the maximum waiting time in milliseconds, -1
+		means forever.
 
+		Timeout of 0 can be used to check the status of a job: >
+			let running = jobwait([{job-id}], 0)[0] == -1
+<
 		During jobwait() callbacks for jobs not in the {ids} list may
 		be invoked. The screen will not redraw unless |:redraw| is
 		invoked by a callback.
@@ -5516,7 +5557,7 @@ log10({expr})						*log10()*
 
 luaeval({expr}[, {expr}])
 		Evaluate Lua expression {expr} and return its result converted
-		to Vim data structures. See |lua-luaeval| for more details.
+		to Vim data structures. See |lua-eval| for more details.
 
 map({expr1}, {expr2})					*map()*
 		{expr1} must be a |List| or a |Dictionary|.
@@ -6668,11 +6709,6 @@ rpcstart({prog}[, {argv}])					*rpcstart()*
 <		with >
 			:let id = jobstart(['prog', 'arg1', 'arg2'], {'rpc': v:true})
 
-rpcstop({channel})						*rpcstop()*
-		Deprecated. Instead use |jobstop()| to stop any job, and
-		chanclose(id, "rpc") to close RPC communication without
-		stopping the job. Use chanclose(id) to close any socket.
-
 screenattr({row}, {col})					*screenattr()*
 		Like |screenchar()|, but return the attribute.  This is a rather
 		arbitrary number that can only be used to compare to the
@@ -6980,6 +7016,19 @@ serverstop({address})					*serverstop()*
 		If |v:servername| is stopped it is set to the next available
 		address returned by |serverlist()|.
 
+setbufline({expr}, {lnum}, {text})			*setbufline()*
+		Set line {lnum} to {text} in buffer {expr}.  To insert
+		lines use |append()|.
+
+		For the use of {expr}, see |bufname()| above.
+
+		{lnum} is used like with |setline()|.
+		This works like |setline()| for the specified buffer.
+		On success 0 is returned, on failure 1 is returned.
+
+		If {expr} is not a valid buffer or {lnum} is not valid, an
+		error message is given.
+
 setbufvar({expr}, {varname}, {val})			*setbufvar()*
 		Set option or local variable {varname} in buffer {expr} to
 		{val}.
@@ -7047,13 +7096,19 @@ setfperm({fname}, {mode})				*setfperm()* *chmod*
 
 setline({lnum}, {text})					*setline()*
 		Set line {lnum} of the current buffer to {text}.  To insert
-		lines use |append()|.
+		lines use |append()|. To set lines in another buffer use
+		|setbufline()|.
+
 		{lnum} is used like with |getline()|.
 		When {lnum} is just below the last line the {text} will be
 		added as a new line.
+
 		If this succeeds, 0 is returned.  If this fails (most likely
-		because {lnum} is invalid) 1 is returned.  Example: >
+		because {lnum} is invalid) 1 is returned.
+
+		Example: >
 			:call setline(5, strftime("%c"))
+
 <		When {text} is a |List| then line {lnum} and following lines
 		will be set to the items in the list.  Example: >
 			:call setline(5, ['aaa', 'bbb', 'ccc'])
@@ -7681,7 +7736,7 @@ sockconnect({mode}, {address}, {opts})			 *sockconnect()*
 
 		{opts} is a dictionary with these keys:
 		  |on_data| : callback invoked when data was read from socket
-		  data_buffered : read data from socket in |buffered| mode.
+		  data_buffered : read socket data in |channel-buffered| mode.
 		  rpc     : If set, |msgpack-rpc| will be used to communicate
 			    over the socket.
 		Returns:
@@ -7850,7 +7905,7 @@ stdioopen({opts})			 *stdioopen()*
 
 		{opts} is a dictionary with these keys:
 		  |on_stdin| : callback invoked when stdin is written to.
-		  stdin_buffered : read stdin in |buffered| mode.
+		  stdin_buffered : read stdin in |channel-buffered| mode.
 		  rpc      : If set, |msgpack-rpc| will be used to communicate
 			     over stdio
 		Returns:
@@ -8518,13 +8573,10 @@ timer_start({time}, {callback} [, {options}])
 		waiting for input.
 
 		{options} is a dictionary.  Supported entries:
-		   "repeat"	Number of times to repeat calling the
-				callback.  -1 means forever.  When not present
-				the callback will be called once.
+		   "repeat"	Number of times to repeat the callback.
+				-1 means forever.  Default is 1.
 				If the timer causes an error three times in a
-				row the repeat is cancelled.  This avoids that
-				Vim becomes unusable because of all the error
-				messages.
+				row the repeat is cancelled.
 
 		Example: >
 			func MyHandler(timer)
@@ -8532,8 +8584,7 @@ timer_start({time}, {callback} [, {options}])
 			endfunc
 			let timer = timer_start(500, 'MyHandler',
 				\ {'repeat': 3})
-<		This will invoke MyHandler() three times at 500 msec
-		intervals.
+<		This invokes MyHandler() three times at 500 msec intervals.
 
 timer_stop({timer})					*timer_stop()*
 		Stop a timer.  The timer callback will no longer be invoked.
@@ -8942,7 +8993,7 @@ winwidth({nr})						*winwidth()*
 		Examples: >
   :echo "The current window has " . winwidth(0) . " columns."
   :if winwidth(0) <= 50
-  :  exe "normal 50\<C-W>|"
+  :  50 wincmd |
   :endif
 <		For getting the terminal or screen size, see the 'columns'
 		option.
@@ -9459,9 +9510,13 @@ This does NOT work: >
 			When the selected range of items is partly past the
 			end of the list, items will be added.
 
-					*:let+=* *:let-=* *:let.=* *E734*
+                                            *:let+=* *:let-=* *:letstar=*
+                                            *:let/=* *:let%=* *:let.=* *E734*
 :let {var} += {expr1}	Like ":let {var} = {var} + {expr1}".
 :let {var} -= {expr1}	Like ":let {var} = {var} - {expr1}".
+:let {var} *= {expr1}	Like ":let {var} = {var} * {expr1}".
+:let {var} /= {expr1}	Like ":let {var} = {var} / {expr1}".
+:let {var} %= {expr1}	Like ":let {var} = {var} % {expr1}".
 :let {var} .= {expr1}	Like ":let {var} = {var} . {expr1}".
 			These fail if {var} was not set yet and when the type
 			of {var} and {expr1} don't fit the operator.
@@ -9608,7 +9663,29 @@ This does NOT work: >
 			No error message is given for a non-existing
 			variable, also without !.
 			If the system does not support deleting an environment
-			variable, it is made emtpy.
+			variable, it is made empty.
+
+						*:cons* *:const*
+:cons[t] {var-name} = {expr1}
+:cons[t] [{name1}, {name2}, ...] = {expr1}
+:cons[t] [{name}, ..., ; {lastname}] = {expr1}
+			Similar to |:let|, but additionally lock the variable
+			after setting the value.  This is the same as locking
+			the variable with |:lockvar| just after |:let|, thus: >
+				:const x = 1
+<			is equivalent to: >
+				:let x = 1
+				:lockvar 1 x
+<			This is useful if you want to make sure the variable
+			is not modified.
+							*E995*
+			|:const| does not allow to for changing a variable. >
+				:let x = 1
+				:const x = 2  " Error!
+<							*E996*
+			Note that environment variables, option values and
+			register values cannot be used here, since they cannot
+			be locked.
 
 :lockv[ar][!] [depth] {name} ...			*:lockvar* *:lockv*
 			Lock the internal variable {name}.  Locking means that

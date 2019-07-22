@@ -199,6 +199,23 @@ paste a block of 6 lines, emits: >
 User reloads the buffer with ":edit", emits: >
   nvim_buf_detach_event[{buf}]
 
+                                                        *api-buffer-updates-lua*
+In-process lua plugins can also recieve buffer updates, in the form of lua
+callbacks. These callbacks are called frequently in various contexts, buffer
+contents or window layout should not be changed inside these |textlock|.
+|vim.schedule| can be used to defer these operations to the main loop, where
+they are allowed.
+
+|nvim_buf_attach| will take keyword args for the callbacks. "on_lines" will
+receive parameters ("lines", {buf}, {changedtick}, {firstline}, {lastline}, {new_lastline}).
+Unlike remote channels the text contents are not passed. The new text can be
+accessed inside the callback as
+`vim.api.nvim_buf_get_lines(buf, firstline, new_lastline, true)`
+"on_changedtick" is invoked when |b:changedtick| was incremented but no text
+was changed. The parameters recieved are ("changedtick", {buf}, {changedtick}).
+
+
+
 ==============================================================================
 Buffer highlighting					       *api-highlights*
 
@@ -267,14 +284,18 @@ highlighting, or |api-highlights|.
 By default, floats will use |hl-NormalFloat| as normal highlight, which
 links to |hl-Pmenu| in the builtin color scheme. The 'winhighlight' option can
 be used to override it. Currently, floating windows don't support any visual
-decorations like a border or additional widgets like scrollbar.
+decorations like a border or additional widgets like scrollbar. By default,
+floats will inherit options from the current window. This is not always
+useful for some options, like 'number'. Use `style='minimal'` flag to
+|nvim_open_win()| to disable many UI features that are unwanted for a simple
+float, like end-of-buffer region or special columns.
 
 Here is an example for creating a float with scratch buffer: >
 
     let buf = nvim_create_buf(v:false, v:true)
     call nvim_buf_set_lines(buf, 0, -1, v:true, ["test", "text"])
     let opts = {'relative': 'cursor', 'width': 10, 'height': 2, 'col': 0,
-        \ 'row': 1, 'anchor': 'NW'}
+        \ 'row': 1, 'anchor': 'NW', 'style': 'minimal'}
     let win = nvim_open_win(buf, 0, opts)
     " optional: change highlight, otherwise Pmenu is used
     call nvim_win_set_option(win, 'winhl', 'Normal:MyHighlight')

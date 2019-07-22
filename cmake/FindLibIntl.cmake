@@ -40,15 +40,13 @@ find_library(LibIntl_LIBRARY
 )
 
 if (LibIntl_INCLUDE_DIR)
-  set(CMAKE_REQUIRED_INCLUDES "${LibIntl_INCLUDE_DIR}")
+  list(APPEND CMAKE_REQUIRED_INCLUDES "${LibIntl_INCLUDE_DIR}")
 endif()
-
 # On some systems (linux+glibc) libintl is passively available.
 # So only specify the library if one was found.
 if (LibIntl_LIBRARY)
-  set(CMAKE_REQUIRED_LIBRARIES "${LibIntl_LIBRARY}")
+  list(APPEND CMAKE_REQUIRED_LIBRARIES "${LibIntl_LIBRARY}")
 endif()
-
 check_c_source_compiles("
 #include <libintl.h>
 
@@ -59,6 +57,12 @@ int main(int argc, char** argv) {
   bind_textdomain_codeset(\"foo\", \"bar\");
   textdomain(\"foo\");
 }" HAVE_WORKING_LIBINTL)
+if (LibIntl_INCLUDE_DIR)
+  list(REMOVE_ITEM CMAKE_REQUIRED_INCLUDES "${LibIntl_INCLUDE_DIR}")
+endif()
+if (LibIntl_LIBRARY)
+  list(REMOVE_ITEM CMAKE_REQUIRED_LIBRARIES "${LibIntl_LIBRARY}")
+endif()
 
 if (HAVE_WORKING_LIBINTL)
   # On some systems (linux+glibc) libintl is passively available.
@@ -67,6 +71,7 @@ if (HAVE_WORKING_LIBINTL)
   if(LibIntl_FIND_REQUIRED)
     unset(LibIntl_FIND_REQUIRED)
   endif()
+  set(LibIntl_FIND_QUIETLY ON)
 
   check_variable_exists(_nl_msg_cat_cntr HAVE_NL_MSG_CAT_CNTR)
 endif()

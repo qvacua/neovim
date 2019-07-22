@@ -49,3 +49,62 @@ func Test_line_continuation()
 	"\ and some more
   call assert_equal([5, 6], array)
 endfunc
+
+func Test_string_concatenation()
+  call assert_equal('ab', 'a'.'b')
+  call assert_equal('ab', 'a' .'b')
+  call assert_equal('ab', 'a'. 'b')
+  call assert_equal('ab', 'a' . 'b')
+
+  call assert_equal('ab', 'a'..'b')
+  call assert_equal('ab', 'a' ..'b')
+  call assert_equal('ab', 'a'.. 'b')
+  call assert_equal('ab', 'a' .. 'b')
+
+  let a = 'a'
+  let b = 'b'
+  let a .= b
+  call assert_equal('ab', a)
+
+  let a = 'a'
+  let a.=b
+  call assert_equal('ab', a)
+
+  let a = 'a'
+  let a ..= b
+  call assert_equal('ab', a)
+
+  let a = 'a'
+  let a..=b
+  call assert_equal('ab', a)
+endfunc
+
+func Test_nocatch_restore_silent_emsg()
+  silent! try
+    throw 1
+  catch
+  endtry
+  echoerr 'wrong'
+  let c1 = nr2char(screenchar(&lines, 1))
+  let c2 = nr2char(screenchar(&lines, 2))
+  let c3 = nr2char(screenchar(&lines, 3))
+  let c4 = nr2char(screenchar(&lines, 4))
+  let c5 = nr2char(screenchar(&lines, 5))
+  call assert_equal('wrong', c1 . c2 . c3 . c4 . c5)
+endfunc
+
+func Test_let_errmsg()
+  call assert_fails('let v:errmsg = []', 'E730:')
+  let v:errmsg = ''
+  call assert_fails('let v:errmsg = []', 'E730:')
+  let v:errmsg = ''
+endfunc
+
+" Test fix for issue #4507
+func Test_skip_after_throw()
+  try
+    throw 'something'
+    let x = wincol() || &ts
+  catch /something/
+  endtry
+endfunc
