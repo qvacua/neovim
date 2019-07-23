@@ -349,11 +349,13 @@ int main(int argc, char **argv)
   // startup. This allows an external UI to show messages and prompts from
   // --cmd and buffer loading (e.g. swap files)
 #ifdef CUSTOM_UI
+  bool use_remote_ui = false;
+  bool use_builtin_ui = true;
   ui_builtin_start();
-    // prepare screen now, so external UIs can display messages
-    starting = NO_BUFFERS;
-    screenclear();
-    TIME_MSG("initialized screen early for UI");
+  // prepare screen now, so external UIs can display messages
+  starting = NO_BUFFERS;
+  screenclear();
+  TIME_MSG("initialized screen early for UI");
 #else
   // and prompts (--cmd, swapfile dialog, …).
   bool use_remote_ui = (embedded_mode && !headless_mode);
