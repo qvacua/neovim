@@ -2451,7 +2451,7 @@ static char_u *find_command(exarg_T *eap, int *full)
 
     if (ASCII_ISLOWER(eap->cmd[0])) {
       const int c1 = eap->cmd[0];
-      const int c2 = eap->cmd[1];
+      const int c2 = len == 1 ? NUL : eap->cmd[1];
 
       if (command_count != (int)CMD_SIZE) {
         iemsg((char *)_("E943: Command table needs to be updated, run 'make'"));
@@ -6765,8 +6765,9 @@ void ex_splitview(exarg_T *eap)
     if (*eap->arg != NUL
         ) {
       RESET_BINDING(curwin);
-    } else
-      do_check_scrollbind(FALSE);
+    } else {
+      do_check_scrollbind(false);
+    }
     do_exedit(eap, old_curwin);
   }
 
@@ -7526,7 +7527,7 @@ static void ex_operators(exarg_T *eap)
 
   case CMD_yank:
     oa.op_type = OP_YANK;
-    (void)op_yank(&oa, true);
+    (void)op_yank(&oa, true, false);
     break;
 
   default:          /* CMD_rshift or CMD_lshift */
@@ -8112,8 +8113,9 @@ open_exfile (
     return NULL;
   }
 
-  if ((fd = mch_fopen((char *)fname, mode)) == NULL)
+  if ((fd = os_fopen((char *)fname, mode)) == NULL) {
     EMSG2(_("E190: Cannot open \"%s\" for writing"), fname);
+  }
 
   return fd;
 }

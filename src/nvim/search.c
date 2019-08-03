@@ -864,13 +864,11 @@ int searchit(
       }
       at_first_line = FALSE;
 
-      /*
-       * Stop the search if wrapscan isn't set, "stop_lnum" is
-       * specified, after an interrupt, after a match and after looping
-       * twice.
-       */
+      // Stop the search if wrapscan isn't set, "stop_lnum" is
+      // specified, after an interrupt, after a match and after looping
+      // twice.
       if (!p_ws || stop_lnum != 0 || got_int || called_emsg
-          || (timed_out != NULL && timed_out)
+          || (timed_out != NULL && *timed_out)
           || break_loop
           || found || loop) {
         break;
@@ -1139,7 +1137,7 @@ int do_search(
 
       // Get the offset, so we know how long it is.
       if (spats[0].off.line || spats[0].off.end || spats[0].off.off) {
-        p = off_buf;
+        p = off_buf;  // -V507
         *p++ = dirc;
         if (spats[0].off.end) {
           *p++ = 'e';
@@ -4575,10 +4573,9 @@ find_pattern_in_path(
           xfree(files);
           files = bigger;
         }
-        if ((files[depth + 1].fp = mch_fopen((char *)new_fname, "r"))
-            == NULL)
+        if ((files[depth + 1].fp = os_fopen((char *)new_fname, "r")) == NULL) {
           xfree(new_fname);
-        else {
+        } else {
           if (++depth == old_files) {
             // Something wrong. We will forget one of our already visited files
             // now.

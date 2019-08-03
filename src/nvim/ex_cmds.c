@@ -4557,7 +4557,7 @@ void ex_help(exarg_T *eap)
     } else {
       // There is no help window yet.
       // Try to open the file specified by the "helpfile" option.
-      if ((helpfd = mch_fopen((char *)p_hf, READBIN)) == NULL) {
+      if ((helpfd = os_fopen((char *)p_hf, READBIN)) == NULL) {
         smsg(_("Sorry, help file \"%s\" not found"), p_hf);
         goto erret;
       }
@@ -5087,7 +5087,7 @@ void fix_help_buffer(void)
                 continue;
               }
 
-              FILE *const fd = mch_fopen((char *)fnames[fi], "r");
+              FILE *const fd = os_fopen((char *)fnames[fi], "r");
               if (fd == NULL) {
                 continue;
               }
@@ -5223,17 +5223,15 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
     return;
   }
 
-  FILE *const fd_tags = mch_fopen((char *)NameBuff, "w");
+  FILE *const fd_tags = os_fopen((char *)NameBuff, "w");
   if (fd_tags == NULL) {
     EMSG2(_("E152: Cannot open %s for writing"), NameBuff);
     FreeWild(filecount, files);
     return;
   }
 
-  /*
-   * If using the "++t" argument or generating tags for "$VIMRUNTIME/doc"
-   * add the "help-tags" tag.
-   */
+  // If using the "++t" argument or generating tags for "$VIMRUNTIME/doc"
+  // add the "help-tags" tag.
   ga_init(&ga, (int)sizeof(char_u *), 100);
   if (add_help_tags
       || path_full_compare((char_u *)"$VIMRUNTIME/doc",
@@ -5243,11 +5241,9 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
     GA_APPEND(char_u *, &ga, s);
   }
 
-  /*
-   * Go over all the files and extract the tags.
-   */
+  // Go over all the files and extract the tags.
   for (int fi = 0; fi < filecount && !got_int; fi++) {
-    FILE *const fd = mch_fopen((char *)files[fi], "r");
+    FILE *const fd = os_fopen((char *)files[fi], "r");
     if (fd == NULL) {
       EMSG2(_("E153: Unable to open %s for reading"), files[fi]);
       continue;
@@ -5285,21 +5281,19 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
         }
         firstline = false;
       }
-      p1 = vim_strchr(IObuff, '*');             /* find first '*' */
+      p1 = vim_strchr(IObuff, '*');                        // find first '*'
       while (p1 != NULL) {
         p2 = (char_u *)strchr((const char *)p1 + 1, '*');  // Find second '*'.
-        if (p2 != NULL && p2 > p1 + 1) {  // Skip "*" and "**".
+        if (p2 != NULL && p2 > p1 + 1) {                   // Skip "*" and "**".
           for (s = p1 + 1; s < p2; s++) {
             if (*s == ' ' || *s == '\t' || *s == '|') {
               break;
             }
           }
 
-          /*
-           * Only accept a *tag* when it consists of valid
-           * characters, there is white space before it and is
-           * followed by a white character or end-of-line.
-           */
+          // Only accept a *tag* when it consists of valid
+          // characters, there is white space before it and is
+          // followed by a white character or end-of-line.
           if (s == p2
               && (p1 == IObuff || p1[-1] == ' ' || p1[-1] == '\t')
               && (vim_strchr((char_u *)" \t\n\r", s[1]) != NULL
@@ -5310,7 +5304,7 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
             GA_APPEND(char_u *, &ga, s);
             sprintf((char *)s, "%s\t%s", p1, fname);
 
-            /* find next '*' */
+            // find next '*'
             p2 = vim_strchr(p2 + 1, '*');
           }
         }
@@ -5324,18 +5318,12 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
 
   FreeWild(filecount, files);
 
-  if (!got_int) {
-    /*
-     * Sort the tags.
-     */
-    if (ga.ga_data != NULL) {
-      sort_strings((char_u **)ga.ga_data, ga.ga_len);
-    }
+  if (!got_int && ga.ga_data != NULL) {
+    // Sort the tags.
+    sort_strings((char_u **)ga.ga_data, ga.ga_len);
 
-    /*
-     * Check for duplicates.
-     */
-    for (int i = 1; i < ga.ga_len; ++i) {
+    // Check for duplicates.
+    for (int i = 1; i < ga.ga_len; i++) {
       p1 = ((char_u **)ga.ga_data)[i - 1];
       p2 = ((char_u **)ga.ga_data)[i];
       while (*p1 == *p2) {
@@ -5357,31 +5345,31 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
       fprintf(fd_tags, "!_TAG_FILE_ENCODING\tutf-8\t//\n");
     }
 
-    /*
-     * Write the tags into the file.
-     */
-    for (int i = 0; i < ga.ga_len; ++i) {
+    // Write the tags into the file.
+    for (int i = 0; i < ga.ga_len; i++) {
       s = ((char_u **)ga.ga_data)[i];
-      if (STRNCMP(s, "help-tags\t", 10) == 0)
-        /* help-tags entry was added in formatted form */
+      if (STRNCMP(s, "help-tags\t", 10) == 0) {
+        // help-tags entry was added in formatted form
         fputs((char *)s, fd_tags);
-      else {
-        fprintf(fd_tags, "%s\t/*", s);
-        for (p1 = s; *p1 != '\t'; ++p1) {
-          /* insert backslash before '\\' and '/' */
-          if (*p1 == '\\' || *p1 == '/')
+      } else {
+        fprintf(fd_tags, "%s\t/" "*", s);
+        for (p1 = s; *p1 != '\t'; p1++) {
+          // insert backslash before '\\' and '/'
+          if (*p1 == '\\' || *p1 == '/') {
             putc('\\', fd_tags);
+          }
           putc(*p1, fd_tags);
         }
         fprintf(fd_tags, "*\n");
       }
     }
   }
-  if (mix)
-    got_int = FALSE;        /* continue with other languages */
+  if (mix) {
+    got_int = false;        // continue with other languages
+  }
 
   GA_DEEP_CLEAR_PTR(&ga);
-  fclose(fd_tags);          /* there is no check for an error... */
+  fclose(fd_tags);          // there is no check for an error...
 }
 
 /// Generate tags in one help directory, taking care of translations.

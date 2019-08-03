@@ -74,7 +74,6 @@ func Test_argadd()
   call assert_equal(1, len(argv()))
   call assert_equal('some file', get(argv(), 0, ''))
 
-  call delete('Xargadd')
   %argd
   new
   arga
@@ -122,10 +121,7 @@ func Test_argument()
 
   call assert_equal(['d', 'c', 'b', 'a', 'c'], g:buffers)
 
-  redir => result
-  ar
-  redir END
-  call assert_true(result =~# 'a b \[c] d')
+  call assert_equal("\na   b   [c] d   ", execute(':args'))
 
   .argd
   call assert_equal(['a', 'b', 'd'], argv())
@@ -154,6 +150,25 @@ func Test_argument()
 
   let &hidden = save_hidden
 
+  let save_columns = &columns
+  let &columns = 79
+  exe 'args ' .. join(range(1, 81))
+  call assert_equal(join([
+        \ '',
+        \ '[1] 6   11  16  21  26  31  36  41  46  51  56  61  66  71  76  81  ',
+        \ '2   7   12  17  22  27  32  37  42  47  52  57  62  67  72  77  ',
+        \ '3   8   13  18  23  28  33  38  43  48  53  58  63  68  73  78  ',
+        \ '4   9   14  19  24  29  34  39  44  49  54  59  64  69  74  79  ',
+        \ '5   10  15  20  25  30  35  40  45  50  55  60  65  70  75  80  ',
+        \ ], "\n"),
+        \ execute('args'))
+
+  " No trailing newline with one item per row.
+  let long_arg = repeat('X', 81)
+  exe 'args ' .. long_arg
+  call assert_equal("\n[".long_arg.']', execute('args'))
+  let &columns = save_columns
+
   " Setting argument list should fail when the current buffer has unsaved
   " changes
   %argd
@@ -169,6 +184,34 @@ func Test_argument()
 
   %argdelete
   call assert_fails('argument', 'E163:')
+endfunc
+
+func Test_list_arguments()
+  " Clean the argument list
+  arga a | %argd
+
+  " four args half the screen width makes two lines with two columns
+  let aarg = repeat('a', &columns / 2 - 4)
+  let barg = repeat('b', &columns / 2 - 4)
+  let carg = repeat('c', &columns / 2 - 4)
+  let darg = repeat('d', &columns / 2 - 4)
+  exe 'argadd ' aarg barg carg darg
+
+  redir => result
+  args
+  redir END
+  call assert_match('\[' . aarg . '] \+' . carg . '\n' . barg . ' \+' . darg, trim(result))
+
+  " if one arg is longer than half the screen make one column
+  exe 'argdel' aarg
+  let aarg = repeat('a', &columns / 2 + 2)
+  exe '0argadd' aarg
+  redir => result
+  args
+  redir END
+  call assert_match(aarg . '\n\[' . barg . ']\n' . carg . '\n' . darg, trim(result))
+
+  %argdelete
 endfunc
 
 func Test_args_with_quote()
@@ -426,4 +469,11 @@ func Test_arg_all_expand()
   next notexist Xx\ x runtest.vim
   call assert_equal('notexist Xx\ x runtest.vim', expand('##'))
   call delete('Xx x')
+endfunc
+
+func Test_large_arg()
+  " Argument longer or equal to the number of columns used to cause
+  " access to invalid memory.
+  exe 'argadd ' .repeat('x', &columns)
+  args
 endfunc

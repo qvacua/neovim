@@ -28,9 +28,6 @@ struct sign
     int         sn_typenr;      // type number of sign
     char_u      *sn_name;       // name of sign
     char_u      *sn_icon;       // name of pixmap
-# ifdef FEAT_SIGN_ICONS
-    void        *sn_image;      // icon image
-# endif
     char_u      *sn_text;       // text used instead of pixmap
     int         sn_line_hl;     // highlight ID for line
     int         sn_text_hl;     // highlight ID for text
@@ -256,11 +253,7 @@ char_u * sign_typenr2name(int typenr)
 /// Return information about a sign in a Dict
 dict_T * sign_get_info(signlist_T *sign)
 {
-  dict_T  *d;
-
-  if ((d = tv_dict_alloc()) == NULL) {
-    return NULL;
-  }
+  dict_T  *d = tv_dict_alloc();
   tv_dict_add_nr(d,  S_LEN("id"), sign->id);
   tv_dict_add_str(d, S_LEN("group"), ((sign->group == NULL)
                                       ? (char *)""
@@ -689,15 +682,6 @@ static void sign_define_init_icon(sign_T *sp, char_u *icon)
   xfree(sp->sn_icon);
   sp->sn_icon = vim_strsave(icon);
   backslash_halve(sp->sn_icon);
-# ifdef FEAT_SIGN_ICONS
-  if (gui.in_use) {
-    out_flush();
-    if (sp->sn_image != NULL) {
-      gui_mch_destroy_sign(sp->sn_image);
-    }
-    sp->sn_image = gui_mch_register_sign(sp->sn_icon);
-  }
-# endif
 }
 
 /// Initialize the text for a new sign
@@ -1431,21 +1415,6 @@ void sign_get_placed(
   }
 }
 
-# if defined(FEAT_SIGN_ICONS) || defined(PROTO)
-/// Allocate the icons.  Called when the GUI has started.  Allows defining
-/// signs before it starts.
-void sign_gui_started(void)
-{
-  sign_T  *sp;
-
-  for (sp = first_sign; sp != NULL; sp = sp->sn_next) {
-    if (sp->sn_icon != NULL) {
-      sp->sn_image = gui_mch_register_sign(sp->sn_icon);
-    }
-  }
-}
-# endif
-
 /// List one sign.
 static void sign_list_defined(sign_T *sp)
 {
@@ -1548,22 +1517,6 @@ char_u * sign_get_text(int typenr)
   }
   return NULL;
 }
-
-# if defined(FEAT_SIGN_ICONS) || defined(PROTO)
-void * sign_get_image(
-    int   typenr   // the attribute which may have a sign
-)
-{
-  sign_T  *sp;
-
-  for (sp = first_sign; sp != NULL; sp = sp->sn_next) {
-    if (sp->sn_typenr == typenr) {
-      return sp->sn_image;
-    }
-  }
-  return NULL;
-}
-# endif
 
 /// Undefine/free all signs.
 void free_signs(void)

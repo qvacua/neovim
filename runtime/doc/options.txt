@@ -295,12 +295,12 @@ files.  You use this command: >
 	:setlocal makeprg=perlmake
 You can switch back to using the global value by making the local value empty: >
 	:setlocal makeprg=
-This only works for a string option.  For a boolean option you need to use the
-"<" flag, like this: >
+This only works for a string option.  For a number or boolean option you need
+to use the "<" flag, like this: >
 	:setlocal autoread<
-Note that for non-boolean options using "<" copies the global value to the
-local value, it doesn't switch back to using the global value (that matters
-when the global value changes later).  You can also use: >
+Note that for non-boolean and non-number options using "<" copies the global
+value to the local value, it doesn't switch back to using the global value
+(that matters when the global value changes later).  You can also use: >
 	:set path<
 This will make the local value of 'path' empty, so that the global value is
 used.  Thus it does the same as: >
@@ -324,9 +324,9 @@ Setting the filetype
 
 			When the optional FALLBACK argument is present, a
 			later :setfiletype command will override the
-			'filetype'.  This is to used for filetype detections
-			that are just a guess.  |did_filetype()| will return
-			false after this command.
+			'filetype'.  This is to be used for filetype
+			detections that are just a guess.  |did_filetype()|
+			will return false after this command.
 
 				*option-window* *optwin*
 :bro[wse] se[t]			*:set-browse* *:browse-set* *:opt* *:options*
@@ -1661,7 +1661,10 @@ A jump table for the options with a short description can be found at |Q_op|.
 			deleted only once.  Also when repeating "R" with "."
 			and a count.
 								*cpo-y*
-		y	A yank command can be redone with ".".
+		y	A yank command can be redone with ".".  Think twice if
+			you really want to use this, it may break some
+			plugins, since most people expect "." to only repeat a
+			change.
 								*cpo-Z*
 		Z	When using "w!" while the 'readonly' option is set,
 			don't reset 'readonly'.
@@ -1807,7 +1810,16 @@ A jump table for the options with a short description can be found at |Q_op|.
 	The default value is for C programs.  For C++ this value would be
 	useful, to include const type declarations: >
 		^\(#\s*define\|[a-z]*\s*const\s*[a-z]*\)
+<	You can also use "\ze" just before the name and continue the pattern
+	to check what is following.  E.g. for Javascript, if a function is
+	defined with "func_name = function(args)": >
+		^\s*\ze\i\+\s*=\s*function(
+<	If the function is defined with "func_name : function() {...": >
+	        ^\s*\ze\i\+\s*[:]\s*(*function\s*(
 <	When using the ":set" command, you need to double the backslashes!
+	To avoid that use `:let` with a single quote string: >
+		let &l:define = '^\s*\ze\k\+\s*=\s*function('
+<
 
 			*'delcombine'* *'deco'* *'nodelcombine'* *'nodeco'*
 'delcombine' 'deco'	boolean (default off)
@@ -1877,6 +1889,9 @@ A jump table for the options with a short description can be found at |Q_op|.
 		context:{n}	Use a context of {n} lines between a change
 				and a fold that contains unchanged lines.
 				When omitted a context of six lines is used.
+				When using zero the context is actually one,
+				since folds require a line in between, also
+				for a deleted line.
 				See |fold-diff|.
 
 		iblank		Ignore changes where lines are all blank.  Adds
@@ -1935,7 +1950,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 				diff library.
 
                 algorithm:{text} Use the specified diff algorithm with the
-				internal diff engine. Currently supported 
+				internal diff engine. Currently supported
 				algorithms are:
 				myers      the default algorithm
 				minimal    spend extra time to generate the
@@ -3130,8 +3145,6 @@ A jump table for the options with a short description can be found at |Q_op|.
 		0	:lmap is off and IM is off
 		1	:lmap is ON and IM is off
 		2	:lmap is off and IM is ON
-	2 is available only when compiled with the |+multi_byte_ime|, |+xim|
-	or |global-ime|.
 	To always reset the option to zero when leaving Insert mode with <Esc>
 	this can be used: >
 		:inoremap <ESC> <ESC>:set iminsert=0<CR>
@@ -5328,7 +5341,8 @@ A jump table for the options with a short description can be found at |Q_op|.
 	  O	message for reading a file overwrites any previous message.
 		Also for quickfix message (e.g., ":cn").
 	  s	don't give "search hit BOTTOM, continuing at TOP" or "search
-		hit TOP, continuing at BOTTOM" messages
+		hit TOP, continuing at BOTTOM" messages; when using the search
+		count do not show "W" after the count message (see S below)
 	  t	truncate file message at the start if it is too long to fit
 		on the command-line, "<" will appear in the left most column.
 		Ignored in Ex mode.
@@ -5600,7 +5614,8 @@ A jump table for the options with a short description can be found at |Q_op|.
 		set spelllang=en_us,nl,medical
 <	This means US English, Dutch and medical words are recognized.  Words
 	that are not recognized will be highlighted.
-	The word list name must not include a comma or dot.  Using a dash is
+	The word list name must consist of alphanumeric characters, a dash or
+	an underscore.  It should not include a comma or dot.  Using a dash is
 	recommended to separate the two letter language name from a
 	specification.  Thus "en-rare" is used for rare English words.
 	A region name must come last and have the form "_xx", where "xx" is
@@ -5626,8 +5641,8 @@ A jump table for the options with a short description can be found at |Q_op|.
 
 	After this option has been set successfully, Vim will source the files
 	"spell/LANG.vim" in 'runtimepath'.  "LANG" is the value of 'spelllang'
-	up to the first character that is not an ASCII letter and not a dash.
-	Also see |set-spc-auto|.
+	up to the first character that is not an ASCII letter or number and
+	not a dash.  Also see |set-spc-auto|.
 
 
 						*'spellsuggest'* *'sps'*
@@ -5968,7 +5983,9 @@ A jump table for the options with a short description can be found at |Q_op|.
 			pages.
 	   split	If included, split the current window before loading
 			a buffer for a |quickfix| command that display errors.
-			Otherwise: do not split, use current window.
+			Otherwise: do not split, use current window (when used
+			in the quickfix window: the previously used window or
+			split if there is no other window).
 	   vsplit	Just like "split" but split vertically.
 	   newtab	Like "split", but open a new tab page.  Overrules
 			"split" when both are present.
@@ -6217,10 +6234,11 @@ A jump table for the options with a short description can be found at |Q_op|.
 'thesaurus' 'tsr'	string	(default "")
 			global or local to buffer |global-local|
 	List of file names, separated by commas, that are used to lookup words
-	for thesaurus completion commands |i_CTRL-X_CTRL-T|.  Each line in
-	the file should contain words with similar meaning, separated by
-	non-keyword characters (white space is preferred).  Maximum line
-	length is 510 bytes.
+	for thesaurus completion commands |i_CTRL-X_CTRL-T|.
+
+	Each line in the file should contain words with similar meaning,
+	separated by non-keyword characters (white space is preferred).
+	Maximum line length is 510 bytes.
 
 	To include a comma in a file name precede it with a backslash.  Spaces
 	after a comma are ignored, otherwise spaces are included in the file

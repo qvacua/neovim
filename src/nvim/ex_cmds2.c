@@ -43,6 +43,7 @@
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/undo.h"
+#include "nvim/version.h"
 #include "nvim/window.h"
 #include "nvim/profile.h"
 #include "nvim/os/os.h"
@@ -989,7 +990,7 @@ void profile_dump(void)
   FILE        *fd;
 
   if (profile_fname != NULL) {
-    fd = mch_fopen((char *)profile_fname, "w");
+    fd = os_fopen((char *)profile_fname, "w");
     if (fd == NULL) {
       EMSG2(_(e_notopen), profile_fname);
     } else {
@@ -1138,7 +1139,7 @@ static void script_dump_profile(FILE *fd)
       fprintf(fd, "\n");
       fprintf(fd, "count  total (s)   self (s)\n");
 
-      sfd = mch_fopen((char *)si->sn_name, "r");
+      sfd = os_fopen((char *)si->sn_name, "r");
       if (sfd == NULL) {
         fprintf(fd, "Cannot open file!\n");
       } else {
@@ -1791,19 +1792,15 @@ void ex_args(exarg_T *eap)
   } else if (eap->cmdidx == CMD_args) {
     // ":args": list arguments.
     if (ARGCOUNT > 0) {
+      char_u **items = xmalloc(sizeof(char_u *) * (size_t)ARGCOUNT);
       // Overwrite the command, for a short list there is no scrolling
       // required and no wait_return().
       gotocmdline(true);
       for (int i = 0; i < ARGCOUNT; i++) {
-        if (i == curwin->w_arg_idx) {
-          msg_putchar('[');
-        }
-        msg_outtrans(alist_name(&ARGLIST[i]));
-        if (i == curwin->w_arg_idx) {
-          msg_putchar(']');
-        }
-        msg_putchar(' ');
+        items[i] = alist_name(&ARGLIST[i]);
       }
+      list_in_columns(items, ARGCOUNT, curwin->w_arg_idx);
+      xfree(items);
     }
   } else if (eap->cmdidx == CMD_arglocal) {
     garray_T        *gap = &curwin->w_alist->al_ga;
@@ -2858,7 +2855,7 @@ static int requires_py_version(char_u *filename)
     lines = 5;
   }
 
-  file = mch_fopen((char *)filename, "r");
+  file = os_fopen((char *)filename, "r");
   if (file != NULL) {
     for (i = 0; i < lines; i++) {
       if (vim_fgets(IObuff, IOSIZE, file)) {

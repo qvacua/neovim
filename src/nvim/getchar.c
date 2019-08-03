@@ -78,15 +78,15 @@ FileDescriptor *scriptin[NSCRIPT] = { NULL };
 
 #define MINIMAL_SIZE 20                 /* minimal size for b_str */
 
-static buffheader_T redobuff = { NULL, NULL, 0, 0 };
-static buffheader_T old_redobuff = { NULL, NULL, 0, 0 };
-static buffheader_T recordbuff = { NULL, NULL, 0, 0 };
+static buffheader_T redobuff = { { NULL, { NUL } }, NULL, 0, 0 };
+static buffheader_T old_redobuff = { { NULL, { NUL } }, NULL, 0, 0 };
+static buffheader_T recordbuff = { { NULL, { NUL } }, NULL, 0, 0 };
 
 // First read ahead buffer. Used for translated commands.
-static buffheader_T readbuf1 = { NULL, NULL, 0, 0 };
+static buffheader_T readbuf1 = { { NULL, { NUL } }, NULL, 0, 0 };
 
 // Second read ahead buffer. Used for redo.
-static buffheader_T readbuf2 = { NULL, NULL, 0, 0 };
+static buffheader_T readbuf2 = { { NULL, { NUL } }, NULL, 0, 0 };
 
 static int typeahead_char = 0;          /* typeahead char that's not flushed */
 
@@ -164,12 +164,11 @@ void free_buff(buffheader_T *buf)
 {
   buffblock_T    *p, *np;
 
-  for (p = buf->bh_first; p != NULL; p = np) {
+  for (p = buf->bh_first.b_next; p != NULL; p = np) {
     np = p->b_next;
     xfree(p);
   }
-  buf->bh_first = NULL;
-  buf->bh_curr = NULL;
+  buf->bh_first.b_next = NULL;
 }
 
 /*
@@ -185,14 +184,15 @@ static char_u *get_buffcont(buffheader_T *buffer,
   char_u          *p2;
 
   // compute the total length of the string
-  for (const buffblock_T *bp = buffer->bh_first; bp != NULL; bp = bp->b_next) {
+  for (const buffblock_T *bp = buffer->bh_first.b_next;
+       bp != NULL; bp = bp->b_next) {
     count += STRLEN(bp->b_str);
   }
 
   if (count || dozero) {
     p = xmalloc(count + 1);
     p2 = p;
-    for (const buffblock_T *bp = buffer->bh_first;
+    for (const buffblock_T *bp = buffer->bh_first.b_next;
          bp != NULL; bp = bp->b_next) {
       for (const char_u *str = bp->b_str; *str;) {
         *p2++ = *str++;
@@ -262,16 +262,16 @@ static void add_buff(buffheader_T *const buf, const char *const s,
     return;
   }
 
-  if (buf->bh_first == NULL) {  // first add to list
+  if (buf->bh_first.b_next == NULL) {  // first add to list
     buf->bh_space = 0;
-    buf->bh_curr = NULL;
+    buf->bh_curr = &(buf->bh_first);
   } else if (buf->bh_curr == NULL) {  // buffer has already been read
     IEMSG(_("E222: Add to read buffer"));
     return;
   } else if (buf->bh_index != 0) {
-    memmove(buf->bh_first->b_str,
-            buf->bh_first->b_str + buf->bh_index,
-            STRLEN(buf->bh_first->b_str + buf->bh_index) + 1);
+    memmove(buf->bh_first.b_next->b_str,
+            buf->bh_first.b_next->b_str + buf->bh_index,
+            STRLEN(buf->bh_first.b_next->b_str + buf->bh_index) + 1);
   }
   buf->bh_index = 0;
 
@@ -286,19 +286,13 @@ static void add_buff(buffheader_T *const buf, const char *const s,
     } else {
       len = (size_t)slen;
     }
-    buffblock_T *p = xmalloc(sizeof(buffblock_T) + len + 1);
+    buffblock_T *p = xmalloc(sizeof(buffblock_T) + len);
     buf->bh_space = len - (size_t)slen;
     STRLCPY(p->b_str, s, slen + 1);
 
-    if (buf->bh_curr == NULL) {
-      p->b_next = NULL;
-      buf->bh_first = p;
-      buf->bh_curr = p;
-    } else {
-      p->b_next = buf->bh_curr->b_next;
-      buf->bh_curr->b_next = p;
-      buf->bh_curr = p;
-    }
+    p->b_next = buf->bh_curr->b_next;
+    buf->bh_curr->b_next = p;
+    buf->bh_curr = p;
   }
   return;
 }
@@ -368,16 +362,16 @@ static int read_readbuf(buffheader_T *buf, int advance)
 {
   char_u c;
 
-  if (buf->bh_first == NULL) {  // buffer is empty
+  if (buf->bh_first.b_next == NULL) {  // buffer is empty
     return NUL;
   }
 
-  buffblock_T *const curr = buf->bh_first;
+  buffblock_T *const curr = buf->bh_first.b_next;
   c = curr->b_str[buf->bh_index];
 
   if (advance) {
     if (curr->b_str[++buf->bh_index] == NUL) {
-      buf->bh_first = curr->b_next;
+      buf->bh_first.b_next = curr->b_next;
       xfree(curr);
       buf->bh_index = 0;
     }
@@ -390,12 +384,12 @@ static int read_readbuf(buffheader_T *buf, int advance)
  */
 static void start_stuff(void)
 {
-  if (readbuf1.bh_first != NULL) {
-    readbuf1.bh_curr = readbuf1.bh_first;
+  if (readbuf1.bh_first.b_next != NULL) {
+    readbuf1.bh_curr = &(readbuf1.bh_first);
     readbuf1.bh_space = 0;
   }
-  if (readbuf2.bh_first != NULL) {
-    readbuf2.bh_curr = readbuf2.bh_first;
+  if (readbuf2.bh_first.b_next != NULL) {
+    readbuf2.bh_curr = &(readbuf2.bh_first);
     readbuf2.bh_space = 0;
   }
 }
@@ -405,8 +399,7 @@ static void start_stuff(void)
  */
 int stuff_empty(void)
 {
-  return (readbuf1.bh_first == NULL
-          && readbuf2.bh_first == NULL);
+  return (readbuf1.bh_first.b_next == NULL && readbuf2.bh_first.b_next == NULL);
 }
 
 /*
@@ -415,7 +408,7 @@ int stuff_empty(void)
  */
 int readbuf1_empty(void)
 {
-  return (readbuf1.bh_first == NULL);
+  return (readbuf1.bh_first.b_next == NULL);
 }
 
 /*
@@ -473,7 +466,7 @@ void ResetRedobuff(void)
   if (!block_redo) {
     free_buff(&old_redobuff);
     old_redobuff = redobuff;
-    redobuff.bh_first = NULL;
+    redobuff.bh_first.b_next = NULL;
   }
 }
 
@@ -486,7 +479,7 @@ void CancelRedo(void)
   if (!block_redo) {
     free_buff(&redobuff);
     redobuff = old_redobuff;
-    old_redobuff.bh_first = NULL;
+    old_redobuff.bh_first.b_next = NULL;
     start_stuff();
     while (read_readbuffers(TRUE) != NUL) {
     }
@@ -498,9 +491,9 @@ void CancelRedo(void)
 void saveRedobuff(save_redo_T *save_redo)
 {
   save_redo->sr_redobuff = redobuff;
-  redobuff.bh_first = NULL;
+  redobuff.bh_first.b_next = NULL;
   save_redo->sr_old_redobuff = old_redobuff;
-  old_redobuff.bh_first = NULL;
+  old_redobuff.bh_first.b_next = NULL;
 
   // Make a copy, so that ":normal ." in a function works.
   char *const s = (char *)get_buffcont(&save_redo->sr_redobuff, false);
@@ -680,7 +673,7 @@ static int read_redo(bool init, bool old_redo)
   int i;
 
   if (init) {
-    bp = old_redo ? old_redobuff.bh_first : redobuff.bh_first;
+    bp = old_redo ? old_redobuff.bh_first.b_next : redobuff.bh_first.b_next;
     if (bp == NULL) {
       return FAIL;
     }
@@ -1218,9 +1211,9 @@ void save_typeahead(tasave_T *tp)
   old_char = -1;
 
   tp->save_readbuf1 = readbuf1;
-  readbuf1.bh_first = NULL;
+  readbuf1.bh_first.b_next = NULL;
   tp->save_readbuf2 = readbuf2;
-  readbuf2.bh_first = NULL;
+  readbuf2.bh_first.b_next = NULL;
 }
 
 /*
@@ -3295,29 +3288,36 @@ char *map_mode_to_chars(int mode)
 
   ga_init(&mapmode, 1, 7);
 
-  if ((mode & (INSERT + CMDLINE)) == INSERT + CMDLINE)
-    ga_append(&mapmode, '!');                           /* :map! */
-  else if (mode & INSERT)
-    ga_append(&mapmode, 'i');                           /* :imap */
-  else if (mode & LANGMAP)
-    ga_append(&mapmode, 'l');                           /* :lmap */
-  else if (mode & CMDLINE)
-    ga_append(&mapmode, 'c');                           /* :cmap */
-  else if ((mode & (NORMAL + VISUAL + SELECTMODE + OP_PENDING))
-           == NORMAL + VISUAL + SELECTMODE + OP_PENDING)
-    ga_append(&mapmode, ' ');                           /* :map */
-  else {
-    if (mode & NORMAL)
-      ga_append(&mapmode, 'n');                         /* :nmap */
-    if (mode & OP_PENDING)
-      ga_append(&mapmode, 'o');                         /* :omap */
-    if ((mode & (VISUAL + SELECTMODE)) == VISUAL + SELECTMODE)
-      ga_append(&mapmode, 'v');                         /* :vmap */
-    else {
-      if (mode & VISUAL)
-        ga_append(&mapmode, 'x');                       /* :xmap */
-      if (mode & SELECTMODE)
-        ga_append(&mapmode, 's');                       /* :smap */
+  if ((mode & (INSERT + CMDLINE)) == INSERT + CMDLINE) {
+    ga_append(&mapmode, '!');                           // :map!
+  } else if (mode & INSERT) {
+    ga_append(&mapmode, 'i');                           // :imap
+  } else if (mode & LANGMAP) {
+    ga_append(&mapmode, 'l');                           // :lmap
+  } else if (mode & CMDLINE) {
+    ga_append(&mapmode, 'c');                           // :cmap
+  } else if ((mode & (NORMAL + VISUAL + SELECTMODE + OP_PENDING))
+             == NORMAL + VISUAL + SELECTMODE + OP_PENDING) {
+    ga_append(&mapmode, ' ');                           // :map
+  } else {
+    if (mode & NORMAL) {
+      ga_append(&mapmode, 'n');                         // :nmap
+    }
+    if (mode & OP_PENDING) {
+      ga_append(&mapmode, 'o');                         // :omap
+    }
+    if (mode & TERM_FOCUS) {
+      ga_append(&mapmode, 't');                         // :tmap
+    }
+    if ((mode & (VISUAL + SELECTMODE)) == VISUAL + SELECTMODE) {
+      ga_append(&mapmode, 'v');                         // :vmap
+    } else {
+      if (mode & VISUAL) {
+        ga_append(&mapmode, 'x');                       // :xmap
+      }
+      if (mode & SELECTMODE) {
+        ga_append(&mapmode, 's');                       // :smap
+      }
     }
   }
 
@@ -3448,7 +3448,7 @@ int map_to_exists_mode(const char *const rhs, const int mode, const bool abbr)
 {
   mapblock_T  *mp;
   int hash;
-  bool expand_buffer = false;
+  bool exp_buffer = false;
 
   validate_maphash();
 
@@ -3459,12 +3459,12 @@ int map_to_exists_mode(const char *const rhs, const int mode, const bool abbr)
         if (hash > 0) {  // There is only one abbr list.
           break;
         }
-        if (expand_buffer) {
+        if (exp_buffer) {
           mp = curbuf->b_first_abbr;
         } else {
           mp = first_abbr;
         }
-      } else if (expand_buffer) {
+      } else if (exp_buffer) {
         mp = curbuf->b_maphash[hash];
       } else {
         mp = maphash[hash];
@@ -3476,10 +3476,10 @@ int map_to_exists_mode(const char *const rhs, const int mode, const bool abbr)
         }
       }
     }
-    if (expand_buffer) {
+    if (exp_buffer) {
       break;
     }
-    expand_buffer = true;
+    exp_buffer = true;
   }
 
   return false;
@@ -3954,10 +3954,10 @@ void vim_unescape_csi(char_u *p)
  * Write map commands for the current mappings to an .exrc file.
  * Return FAIL on error, OK otherwise.
  */
-int 
-makemap (
+int
+makemap(
     FILE *fd,
-    buf_T *buf           /* buffer for local mappings or NULL */
+    buf_T *buf           // buffer for local mappings or NULL
 )
 {
   mapblock_T  *mp;
@@ -3970,50 +3970,56 @@ makemap (
 
   validate_maphash();
 
-  /*
-   * Do the loop twice: Once for mappings, once for abbreviations.
-   * Then loop over all map hash lists.
-   */
-  for (abbr = 0; abbr < 2; ++abbr)
-    for (hash = 0; hash < 256; ++hash) {
+  // Do the loop twice: Once for mappings, once for abbreviations.
+  // Then loop over all map hash lists.
+  for (abbr = 0; abbr < 2; abbr++) {
+    for (hash = 0; hash < 256; hash++) {
       if (abbr) {
-        if (hash > 0)                   /* there is only one abbr list */
+        if (hash > 0) {                 // there is only one abbr list
           break;
-        if (buf != NULL)
+        }
+        if (buf != NULL) {
           mp = buf->b_first_abbr;
-        else
+        } else {
           mp = first_abbr;
+        }
       } else {
-        if (buf != NULL)
+        if (buf != NULL) {
           mp = buf->b_maphash[hash];
-        else
+        } else {
           mp = maphash[hash];
+        }
       }
 
       for (; mp; mp = mp->m_next) {
-        /* skip script-local mappings */
-        if (mp->m_noremap == REMAP_SCRIPT)
+        // skip script-local mappings
+        if (mp->m_noremap == REMAP_SCRIPT) {
           continue;
+        }
 
-        /* skip mappings that contain a <SNR> (script-local thing),
-         * they probably don't work when loaded again */
-        for (p = mp->m_str; *p != NUL; ++p)
+        // skip mappings that contain a <SNR> (script-local thing),
+        // they probably don't work when loaded again
+        for (p = mp->m_str; *p != NUL; p++) {
           if (p[0] == K_SPECIAL && p[1] == KS_EXTRA
-              && p[2] == (int)KE_SNR)
+              && p[2] == (int)KE_SNR) {
             break;
-        if (*p != NUL)
+          }
+        }
+        if (*p != NUL) {
           continue;
+        }
 
-        /* It's possible to create a mapping and then ":unmap" certain
-         * modes.  We recreate this here by mapping the individual
-         * modes, which requires up to three of them. */
+        // It's possible to create a mapping and then ":unmap" certain
+        // modes.  We recreate this here by mapping the individual
+        // modes, which requires up to three of them.
         c1 = NUL;
         c2 = NUL;
         c3 = NUL;
-        if (abbr)
+        if (abbr) {
           cmd = "abbr";
-        else
+        } else {
           cmd = "map";
+        }
         switch (mp->m_mode) {
         case NORMAL + VISUAL + SELECTMODE + OP_PENDING:
           break;
@@ -4071,8 +4077,9 @@ makemap (
           c2 = 'o';
           break;
         case CMDLINE + INSERT:
-          if (!abbr)
+          if (!abbr) {
             cmd = "map!";
+          }
           break;
         case CMDLINE:
           c1 = 'c';
@@ -4090,9 +4097,10 @@ makemap (
           IEMSG(_("E228: makemap: Illegal mode"));
           return FAIL;
         }
-        do {            /* do this twice if c2 is set, 3 times with c3 */
-          /* When outputting <> form, need to make sure that 'cpo'
-           * is set to the Vim default. */
+        do {
+          // do this twice if c2 is set, 3 times with c3 */
+          // When outputting <> form, need to make sure that 'cpo'
+          // is set to the Vim default.
           if (!did_cpo) {
             if (*mp->m_str == NUL) {  // Will use <Nop>.
               did_cpo = true;
@@ -4107,63 +4115,69 @@ makemap (
               if (fprintf(fd, "let s:cpo_save=&cpo") < 0
                   || put_eol(fd) < 0
                   || fprintf(fd, "set cpo&vim") < 0
-                  || put_eol(fd) < 0)
+                  || put_eol(fd) < 0) {
                 return FAIL;
+              }
             }
           }
-          if (c1 && putc(c1, fd) < 0)
+          if (c1 && putc(c1, fd) < 0) {
             return FAIL;
-          if (mp->m_noremap != REMAP_YES && fprintf(fd, "nore") < 0)
+          }
+          if (mp->m_noremap != REMAP_YES && fprintf(fd, "nore") < 0) {
             return FAIL;
-          if (fputs(cmd, fd) < 0)
+          }
+          if (fputs(cmd, fd) < 0) {
             return FAIL;
-          if (buf != NULL && fputs(" <buffer>", fd) < 0)
+          }
+          if (buf != NULL && fputs(" <buffer>", fd) < 0) {
             return FAIL;
-          if (mp->m_nowait && fputs(" <nowait>", fd) < 0)
+          }
+          if (mp->m_nowait && fputs(" <nowait>", fd) < 0) {
             return FAIL;
-          if (mp->m_silent && fputs(" <silent>", fd) < 0)
+          }
+          if (mp->m_silent && fputs(" <silent>", fd) < 0) {
             return FAIL;
-          if (mp->m_noremap == REMAP_SCRIPT
-              && fputs("<script>", fd) < 0)
+          }
+          if (mp->m_expr && fputs(" <expr>", fd) < 0) {
             return FAIL;
-          if (mp->m_expr && fputs(" <expr>", fd) < 0)
-            return FAIL;
+          }
 
-          if (       putc(' ', fd) < 0
-                     || put_escstr(fd, mp->m_keys, 0) == FAIL
-                     || putc(' ', fd) < 0
-                     || put_escstr(fd, mp->m_str, 1) == FAIL
-                     || put_eol(fd) < 0)
+          if (putc(' ', fd) < 0
+              || put_escstr(fd, mp->m_keys, 0) == FAIL
+              || putc(' ', fd) < 0
+              || put_escstr(fd, mp->m_str, 1) == FAIL
+              || put_eol(fd) < 0) {
             return FAIL;
+          }
           c1 = c2;
           c2 = c3;
           c3 = NUL;
         } while (c1 != NUL);
       }
     }
-
-  if (did_cpo)
+  }
+  if (did_cpo) {
     if (fprintf(fd, "let &cpo=s:cpo_save") < 0
         || put_eol(fd) < 0
         || fprintf(fd, "unlet s:cpo_save") < 0
-        || put_eol(fd) < 0)
+        || put_eol(fd) < 0) {
       return FAIL;
+    }
+  }
   return OK;
 }
 
-/*
- * write escape string to file
- * "what": 0 for :map lhs, 1 for :map rhs, 2 for :set
- *
- * return FAIL for failure, OK otherwise
- */
+// write escape string to file
+// "what": 0 for :map lhs, 1 for :map rhs, 2 for :set
+//
+// return FAIL for failure, OK otherwise
 int put_escstr(FILE *fd, char_u *strstart, int what)
 {
   char_u      *str = strstart;
   int c;
   int modifiers;
 
-  /* :map xx <Nop> */
+  // :map xx <Nop>
   if (*str == NUL && what == 1) {
     if (fprintf(fd, "<Nop>") < 0)
       return FAIL;

@@ -10,8 +10,6 @@ env:
     - BUILD_DIR="$TRAVIS_BUILD_DIR/build"
     # Build directory for third-party dependencies.
     - DEPS_BUILD_DIR="$HOME/nvim-deps"
-    # Directory where third-party dependency sources are downloaded to.
-    - DEPS_DOWNLOAD_DIR="$TRAVIS_BUILD_DIR/deps-downloads"
     # Install directory for Neovim.
     - INSTALL_PREFIX="$HOME/nvim-install"
     # Log directory for Clang sanitizers and Valgrind.
@@ -25,7 +23,7 @@ env:
                    -DBUSTED_OUTPUT_TYPE=nvim
                    -DDEPS_PREFIX=$DEPS_BUILD_DIR/usr
                    -DMIN_LOG_LEVEL=3"
-    - DEPS_CMAKE_FLAGS="-DDEPS_DOWNLOAD_DIR:PATH=$DEPS_DOWNLOAD_DIR -DUSE_BUNDLED_GPERF=OFF"
+    - DEPS_CMAKE_FLAGS="-DUSE_BUNDLED_GPERF=OFF"
     # Additional CMake flags for 32-bit builds.
     - CMAKE_FLAGS_32BIT="-DCMAKE_SYSTEM_LIBRARY_PATH=/lib32:/usr/lib32:/usr/local/lib32
                          -DCMAKE_IGNORE_PATH=/lib:/usr/lib:/usr/local/lib
@@ -36,8 +34,9 @@ env:
     - UBSAN_OPTIONS="print_stacktrace=1 log_path=$LOG_DIR/ubsan"
     # Environment variables for Valgrind.
     - VALGRIND_LOG="$LOG_DIR/valgrind-%p.log"
+    - CACHE_NVIM_DEPS_DIR="$HOME/.cache/nvim-deps"
     # If this file exists, the cache is valid (compile was successful).
-    - CACHE_MARKER="$HOME/.cache/nvim-deps/.travis_cache_marker"
+    - CACHE_MARKER="$CACHE_NVIM_DEPS_DIR/.travis_cache_marker"
     # default target name for functional tests
     - FUNCTIONALTEST=functionaltest
     - CI_TARGET=tests
@@ -52,7 +51,7 @@ anchors:
   envs: &common-job-env
     # Do not fall back to cache for "master" for PR on "release" branch:
     # adds the target branch to the cache key.
-    FOR_TRAVIS_CACHE=$TRAVIS_BRANCH
+    FOR_TRAVIS_CACHE=v1-$TRAVIS_BRANCH
 
 addons:
   apt:
@@ -101,16 +100,21 @@ jobs:
         - CMAKE_FLAGS="$CMAKE_FLAGS -DPREFER_LUA=ON"
         - DEPS_CMAKE_FLAGS="$DEPS_CMAKE_FLAGS -DUSE_BUNDLED_LUAJIT=OFF"
         - *common-job-env
-    - name: gcc-32bit
+    - name: gcc-coverage (gcc 9)
       os: linux
-      # Travis creates a cache per compiler. Set a different value here to
-      # store 32-bit dependencies in a separate cache.
-      compiler: gcc
+      compiler: gcc-9
       env:
-        - BUILD_32BIT=ON
-        # Minimum required CMake.
-        - CMAKE_URL=https://cmake.org/files/v2.8/cmake-2.8.12-Linux-i386.sh
+        - GCOV=gcov-9
+        - CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_GCOV=ON"
+        - GCOV_ERROR_FILE="/tmp/libgcov-errors.log"
         - *common-job-env
+      addons:
+        apt:
+          sources:
+            - sourceline: 'ppa:ubuntu-toolchain-r/test'
+          packages:
+            - *common-apt-packages
+            - gcc-9
     - if: branch = master AND commit_message !~ /\[skip.lint\]/
       name: lint
       os: linux
@@ -125,28 +129,17 @@ jobs:
       osx_image: xcode10.2  # macOS 10.14
       env:
         - *common-job-env
-    - name: "macOS: gcc"
-      os: osx
-      compiler: gcc
-      osx_image: xcode10.2  # macOS 10.14
-      env:
-        - *common-job-env
 
-    - name: gcc-coverage (gcc 9)
+    - name: gcc-32bit
       os: linux
-      compiler: gcc-9
+      # Travis creates a cache per compiler. Set a different value here to
+      # store 32-bit dependencies in a separate cache.
+      compiler: gcc
       env:
-        - GCOV=gcov
-        - CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_GCOV=ON"
-        - GCOV_ERROR_FILE="/tmp/libgcov-errors.log"
+        - BUILD_32BIT=ON
+        # Minimum required CMake.
+        - CMAKE_URL=https://cmake.org/files/v2.8/cmake-2.8.12-Linux-i386.sh
         - *common-job-env
-      addons:
-        apt:
-          sources:
-            - sourceline: 'ppa:ubuntu-toolchain-r/test'
-          packages:
-            - *common-apt-packages
-            - gcc-9
 
     - name: clang-tsan
       os: linux
@@ -154,8 +147,6 @@ jobs:
       env:
         - CLANG_SANITIZER=TSAN
         - *common-job-env
-  allow_failures:
-    - name: clang-tsan
   fast_finish: true
 
 before_install: ci/before_install.sh
@@ -173,9 +164,7 @@ cache:
   apt: true
   ccache: true
   directories:
-    - "$HOME/.cache/pip"
-    - "$HOME/.cache/nvim-deps"
-    - "$HOME/.cache/nvim-deps-downloads"
+    - "$CACHE_NVIM_DEPS_DIR"
 
 notifications:
   webhooks:

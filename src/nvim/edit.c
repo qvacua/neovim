@@ -2582,10 +2582,35 @@ static bool pum_enough_matches(void)
   return i >= 2;
 }
 
-/*
- * Show the popup menu for the list of matches.
- * Also adjusts "compl_shown_match" to an entry that is actually displayed.
- */
+static void trigger_complete_changed_event(int cur)
+{
+  static bool recursive = false;
+
+  if (recursive) {
+    return;
+  }
+
+  dict_T *v_event = get_vim_var_dict(VV_EVENT);
+  if (cur < 0) {
+    tv_dict_add_dict(v_event, S_LEN("completed_item"), tv_dict_alloc());
+  } else {
+    dict_T *item = ins_compl_dict_alloc(compl_curr_match);
+    tv_dict_add_dict(v_event, S_LEN("completed_item"), item);
+  }
+  pum_set_event_info(v_event);
+  tv_dict_set_keys_readonly(v_event);
+
+  recursive = true;
+  textlock++;
+  apply_autocmds(EVENT_COMPLETECHANGED, NULL, NULL, false, curbuf);
+  textlock--;
+  recursive = false;
+
+  tv_dict_clear(v_event);
+}
+
+/// Show the popup menu for the list of matches.
+/// Also adjusts "compl_shown_match" to an entry that is actually displayed.
 void ins_compl_show_pum(void)
 {
   compl_T     *compl;
@@ -2717,22 +2742,9 @@ void ins_compl_show_pum(void)
   pum_display(compl_match_array, compl_match_arraysize, cur, array_changed, 0);
   curwin->w_cursor.col = col;
 
-  if (!has_event(EVENT_COMPLETECHANGED)) {
-    return;
+  if (has_event(EVENT_COMPLETECHANGED)) {
+    trigger_complete_changed_event(cur);
   }
-  dict_T *dict = get_vim_var_dict(VV_EVENT);
-  if (cur < 0) {
-    tv_dict_add_dict(dict, S_LEN("completed_item"), tv_dict_alloc());
-  } else {
-    dict_T *item = ins_compl_dict_alloc(compl_curr_match);
-    tv_dict_add_dict(dict, S_LEN("completed_item"), item);
-  }
-  pum_set_boundings(dict);
-  tv_dict_set_keys_readonly(dict);
-  textlock++;
-  apply_autocmds(EVENT_COMPLETECHANGED, NULL, NULL, false, curbuf);
-  textlock--;
-  tv_dict_clear(dict);
 }
 
 #define DICT_FIRST      (1)     /* use just first element in "dict" */
@@ -2846,7 +2858,7 @@ static void ins_compl_files(int count, char_u **files, int thesaurus, int flags,
   int add_r;
 
   for (i = 0; i < count && !got_int && !compl_interrupted; i++) {
-    fp = mch_fopen((char *)files[i], "r");      /* open dictionary file */
+    fp = os_fopen((char *)files[i], "r");  // open dictionary file
     if (flags != DICT_EXACT) {
       vim_snprintf((char *)IObuff, IOSIZE,
                    _("Scanning dictionary: %s"), (char *)files[i]);
@@ -3112,6 +3124,7 @@ void get_complete_info(list_T *what_list, dict_T *retdict)
                          ? compl_curr_match->cp_number - 1 : -1);
   }
 
+  (void)ret;
   // TODO(vim):
   // if (ret == OK && (what_flag & CI_WHAT_INSERTED))
 }
@@ -3684,14 +3697,19 @@ expand_by_function (
     return;
 
   // Call 'completefunc' to obtain the list of matches.
-  const char_u *const args[2] = { (char_u *)"0", base };
+  typval_T args[3];
+  args[0].v_type = VAR_NUMBER;
+  args[1].v_type = VAR_STRING;
+  args[2].v_type = VAR_UNKNOWN;
+  args[0].vval.v_number = 0;
+  args[1].vval.v_string = base != NULL ? base : (char_u *)"";
 
   pos = curwin->w_cursor;
   curwin_save = curwin;
   curbuf_save = curbuf;
 
-  /* Call a function, which returns a list or dict. */
-  if (call_vim_function(funcname, 2, args, FALSE, FALSE, &rettv) == OK) {
+  // Call a function, which returns a list or dict.
+  if (call_vim_function(funcname, 2, args, &rettv, false) == OK) {
     switch (rettv.v_type) {
     case VAR_LIST:
       matchlist = rettv.vval.v_list;
@@ -4894,7 +4912,13 @@ static int ins_complete(int c, bool enable_pum)
         return FAIL;
       }
 
-      const char_u *const args[2] = { (char_u *)"1", NULL };
+      typval_T args[3];
+      args[0].v_type = VAR_NUMBER;
+      args[1].v_type = VAR_STRING;
+      args[2].v_type = VAR_UNKNOWN;
+      args[0].vval.v_number = 1;
+      args[1].vval.v_string = (char_u *)"";
+
       pos = curwin->w_cursor;
       curwin_save = curwin;
       curbuf_save = curbuf;

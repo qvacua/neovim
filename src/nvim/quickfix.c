@@ -863,7 +863,7 @@ qf_init_ext(
   fields.errmsg = xmalloc(fields.errmsglen);
   fields.pattern = xmalloc(CMDBUFFSIZE + 1);
 
-  if (efile != NULL && (state.fd = mch_fopen((char *)efile, "r")) == NULL) {
+  if (efile != NULL && (state.fd = os_fopen((char *)efile, "r")) == NULL) {
     EMSG2(_(e_openerrf), efile);
     goto qf_init_end;
   }
@@ -1326,7 +1326,7 @@ static int qf_parse_multiline_pfx(qf_info_T *qi, int qf_idx, int idx,
     if (qfprev == NULL) {
       return QF_FAIL;
     }
-    if (*fields->errmsg && !qfl->qf_multiignore) {
+    if (*fields->errmsg) {
       size_t textlen = strlen((char *)qfprev->qf_text);
       size_t errlen  = strlen((char *)fields->errmsg);
       qfprev->qf_text = xrealloc(qfprev->qf_text, textlen + errlen + 2);
@@ -2056,7 +2056,7 @@ static int qf_jump_to_usable_window(int qf_fnum, int *opened_window)
   win_T       *usable_win_ptr = NULL;
   int         usable_win;
   int         flags;
-  win_T       *win = NULL;
+  win_T       *win;
   win_T       *altwin;
 
   usable_win = 0;
@@ -2079,7 +2079,6 @@ static int qf_jump_to_usable_window(int qf_fnum, int *opened_window)
     // Locate a window showing a normal buffer
     FOR_ALL_WINDOWS_IN_TAB(win2, curtab) {
       if (win2->w_buffer->b_p_bt[0] == NUL) {
-        win = win2;
         usable_win = 1;
         break;
       }
@@ -2212,7 +2211,6 @@ static int qf_jump_edit_buffer(qf_info_T *qi, qfline_T *qf_ptr, int forceit,
                        oldwin == curwin ? curwin : NULL);
     }
   } else {
-    int old_qf_curlist = qi->qf_curlist;
     unsigned save_qfid = qi->qf_lists[qi->qf_curlist].qf_id;
 
     retval = buflist_getfile(qf_ptr->qf_fnum, (linenr_T)1,
@@ -2229,8 +2227,7 @@ static int qf_jump_edit_buffer(qf_info_T *qi, qfline_T *qf_ptr, int forceit,
         EMSG(_(e_loc_list_changed));
         *abort = true;
       }
-    } else if (old_qf_curlist != qi->qf_curlist
-               || !is_qf_entry_present(qi, qf_ptr)) {
+    } else if (!is_qf_entry_present(qi, qf_ptr)) {
       if (IS_QF_STACK(qi)) {
         EMSG(_("E925: Current quickfix was changed"));
       } else {
@@ -5495,7 +5492,7 @@ void ex_helpgrep(exarg_T *eap)
                                + STRLEN(fnames[fi]) - 3, 3) == 0)) {
             continue;
           }
-          fd = mch_fopen((char *)fnames[fi], "r");
+          fd = os_fopen((char *)fnames[fi], "r");
           if (fd != NULL) {
             lnum = 1;
             while (!vim_fgets(IObuff, IOSIZE, fd) && !got_int) {

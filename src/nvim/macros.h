@@ -86,8 +86,6 @@
 #define READBIN    "rb"
 #define APPENDBIN  "ab"
 
-#  define mch_fopen(n, p)       fopen((n), (p))
-
 /* mch_open_rw(): invoke os_open() with third argument for user R/W. */
 #if defined(UNIX)  /* open in rw------- mode */
 # define mch_open_rw(n, f)      os_open((n), (f), (mode_t)0600)
@@ -129,7 +127,11 @@
 # define MB_CHAR2LEN(c)     mb_char2len(c)
 # define PTR2CHAR(p)        utf_ptr2char(p)
 
-# define RESET_BINDING(wp)  (wp)->w_p_scb = FALSE; (wp)->w_p_crb = FALSE
+# define RESET_BINDING(wp) \
+  do { \
+    (wp)->w_p_scb = false; \
+    (wp)->w_p_crb = false; \
+  } while (0)
 
 /// Calculate the length of a C array
 ///
@@ -165,7 +167,8 @@
 # define NVIM_HAS_ATTRIBUTE __has_attribute
 #endif
 
-#if NVIM_HAS_ATTRIBUTE(fallthrough)
+#if NVIM_HAS_ATTRIBUTE(fallthrough) \
+    && (!defined(__apple_build_version__) || __apple_build_version__ >= 7000000)
 # define FALLTHROUGH __attribute__((fallthrough))
 #else
 # define FALLTHROUGH
