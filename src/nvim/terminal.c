@@ -53,6 +53,7 @@
 #include "nvim/macros.h"
 #include "nvim/mbyte.h"
 #include "nvim/buffer.h"
+#include "nvim/change.h"
 #include "nvim/ascii.h"
 #include "nvim/getchar.h"
 #include "nvim/ui.h"
@@ -1310,7 +1311,7 @@ static void refresh_screen(Terminal *term, buf_T *buf)
 
 static void adjust_topline(Terminal *term, buf_T *buf, long added)
 {
-  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
     if (wp->w_buffer == buf) {
       linenr_T ml_end = buf->b_ml.ml_line_count;
       bool following = ml_end == wp->w_cursor.lnum + added;  // cursor at end?

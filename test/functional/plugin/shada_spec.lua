@@ -1,4 +1,5 @@
 local helpers = require('test.functional.helpers')(after_each)
+local clear = helpers.clear
 local eq, nvim_eval, nvim_command, nvim, exc_exec, funcs, nvim_feed, curbuf =
   helpers.eq, helpers.eval, helpers.command, helpers.nvim, helpers.exc_exec,
   helpers.funcs, helpers.feed, helpers.curbuf
@@ -7,11 +8,14 @@ local read_file = helpers.read_file
 
 local mpack = require('mpack')
 
-local plugin_helpers = require('test.functional.plugin.helpers')
-local reset = plugin_helpers.reset
-
 local shada_helpers = require('test.functional.shada.helpers')
 local get_shada_rw = shada_helpers.get_shada_rw
+
+local function reset(shada_file)
+  clear{ args={'-u', 'NORC',
+              '-i', shada_file or 'NONE',
+        }}
+end
 
 local mpack_eq = function(expected, mpack_result)
   local mpack_keys = {'type', 'timestamp', 'length', 'value'}
@@ -2543,6 +2547,7 @@ describe('syntax/shada.vim', function()
   it('works', function()
     nvim_command('syntax on')
     nvim_command('setlocal syntax=shada')
+    nvim_command('set laststatus&')
     curbuf('set_lines', 0, 1, true, {
       'Header with timestamp ' .. epoch .. ':',
       '  % Key  Value',
@@ -2879,4 +2884,3 @@ describe('syntax/shada.vim', function()
     eq(exp, act)
   end)
 end)
-

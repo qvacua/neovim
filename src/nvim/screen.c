@@ -3143,6 +3143,7 @@ win_line (
           c = '>';
           mb_c = c;
           mb_l = 1;
+          (void)mb_l;
           multi_attr = win_hl_attr(wp, HLF_AT);
 
           // put the pointer back to output the double-width
@@ -3153,9 +3154,9 @@ win_line (
           n_extra -= mb_l - 1;
           p_extra += mb_l - 1;
         }
-        ++p_extra;
+        p_extra++;
       }
-      --n_extra;
+      n_extra--;
     } else {
       int c0;
 
@@ -5371,8 +5372,11 @@ void grid_puts_len(ScreenGrid *grid, char_u *text, int textlen, int row,
 
   screen_adjust_grid(&grid, &row, &col);
 
-  // safety check
-  if (grid->chars == NULL || row >= grid->Rows || col >= grid->Columns) {
+  // Safety check. The check for negative row and column is to fix issue
+  // vim/vim#4102. TODO: find out why row/col could be negative.
+  if (grid->chars == NULL
+      || row >= grid->Rows || row < 0
+      || col >= grid->Columns || col < 0) {
     return;
   }
 

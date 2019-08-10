@@ -84,6 +84,7 @@
 #include "nvim/ascii.h"
 #include "nvim/spell.h"
 #include "nvim/buffer.h"
+#include "nvim/change.h"
 #include "nvim/charset.h"
 #include "nvim/cursor.h"
 #include "nvim/edit.h"
@@ -1807,9 +1808,11 @@ void count_common_word(slang_T *lp, char_u *word, int len, int count)
   char_u buf[MAXWLEN];
   char_u      *p;
 
-  if (len == -1)
+  if (len == -1) {
     p = word;
-  else {
+  } else if (len >= MAXWLEN) {
+    return;
+  } else {
     STRLCPY(buf, word, len + 1);
     p = buf;
   }

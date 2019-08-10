@@ -138,8 +138,13 @@ functionaltest-lua: | nvim
 lualint: | build/.ran-cmake deps
 	$(BUILD_CMD) -C build lualint
 
-pylint: | build/.ran-cmake deps
-	$(BUILD_CMD) -C build pylint
+pylint:
+	flake8 contrib/ scripts/ src/ test/
+
+# Run pylint only if flake8 is installed.
+_opt_pylint:
+	@command -v flake8 && { $(MAKE) pylint; exit $$?; } \
+		|| echo "SKIP: pylint (flake8 not found)"
 
 unittest: | nvim
 	+$(BUILD_CMD) -C build unittest
@@ -182,12 +187,16 @@ appimage:
 appimage-%:
 	bash scripts/genappimage.sh $*
 
-lint: check-single-includes clint lualint pylint
+lint: check-single-includes clint lualint _opt_pylint
 
+# Generic pattern rules, allowing for `make build/bin/nvim` etc.
+# Does not work with "Unix Makefiles".
+ifeq ($(BUILD_TYPE),Ninja)
 build/%:
 	$(BUILD_CMD) -C build $(patsubst build/%,%,$@)
 
 $(DEPS_BUILD_DIR)/%:
 	$(BUILD_CMD) -C $(DEPS_BUILD_DIR) $(patsubst $(DEPS_BUILD_DIR)/%,%,$@)
+endif
 
 .PHONY: test lualint pylint functionaltest unittest lint clint clean distclean nvim libnvim cmake deps install appimage checkprefix

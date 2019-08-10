@@ -18,12 +18,14 @@
 
 #include "nvim/assert.h"
 #include "nvim/vim.h"
+
 #include "nvim/ascii.h"
 #ifdef HAVE_LOCALE_H
 # include <locale.h>
 #endif
 #include "nvim/eval.h"
 #include "nvim/buffer.h"
+#include "nvim/change.h"
 #include "nvim/channel.h"
 #include "nvim/charset.h"
 #include "nvim/context.h"
@@ -8495,6 +8497,25 @@ static void f_empty(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   rettv->vval.v_number = n;
 }
 
+/// "environ()" function
+static void f_environ(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  tv_dict_alloc_ret(rettv);
+
+  for (int i = 0; ; i++) {
+    // TODO(justinmk): use os_copyfullenv from #7202 ?
+    char *envname = os_getenvname_at_index((size_t)i);
+    if (envname == NULL) {
+      break;
+    }
+    const char *value = os_getenv(envname);
+    tv_dict_add_str(rettv->vval.v_dict,
+                    (char *)envname, STRLEN((char *)envname),
+                    value == NULL ? "" : value);
+    xfree(envname);
+  }
+}
+
 /*
  * "escape({string}, {chars})" function
  */
@@ -8505,6 +8526,20 @@ static void f_escape(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   rettv->vval.v_string = vim_strsave_escaped(
       (const char_u *)tv_get_string(&argvars[0]),
       (const char_u *)tv_get_string_buf(&argvars[1], buf));
+  rettv->v_type = VAR_STRING;
+}
+
+/// "getenv()" function
+static void f_getenv(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  char_u *p = (char_u *)vim_getenv(tv_get_string(&argvars[0]));
+
+  if (p == NULL) {
+    rettv->v_type = VAR_SPECIAL;
+    rettv->vval.v_number = kSpecialVarNull;
+    return;
+  }
+  rettv->vval.v_string = p;
   rettv->v_type = VAR_STRING;
 }
 
@@ -8684,7 +8719,7 @@ static void f_exists(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   const char *p = tv_get_string(&argvars[0]);
   if (*p == '$') {  // Environment variable.
     // First try "normal" environment variables (fast).
-    if (os_getenv(p + 1) != NULL) {
+    if (os_env_exists(p + 1)) {
       n = true;
     } else {
       // Try expanding things like $VIM and ${HOME}.
@@ -11229,7 +11264,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 #ifdef CUSTOM_UI
     "gui_vimr",
 #endif
-#if defined(HAVE_ICONV_H) && defined(USE_ICONV)
+#if defined(HAVE_ICONV)
     "iconv",
 #endif
     "insert_expand",
@@ -11342,10 +11377,6 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       n = stdout_isatty;
     } else if (STRICMP(name, "multi_byte_encoding") == 0) {
       n = has_mbyte != 0;
-#if defined(USE_ICONV) && defined(DYNAMIC_ICONV)
-    } else if (STRICMP(name, "iconv") == 0) {
-      n = iconv_enabled(false);
-#endif
     } else if (STRICMP(name, "syntax_items") == 0) {
       n = syntax_present(curwin);
 #ifdef UNIX
@@ -12327,7 +12358,6 @@ static void f_jobstop(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     EMSG(_(e_invarg));
     return;
   }
-
 
   Channel *data = find_job(argvars[0].vval.v_number, true);
   if (!data) {
@@ -15322,6 +15352,20 @@ static void f_setcmdpos(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   }
 }
 
+/// "setenv()" function
+static void f_setenv(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  char namebuf[NUMBUFLEN];
+  char valbuf[NUMBUFLEN];
+  const char *name = tv_get_string_buf(&argvars[0], namebuf);
+
+  if (argvars[1].v_type == VAR_SPECIAL
+      && argvars[1].vval.v_number == kSpecialVarNull) {
+    os_unsetenv(name);
+  } else {
+    vim_setenv(name, tv_get_string_buf(&argvars[1], valbuf));
+  }
+}
 
 /// "setfperm({fname}, {mode})" function
 static void f_setfperm(typval_T *argvars, typval_T *rettv, FunPtr fptr)
@@ -16719,6 +16763,8 @@ static void f_spellbadword(typval_T *argvars, typval_T *rettv, FunPtr fptr)
           break;
         }
         str += len;
+        capcol -= len;
+        len = 0;
       }
     }
   }
@@ -23971,52 +24017,57 @@ typval_T eval_call_provider(char *provider, char *method, list_T *arguments)
   return rettv;
 }
 
+/// Checks if a named provider is enabled.
 bool eval_has_provider(const char *name)
 {
-#define CHECK_PROVIDER(name) \
-  if (has_##name == -1) { \
-    has_##name = !!find_func((char_u *)"provider#" #name "#Call"); \
-    if (!has_##name) { \
-      script_autoload("provider#" #name "#Call", \
-                      sizeof("provider#" #name "#Call") - 1, \
-                      false); \
-      has_##name = !!find_func((char_u *)"provider#" #name "#Call"); \
-    } \
+  if (!strequal(name, "clipboard")
+      && !strequal(name, "python")
+      && !strequal(name, "python3")
+      && !strequal(name, "ruby")
+      && !strequal(name, "node")) {
+    // Avoid autoload for non-provider has() features.
+    return false;
   }
 
-  static int has_clipboard = -1;
-  static int has_python = -1;
-  static int has_python3 = -1;
-  static int has_ruby = -1;
-  typval_T args[1];
-  args[0].v_type = VAR_UNKNOWN;
+  char buf[256];
+  int len;
+  typval_T tv;
 
-  if (strequal(name, "clipboard")) {
-    CHECK_PROVIDER(clipboard);
-    return has_clipboard;
-  } else if (strequal(name, "python3")) {
-    CHECK_PROVIDER(python3);
-    return has_python3;
-  } else if (strequal(name, "python")) {
-    CHECK_PROVIDER(python);
-    return has_python;
-  } else if (strequal(name, "ruby")) {
-    bool need_check_ruby = (has_ruby == -1);
-    CHECK_PROVIDER(ruby);
-    if (need_check_ruby && has_ruby == 1) {
-      char *rubyhost = call_func_retstr("provider#ruby#Detect", 0, args, true);
-      if (rubyhost) {
-        if (*rubyhost == NUL) {
-          // Invalid rubyhost executable. Gem is probably not installed.
-          has_ruby = 0;
-        }
-        xfree(rubyhost);
+  // Get the g:loaded_xx_provider variable.
+  len = snprintf(buf, sizeof(buf), "g:loaded_%s_provider", name);
+  if (get_var_tv(buf, len, &tv, NULL, false, true) == FAIL) {
+    // Trigger autoload once.
+    len = snprintf(buf, sizeof(buf), "provider#%s#bogus", name);
+    script_autoload(buf, len, false);
+
+    // Retry the (non-autoload-style) variable.
+    len = snprintf(buf, sizeof(buf), "g:loaded_%s_provider", name);
+    if (get_var_tv(buf, len, &tv, NULL, false, true) == FAIL) {
+      // Show a hint if Call() is defined but g:loaded_xx_provider is missing.
+      snprintf(buf, sizeof(buf), "provider#%s#Call", name);
+      if (!!find_func((char_u *)buf) && p_lpl) {
+        emsgf("provider: %s: missing required variable g:loaded_%s_provider",
+              name, name);
       }
+      return false;
     }
-    return has_ruby;
   }
 
-  return false;
+  bool ok = (tv.v_type == VAR_NUMBER)
+    ? 2 == tv.vval.v_number  // Value of 2 means "loaded and working".
+    : false;
+
+  if (ok) {
+    // Call() must be defined if provider claims to be working.
+    snprintf(buf, sizeof(buf), "provider#%s#Call", name);
+    if (!find_func((char_u *)buf)) {
+      emsgf("provider: %s: g:loaded_%s_provider=2 but %s is not defined",
+            name, name, buf);
+      ok = false;
+    }
+  }
+
+  return ok;
 }
 
 /// Writes "<sourcing_name>:<sourcing_lnum>" to `buf[bufsize]`.

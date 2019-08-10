@@ -400,7 +400,8 @@ is safe to execute API methods. >
     end))
 
 A subset of the API is available in direct luv callbacks ("fast" callbacks),
-most notably |nvim_get_mode()| and |nvim_input()|.
+most notably |nvim_get_mode()| and |nvim_input()|.  It is possible to
+check whether code is running in this context using |vim.in_fast_event()|.
 
 
 Example: repeating timer
@@ -458,9 +459,35 @@ vim.stricmp({a}, {b})					*vim.stricmp()*
         are equal, {a} is greater than {b} or {a} is lesser than {b},
         respectively.
 
+vim.str_utfindex({str}[, {index}])			*vim.str_utfindex()*
+        Convert byte index to UTF-32 and UTF-16 indicies. If {index} is not
+        supplied, the length of the string is used. All indicies are zero-based.
+        Returns two values: the UTF-32 and UTF-16 indicies respectively.
+
+        Embedded NUL bytes are treated as terminating the string. Invalid
+        UTF-8 bytes, and embedded surrogates are counted as one code
+        point each. An {index} in the middle of a UTF-8 sequence is rounded
+        upwards to the end of that sequence.
+
+vim.str_byteindex({str}, {index}[, {use_utf16}])	*vim.str_byteindex()*
+        Convert UTF-32 or UTF-16 {index} to byte index. If {use_utf16} is not
+        supplied, it defaults to false (use UTF-32). Returns the byte index.
+
+        Invalid UTF-8 and NUL is treated like by |vim.str_byteindex()|. An {index}
+        in the middle of a UTF-16 sequence is rounded upwards to the end of that
+        sequence.
+
 vim.schedule({callback})				*vim.schedule()*
         Schedules {callback} to be invoked soon by the main event-loop. Useful
         to avoid |textlock| or other temporary restrictions.
+
+vim.in_fast_event()					*vim.in_fast_event()*
+        Returns true if the code is executing as part of a "fast" event
+        handler, where most of the API is disabled. These are low-level event
+        such as luv callbacks |lua-loop-callbacks|, which can be invoked at
+        any time nvim polls for input. When this returns `false` most API
+        functions are callable, but can be subjected to other restrictions,
+        such as |textlock|.
 
 vim.type_idx						*vim.type_idx*
 	Type index for use in |lua-special-tbl|.  Specifying one of the 
