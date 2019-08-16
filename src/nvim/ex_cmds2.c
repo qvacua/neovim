@@ -2819,10 +2819,10 @@ void ex_packadd(exarg_T *eap)
 /// ":options"
 void ex_options(exarg_T *eap)
 {
-  vim_setenv("OPTWIN_CMD", cmdmod.tab ? "tab" : "");
-  vim_setenv("OPTWIN_CMD",
-             cmdmod.tab ? "tab" :
-             (cmdmod.split & WSP_VERT) ? "vert" : "");
+  os_setenv("OPTWIN_CMD", cmdmod.tab ? "tab" : "", 1);
+  os_setenv("OPTWIN_CMD",
+            cmdmod.tab ? "tab" :
+            (cmdmod.split & WSP_VERT) ? "vert" : "", 1);
   cmd_source((char_u *)SYS_OPTWIN_FILE, NULL);
 }
 
@@ -2830,9 +2830,9 @@ void ex_options(exarg_T *eap)
 void init_pyxversion(void)
 {
   if (p_pyx == 0) {
-    if (!eval_has_provider("python3")) {
+    if (eval_has_provider("python3")) {
       p_pyx = 3;
-    } else if (!eval_has_provider("python")) {
+    } else if (eval_has_provider("python")) {
       p_pyx = 2;
     }
   }
@@ -3927,19 +3927,19 @@ void ex_language(exarg_T *eap)
       _nl_msg_cat_cntr++;
 #endif
       // Reset $LC_ALL, otherwise it would overrule everything.
-      vim_setenv("LC_ALL", "");
+      os_setenv("LC_ALL", "", 1);
 
       if (what != LC_TIME) {
         // Tell gettext() what to translate to.  It apparently doesn't
         // use the currently effective locale.
         if (what == LC_ALL) {
-          vim_setenv("LANG", (char *)name);
+          os_setenv("LANG", (char *)name, 1);
 
           // Clear $LANGUAGE because GNU gettext uses it.
-          vim_setenv("LANGUAGE", "");
+          os_setenv("LANGUAGE", "", 1);
         }
         if (what != LC_CTYPE) {
-          vim_setenv("LC_MESSAGES", (char *)name);
+          os_setenv("LC_MESSAGES", (char *)name, 1);
           set_helplang_default((char *)name);
         }
       }

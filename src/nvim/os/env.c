@@ -102,11 +102,16 @@ bool os_env_exists(const char *name)
   assert(r != UV_EINVAL);
   if (r != 0 && r != UV_ENOENT && r != UV_ENOBUFS) {
     ELOG("uv_os_getenv(%s) failed: %d %s", name, r, uv_err_name(r));
+#ifdef WIN32
+    return (r == UV_UNKNOWN);
+#endif
   }
   return (r == 0 || r == UV_ENOBUFS);
 }
 
 /// Sets an environment variable.
+///
+/// Windows (Vim-compat): Empty string (:let $FOO="") undefines the env var.
 ///
 /// @warning Existing pointers to the result of os_getenv("foo") are
 ///          INVALID after os_setenv("foo", …).
@@ -119,6 +124,10 @@ int os_setenv(const char *name, const char *value, int overwrite)
 #ifdef WIN32
   if (!overwrite && os_getenv(name) != NULL) {
     return 0;
+  }
+  if (value[0] == '\0') {
+    // Windows (Vim-compat): Empty string undefines the env var.
+    return os_unsetenv(name);
   }
 #else
   if (!overwrite && os_env_exists(name)) {
@@ -169,7 +178,7 @@ char *os_getenvname_at_index(size_t index)
   for (wchar_t *it = env; *it != L'\0' || *(it + 1) != L'\0'; it++) {
     if (index == current_index) {
       char *utf8_str;
-      int conversion_result = utf16_to_utf8(it, &utf8_str);
+      int conversion_result = utf16_to_utf8(it, -1, &utf8_str);
       if (conversion_result != 0) {
         EMSG2("utf16_to_utf8 failed: %d", conversion_result);
         break;
@@ -249,7 +258,7 @@ void os_get_hostname(char *hostname, size_t size)
   host_utf16[host_wsize] = '\0';
 
   char *host_utf8;
-  int conversion_result = utf16_to_utf8(host_utf16, &host_utf8);
+  int conversion_result = utf16_to_utf8(host_utf16, -1, &host_utf8);
   if (conversion_result != 0) {
     EMSG2("utf16_to_utf8 failed: %d", conversion_result);
     return;
@@ -300,6 +309,30 @@ void init_homedir(void)
   }
   if (var == NULL) {
     var = os_getenv("USERPROFILE");
+  }
+
+  // Weird but true: $HOME may contain an indirect reference to another
+  // variable, esp. "%USERPROFILE%".  Happens when $USERPROFILE isn't set
+  // when $HOME is being set.
+  if (var != NULL && *var == '%') {
+    const char *p = strchr(var + 1, '%');
+    if (p != NULL) {
+      vim_snprintf(os_buf, (size_t)(p - var), "%s", var + 1);
+      const char *exp = os_getenv(os_buf);
+      if (exp != NULL && *exp != NUL
+          && STRLEN(exp) + STRLEN(p) < MAXPATHL) {
+        vim_snprintf(os_buf, MAXPATHL, "%s%s", exp, p + 1);
+        var = os_buf;
+      }
+    }
+  }
+
+  // Default home dir is C:/
+  // Best assumption we can make in such a situation.
+  if (var == NULL
+      // Empty means "undefined"
+      || *var == NUL) {
+    var = "C:/";
   }
 #endif
 
@@ -702,16 +735,16 @@ char *vim_getenv(const char *name)
   // init_path() should have been called before now.
   assert(get_vim_var_str(VV_PROGPATH)[0] != NUL);
 
-  const char *kos_env_path = os_getenv(name);
-  if (kos_env_path != NULL) {
-    return xstrdup(kos_env_path);
-  }
-
 #ifdef WIN32
   if (strcmp(name, "HOME") == 0) {
     return xstrdup(homedir);
   }
 #endif
+
+  const char *kos_env_path = os_getenv(name);
+  if (kos_env_path != NULL) {
+    return xstrdup(kos_env_path);
+  }
 
   bool vimruntime = (strcmp(name, "VIMRUNTIME") == 0);
   if (!vimruntime && strcmp(name, "VIM") != 0) {
@@ -812,10 +845,10 @@ char *vim_getenv(const char *name)
   // next time, and others can also use it (e.g. Perl).
   if (vim_path != NULL) {
     if (vimruntime) {
-      vim_setenv("VIMRUNTIME", vim_path);
+      os_setenv("VIMRUNTIME", vim_path, 1);
       didset_vimruntime = true;
     } else {
-      vim_setenv("VIM", vim_path);
+      os_setenv("VIM", vim_path, 1);
       didset_vim = true;
     }
   }
@@ -960,22 +993,6 @@ char_u * home_replace_save(buf_T *buf, char_u *src) FUNC_ATTR_NONNULL_RET
   char_u *dst = xmalloc(len);
   home_replace(buf, src, dst, len, true);
   return dst;
-}
-
-/// Vim setenv() wrapper with special handling for $VIMRUNTIME to keep the
-/// localization machinery sane.
-void vim_setenv(const char *name, const char *val)
-{
-  os_setenv(name, val, 1);
-#ifndef LOCALE_INSTALL_DIR
-  // When setting $VIMRUNTIME adjust the directory to find message
-  // translations to $VIMRUNTIME/lang.
-  if (*val != NUL && STRICMP(name, "VIMRUNTIME") == 0) {
-    char *buf = (char *)concat_str((char_u *)val, (char_u *)"/lang");
-    bindtextdomain(PROJECT_NAME, buf);
-    xfree(buf);
-  }
-#endif
 }
 
 

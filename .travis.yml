@@ -76,7 +76,7 @@ addons:
       - valgrind
       - xclip
   homebrew:
-    update: true
+    update: false
     packages:
       - ccache
       - ninja
@@ -163,6 +163,9 @@ cache:
   ccache: true
   directories:
     - "$CACHE_NVIM_DEPS_DIR"
+
+git:
+  quiet: true
 
 notifications:
   webhooks:
