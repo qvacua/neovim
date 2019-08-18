@@ -31,12 +31,14 @@
 
 " Check that the screen size is at least 24 x 80 characters.
 if &lines < 24 || &columns < 80 
-  let error = 'Screen size too small! Tests require at least 24 lines with 80 characters'
+  let error = 'Screen size too small! Tests require at least 24 lines with 80 characters, got ' .. &lines .. ' lines with ' .. &columns .. ' characters'
   echoerr error
   split test.log
   $put =error
   write
   split messages
+  call append(line('$'), '')
+  call append(line('$'), 'From ' . expand('%') . ':')
   call append(line('$'), error)
   write
   qa!
@@ -77,7 +79,7 @@ set nomore
 lang mess C
 
 " Always use forward slashes.
-" set shellslash
+set shellslash
 
 " Prepare for calling test_garbagecollect_now().
 let v:testing = 1
@@ -161,7 +163,7 @@ func RunTheTest(test)
     endtry
   endif
 
-  " Clear any autocommands
+  " Clear any autocommands and put back the catch-all for SwapExists.
   au!
   au SwapExists * call HandleSwapExists()
 
@@ -280,6 +282,7 @@ endif
 let s:flaky_tests = [
       \ 'Test_cursorhold_insert()',
       \ 'Test_exit_callback_interval()',
+      \ 'Test_map_timeout_with_timer_interrupt()',
       \ 'Test_oneshot()',
       \ 'Test_out_cb()',
       \ 'Test_paused()',
@@ -288,6 +291,7 @@ let s:flaky_tests = [
       \ 'Test_reltime()',
       \ 'Test_repeat_many()',
       \ 'Test_repeat_three()',
+      \ 'Test_stop_all_in_callback()',
       \ 'Test_terminal_composing_unicode()',
       \ 'Test_terminal_redir_file()',
       \ 'Test_terminal_tmap()',
