@@ -239,6 +239,10 @@ func s:StartDebug_term(dict)
           " Success!
           break
         endif
+        if response =~ 'Reading symbols from' && response !~ 'new-ui'
+          " Reading symbols might take a while
+	  let try_count -= 1
+        endif
       endif
     endfor
     if response =~ 'New UI allocated'
@@ -685,10 +689,9 @@ function! s:OpenHoverPreview(lines, filetype) abort
             \   'col': col,
             \   'width': width,
             \   'height': height,
+            \   'style': 'minimal',
             \ })
-      call nvim_win_set_option(float_win_id, 'relativenumber', v:false)
-      call nvim_win_set_option(float_win_id, 'signcolumn', 'no')
-      call nvim_win_set_option(float_win_id, 'signcolumn', 'no')
+
       if a:filetype isnot v:null
         call nvim_win_set_option(float_win_id, 'filetype', a:filetype)
       endif
@@ -896,3 +899,5 @@ func s:BufUnloaded()
   endfor
 endfunc
 
+let &cpo = s:keepcpo
+unlet s:keepcpo

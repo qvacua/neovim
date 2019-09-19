@@ -11,12 +11,13 @@ typedef int32_t RgbValue;
 ///
 /// sign bit should not be used here, as it identifies invalid highlight
 typedef enum {
-  HL_INVERSE     = 0x01,
-  HL_BOLD        = 0x02,
-  HL_ITALIC      = 0x04,
-  HL_UNDERLINE   = 0x08,
-  HL_UNDERCURL   = 0x10,
-  HL_STANDOUT    = 0x20,
+  HL_INVERSE         = 0x01,
+  HL_BOLD            = 0x02,
+  HL_ITALIC          = 0x04,
+  HL_UNDERLINE       = 0x08,
+  HL_UNDERCURL       = 0x10,
+  HL_STANDOUT        = 0x20,
+  HL_STRIKETHROUGH   = 0x40,
 } HlAttrFlags;
 
 /// Stores a complete highlighting entry, including colors and attributes
@@ -93,6 +94,7 @@ typedef enum {
   , HLF_INACTIVE    // NormalNC: Normal text in non-current windows
   , HLF_MSGSEP      // message separator line
   , HLF_NFLOAT      // Floating window
+  , HLF_MSG         // Message area
   , HLF_COUNT       // MUST be the last one
 } hlf_T;
 
@@ -146,6 +148,7 @@ EXTERN const char *hlf_names[] INIT(= {
   [HLF_INACTIVE] = "NormalNC",
   [HLF_MSGSEP] = "MsgSeparator",
   [HLF_NFLOAT] = "NormalFloat",
+  [HLF_MSG] = "MsgArea",
 });
 
 

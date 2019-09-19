@@ -959,6 +959,7 @@ Timers:						*timer-functions*
 	timer_stop()		stop a timer
 	timer_stopall()		stop all timers
 	timer_info()		get information about timers
+	wait()			wait for a condition
 
 Tags:						*tag-functions*
 	taglist()		get list of matching tags
@@ -970,6 +971,13 @@ Prompt Buffer:					*promptbuffer-functions*
 	prompt_setcallback()	set prompt callback for a buffer
 	prompt_setinterrupt()	set interrupt callback for a buffer
 	prompt_setprompt()	set the prompt text for a buffer
+
+Context Stack:					*ctx-functions*
+	ctxget()		return context at given index from top
+	ctxpop()		pop and restore top context
+	ctxpush()		push given context
+	ctxset()		set context at given index from top
+	ctxsize()		return context stack size
 
 Various:					*various-functions*
 	mode()			get current editing mode

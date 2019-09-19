@@ -57,7 +57,7 @@ void remote_ui_disconnect(uint64_t channel_id)
   pmap_del(uint64_t)(connected_uis, channel_id);
   xfree(ui->data);
   ui->data = NULL;  // Flag UI as "stopped".
-  ui_detach_impl(ui);
+  ui_detach_impl(ui, channel_id);
   xfree(ui);
 }
 
@@ -109,6 +109,7 @@ void nvim_ui_attach(uint64_t channel_id, Integer width, Integer height,
   UI *ui = xcalloc(1, sizeof(UI));
   ui->width = (int)width;
   ui->height = (int)height;
+  ui->pum_height = 0;
   ui->rgb = true;
   ui->override = false;
   ui->grid_resize = remote_ui_grid_resize;
@@ -133,8 +134,7 @@ void nvim_ui_attach(uint64_t channel_id, Integer width, Integer height,
   ui->set_title = remote_ui_set_title;
   ui->set_icon = remote_ui_set_icon;
   ui->option_set = remote_ui_option_set;
-  ui->win_scroll_over_start = remote_ui_win_scroll_over_start;
-  ui->win_scroll_over_reset = remote_ui_win_scroll_over_reset;
+  ui->msg_set_pos = remote_ui_msg_set_pos;
   ui->event = remote_ui_event;
   ui->inspect = remote_ui_inspect;
 
@@ -168,7 +168,7 @@ void nvim_ui_attach(uint64_t channel_id, Integer width, Integer height,
   ui->data = data;
 
   pmap_put(uint64_t)(connected_uis, channel_id, ui);
-  ui_attach_impl(ui);
+  ui_attach_impl(ui, channel_id);
 }
 
 /// @deprecated
@@ -312,6 +312,35 @@ void nvim_ui_try_resize_grid(uint64_t channel_id, Integer grid, Integer width,
   }
 
   ui_grid_resize((handle_T)grid, (int)width, (int)height, err);
+}
+
+/// Tells Nvim the number of elements displaying in the popumenu, to decide
+/// <PageUp> and <PageDown> movement.
+///
+/// @param channel_id
+/// @param height  Popupmenu height, must be greater than zero.
+/// @param[out] err Error details, if any
+void nvim_ui_pum_set_height(uint64_t channel_id, Integer height, Error *err)
+  FUNC_API_SINCE(6) FUNC_API_REMOTE_ONLY
+{
+  if (!pmap_has(uint64_t)(connected_uis, channel_id)) {
+    api_set_error(err, kErrorTypeException,
+                  "UI not attached to channel: %" PRId64, channel_id);
+    return;
+  }
+
+  if (height <= 0) {
+    api_set_error(err, kErrorTypeValidation, "Expected pum height > 0");
+    return;
+  }
+
+  UI *ui = pmap_get(uint64_t)(connected_uis, channel_id);
+  if (!ui->ui_ext[kUIPopupmenu]) {
+    api_set_error(err, kErrorTypeValidation,
+                  "It must support the ext_popupmenu option");
+    return;
+  }
+  ui->pum_height = (int)height;
 }
 
 /// Pushes data into UI.UIData, to be consumed later by remote_ui_flush().

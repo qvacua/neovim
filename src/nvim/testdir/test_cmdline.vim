@@ -15,14 +15,48 @@ func Test_complete_list()
 endfunc
 
 func Test_complete_wildmenu()
-  call writefile(['testfile1'], 'Xtestfile1')
-  call writefile(['testfile2'], 'Xtestfile2')
+  call mkdir('Xdir1/Xdir2', 'p')
+  call writefile(['testfile1'], 'Xdir1/Xtestfile1')
+  call writefile(['testfile2'], 'Xdir1/Xtestfile2')
+  call writefile(['testfile3'], 'Xdir1/Xdir2/Xtestfile3')
+  call writefile(['testfile3'], 'Xdir1/Xdir2/Xtestfile4')
   set wildmenu
-  call feedkeys(":e Xtestf\t\t\r", "tx")
+
+  " Pressing <Tab> completes, and moves to next files when pressing again.
+  call feedkeys(":e Xdir1/\<Tab>\<Tab>\<CR>", 'tx')
+  call assert_equal('testfile1', getline(1))
+  call feedkeys(":e Xdir1/\<Tab>\<Tab>\<Tab>\<CR>", 'tx')
   call assert_equal('testfile2', getline(1))
 
-  call delete('Xtestfile1')
-  call delete('Xtestfile2')
+  " <S-Tab> is like <Tab> but begin with the last match and then go to
+  " previous.
+  call feedkeys(":e Xdir1/Xtest\<S-Tab>\<CR>", 'tx')
+  call assert_equal('testfile2', getline(1))
+  call feedkeys(":e Xdir1/Xtest\<S-Tab>\<S-Tab>\<CR>", 'tx')
+  call assert_equal('testfile1', getline(1))
+
+  " <Left>/<Right> to move to previous/next file.
+  call feedkeys(":e Xdir1/\<Tab>\<Right>\<CR>", 'tx')
+  call assert_equal('testfile1', getline(1))
+  call feedkeys(":e Xdir1/\<Tab>\<Right>\<Right>\<CR>", 'tx')
+  call assert_equal('testfile2', getline(1))
+  call feedkeys(":e Xdir1/\<Tab>\<Right>\<Right>\<Left>\<CR>", 'tx')
+  call assert_equal('testfile1', getline(1))
+
+  " <Up>/<Down> to go up/down directories.
+  call feedkeys(":e Xdir1/\<Tab>\<Down>\<CR>", 'tx')
+  call assert_equal('testfile3', getline(1))
+  call feedkeys(":e Xdir1/\<Tab>\<Down>\<Up>\<Right>\<CR>", 'tx')
+  call assert_equal('testfile1', getline(1))
+
+  " cleanup
+  %bwipe
+  call delete('Xdir1/Xdir2/Xtestfile4')
+  call delete('Xdir1/Xdir2/Xtestfile3')
+  call delete('Xdir1/Xtestfile2')
+  call delete('Xdir1/Xtestfile1')
+  call delete('Xdir1/Xdir2', 'd')
+  call delete('Xdir1', 'd')
   set nowildmenu
 endfunc
 
@@ -242,7 +276,6 @@ func Test_getcompletion()
   let l = getcompletion('break', 'compiler')
   call assert_equal([], l)
 
-  helptags ALL
   let l = getcompletion('last', 'help')
   call assert_true(index(l, ':tablast') >= 0)
   let l = getcompletion('giveup', 'help')
@@ -568,7 +601,8 @@ func Test_setcmdpos()
 endfunc
 
 func Test_cmdline_overstrike()
-  let encodings = has('multi_byte') ? [ 'utf8' ] : [ 'latin1' ]
+  " Nvim: only utf8 is supported.
+  let encodings = ['utf8']
   let encoding_save = &encoding
 
   for e in encodings
@@ -587,11 +621,9 @@ func Test_cmdline_overstrike()
     call assert_equal('"ab0cd3ef4', @:)
   endfor
 
-  if has('multi_byte')
-    " Test overstrike with multi-byte characters.
-    call feedkeys(":\"テキストエディタ\<home>\<right>\<right>ab\<right>\<insert>cd\<enter>", 'xt')
-    call assert_equal('"テabキcdエディタ', @:)
-  endif
+  " Test overstrike with multi-byte characters.
+  call feedkeys(":\"テキストエディタ\<home>\<right>\<right>ab\<right>\<insert>cd\<enter>", 'xt')
+  call assert_equal('"テabキcdエディタ', @:)
 
   let &encoding = encoding_save
 endfunc

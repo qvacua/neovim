@@ -1,7 +1,7 @@
 " Tests for the +clientserver feature.
 
 if !has('job') || !has('clientserver')
-  finish
+  throw 'Skipped: job and/or clientserver feature missing'
 endif
 
 source shared.vim
@@ -27,16 +27,12 @@ func Test_client_server()
 
   let name = 'XVIMTEST'
   let cmd .= ' --servername ' . name
-  let g:job = job_start(cmd, {'stoponexit': 'kill', 'out_io': 'null'})
-  call WaitFor('job_status(g:job) == "run"')
-  if job_status(g:job) != 'run'
-    call assert_report('Cannot run the Vim server')
-    return
-  endif
+  let job = job_start(cmd, {'stoponexit': 'kill', 'out_io': 'null'})
+  call WaitFor({-> job_status(job) == "run"})
 
   " Takes a short while for the server to be active.
   " When using valgrind it takes much longer.
-  call WaitFor('serverlist() =~ "' . name . '"', 5000)
+  call WaitFor('serverlist() =~ "' . name . '"')
   call assert_match(name, serverlist())
 
   call remote_foreground(name)
@@ -83,7 +79,7 @@ func Test_client_server()
   call remote_send(name, ":call server2client(expand('<client>'), 'another')\<CR>", 'g:myserverid')
   let peek_result = 'nothing'
   let r = remote_peek(g:myserverid, 'peek_result')
-  " unpredictable whether the result is already avaialble.
+  " unpredictable whether the result is already available.
   if r > 0
     call assert_equal('another', peek_result)
   elseif r == 0
@@ -97,11 +93,14 @@ func Test_client_server()
   call assert_equal('another', remote_read(g:myserverid, 2))
 
   call remote_send(name, ":qa!\<CR>")
-  call WaitFor('job_status(g:job) == "dead"')
-  if job_status(g:job) != 'dead'
-    call assert_report('Server did not exit')
-    call job_stop(g:job, 'kill')
-  endif
+  try
+    call WaitFor({-> job_status(job) == "dead"})
+  finally
+    if job_status(job) != 'dead'
+      call assert_report('Server did not exit')
+      call job_stop(job, 'kill')
+    endif
+  endtry
 endfunc
 
 " Uncomment this line to get a debugging log

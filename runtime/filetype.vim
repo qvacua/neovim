@@ -1,7 +1,7 @@
 " Vim support file to detect file types
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2019 Jul 27
+" Last Change:	2019 Aug 26
 
 " Listen very carefully, I will say this only once
 if exists("did_load_filetypes")
@@ -697,6 +697,9 @@ au BufNewFile,BufRead *.vc,*.ev,*.sum,*.errsum	setf hercules
 " HEX (Intel)
 au BufNewFile,BufRead *.hex,*.h32		setf hex
 
+" Hollywood
+au BufRead,BufNewFile *.hws			setf hollywood
+
 " Tilde (must be before HTML)
 au BufNewFile,BufRead *.t.html			setf tilde
 
@@ -791,7 +794,10 @@ au BufNewFile,BufRead *.java,*.jav		setf java
 au BufNewFile,BufRead *.jj,*.jjt		setf javacc
 
 " JavaScript, ECMAScript
-au BufNewFile,BufRead *.js,*.javascript,*.es,*.jsx,*.mjs   setf javascript
+au BufNewFile,BufRead *.js,*.javascript,*.es,*.mjs   setf javascript
+
+" JavaScript with React
+au BufNewFile,BufRead *.jsx			setf javascriptreact
 
 " Java Server Pages
 au BufNewFile,BufRead *.jsp			setf jsp
@@ -1704,6 +1710,9 @@ au BufNewFile,BufReadPost *.twig		setf twig
 
 " Typescript
 au BufNewFile,BufReadPost *.ts			setf typescript
+
+" TypeScript with React
+au BufNewFile,BufRead *.tsx			setf typescriptreact
 
 " Motif UIT/UIL files
 au BufNewFile,BufRead *.uit,*.uil		setf uil

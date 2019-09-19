@@ -309,7 +309,6 @@ static const struct key_name_entry {
   { K_ZERO,            "Nul" },
   { K_SNR,             "SNR" },
   { K_PLUG,            "Plug" },
-  { K_PASTE,           "Paste" },
   { K_COMMAND,         "Cmd" },
   { 0,                 NULL }
   // NOTE: When adding a long name update MAX_KEY_NAME_LEN.
@@ -825,7 +824,8 @@ char_u *replace_termcodes(const char_u *from, const size_t from_len,
 
   // Allocate space for the translation.  Worst case a single character is
   // replaced by 6 bytes (shifted special key), plus a NUL at the end.
-  result = xmalloc(from_len * 6 + 1);
+  const size_t buf_len = from_len * 6 + 1;
+  result = xmalloc(buf_len);
 
   src = from;
 
@@ -850,14 +850,15 @@ char_u *replace_termcodes(const char_u *from, const size_t from_len,
       // Replace <SID> by K_SNR <script-nr> _.
       // (room: 5 * 6 = 30 bytes; needed: 3 + <nr> + 1 <= 14)
       if (end - src >= 4 && STRNICMP(src, "<SID>", 5) == 0) {
-        if (current_SID <= 0) {
+        if (current_sctx.sc_sid <= 0) {
           EMSG(_(e_usingsid));
         } else {
           src += 5;
           result[dlen++] = K_SPECIAL;
           result[dlen++] = (int)KS_EXTRA;
           result[dlen++] = (int)KE_SNR;
-          sprintf((char *)result + dlen, "%" PRId64, (int64_t)current_SID);
+          snprintf((char *)result + dlen, buf_len - dlen, "%" PRId64,
+                   (int64_t)current_sctx.sc_sid);
           dlen += STRLEN(result + dlen);
           result[dlen++] = '_';
           continue;
@@ -941,3 +942,14 @@ char_u *replace_termcodes(const char_u *from, const size_t from_len,
   return *bufp;
 }
 
+/// Logs a single key as a human-readable keycode.
+void log_key(int log_level, int key)
+{
+  if (log_level < MIN_LOG_LEVEL) {
+    return;
+  }
+  char *keyname = key == K_EVENT
+    ? "K_EVENT"
+    : (char *)get_special_key_name(key, mod_mask);
+  LOG(log_level, "input: %s", keyname);
+}

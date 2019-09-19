@@ -255,8 +255,8 @@ typedef struct {
   long wo_winbl;
 # define w_p_winbl w_onebuf_opt.wo_winbl  // 'winblend'
 
-  LastSet wo_scriptID[WV_COUNT];        // SIDs for window-local options
-# define w_p_scriptID w_onebuf_opt.wo_scriptID
+  LastSet wo_script_ctx[WV_COUNT];        // SCTXs for window-local options
+# define w_p_script_ctx w_onebuf_opt.wo_script_ctx
 } winopt_T;
 
 /*
@@ -344,17 +344,17 @@ typedef struct {
  */
 typedef struct mapblock mapblock_T;
 struct mapblock {
-  mapblock_T  *m_next;          /* next mapblock in list */
-  char_u      *m_keys;          /* mapped from, lhs */
-  char_u      *m_str;           /* mapped to, rhs */
-  char_u      *m_orig_str;      /* rhs as entered by the user */
-  int m_keylen;                 /* strlen(m_keys) */
-  int m_mode;                   /* valid mode */
-  int m_noremap;                /* if non-zero no re-mapping for m_str */
-  char m_silent;                /* <silent> used, don't echo commands */
-  char m_nowait;                /* <nowait> used */
-  char m_expr;                  /* <expr> used, m_str is an expression */
-  scid_T m_script_ID;           /* ID of script where map was defined */
+  mapblock_T  *m_next;          // next mapblock in list
+  char_u      *m_keys;          // mapped from, lhs
+  char_u      *m_str;           // mapped to, rhs
+  char_u      *m_orig_str;      // rhs as entered by the user
+  int m_keylen;                 // strlen(m_keys)
+  int m_mode;                   // valid mode
+  int m_noremap;                // if non-zero no re-mapping for m_str
+  char m_silent;                // <silent> used, don't echo commands
+  char m_nowait;                // <nowait> used
+  char m_expr;                  // <expr> used, m_str is an expression
+  sctx_T m_script_ctx;          // SCTX where map was defined
 };
 
 /*
@@ -508,9 +508,9 @@ struct file_buffer {
   int b_changed;                // 'modified': Set to true if something in the
                                 // file has been changed and not written out.
 
-  /// Change identifier incremented for each change, including undo
+  /// Change-identifier incremented for each change, including undo.
   ///
-  /// This is a dictionary item used to store in b:changedtick.
+  /// This is a dictionary item used to store b:changedtick.
   ChangedtickDictItem changedtick_di;
 
   varnumber_T b_last_changedtick;       // b:changedtick when TextChanged or
@@ -622,9 +622,9 @@ struct file_buffer {
    * They are here because their value depends on the type of file
    * or contents of the file being edited.
    */
-  bool b_p_initialized;                 /* set when options initialized */
+  bool b_p_initialized;                 // set when options initialized
 
-  LastSet b_p_scriptID[BV_COUNT];       // SIDs for buffer-local options
+  LastSet b_p_script_ctx[BV_COUNT];     // SCTXs for buffer-local options
 
   int b_p_ai;                   ///< 'autoindent'
   int b_p_ai_nopaste;           ///< b_p_ai saved for paste mode
@@ -1006,7 +1006,7 @@ typedef enum {
   kFloatRelativeCursor = 2,
 } FloatRelative;
 
-EXTERN const char *const float_relative_str[] INIT(= { "editor", "window",
+EXTERN const char *const float_relative_str[] INIT(= { "editor", "win",
                                                        "cursor" });
 
 typedef enum {
@@ -1016,6 +1016,7 @@ typedef enum {
 
 typedef struct {
   Window window;
+  lpos_T bufpos;
   int height, width;
   double row, col;
   FloatAnchor anchor;
@@ -1026,6 +1027,7 @@ typedef struct {
 } FloatConfig;
 
 #define FLOAT_CONFIG_INIT ((FloatConfig){ .height = 0, .width = 0, \
+                                          .bufpos = { -1, 0 }, \
                                           .row = 0, .col = 0, .anchor = 0, \
                                           .relative = 0, .external = false, \
                                           .focusable = true, \

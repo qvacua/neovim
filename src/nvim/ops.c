@@ -264,10 +264,8 @@ void op_shift(oparg_T *oap, int curs_top, int amount)
     --curbuf->b_op_end.col;
 }
 
-/*
- * shift the current line one shiftwidth left (if left != 0) or right
- * leaves cursor on first blank in the line
- */
+// Shift the current line one shiftwidth left (if left != 0) or right
+// leaves cursor on first blank in the line.
 void shift_line(
     int left,
     int round,
@@ -1323,6 +1321,19 @@ bool cmdline_paste_reg(int regname, bool literally, bool remcr)
   return OK;
 }
 
+// Shift the delete registers: "9 is cleared, "8 becomes "9, etc.
+static void shift_delete_registers(bool y_append)
+{
+  free_register(&y_regs[9]);  // free register "9
+  for (int n = 9; n > 1; n--) {
+    y_regs[n] = y_regs[n - 1];
+  }
+  if (!y_append) {
+    y_previous = &y_regs[1];
+  }
+  y_regs[1].y_array = NULL;  // set register "1 to empty
+}
+
 /*
  * Handle a delete operation.
  *
@@ -1417,13 +1428,7 @@ int op_delete(oparg_T *oap)
      */
     if (oap->regname != 0 || oap->motion_type == kMTLineWise
         || oap->line_count > 1 || oap->use_reg_one) {
-      free_register(&y_regs[9]); /* free register "9 */
-      for (n = 9; n > 1; n--)
-        y_regs[n] = y_regs[n - 1];
-      if (!is_append_register(oap->regname)) {
-        y_previous = &y_regs[1];
-      }
-      y_regs[1].y_array = NULL;                 // set register "1 to empty
+      shift_delete_registers(is_append_register(oap->regname));
       reg = &y_regs[1];
       op_yank_reg(oap, false, reg, false);
       did_yank = true;
@@ -2732,7 +2737,7 @@ void do_put(int regname, yankreg_T *reg, int dir, long count, int flags)
    * Using inserted text works differently, because the register includes
    * special characters (newlines, etc.).
    */
-  if (regname == '.') {
+  if (regname == '.' && !reg) {
     bool non_linewise_vis = (VIsual_active && VIsual_mode != 'V');
 
     // PUT_LINE has special handling below which means we use 'i' to start.
@@ -2815,7 +2820,7 @@ void do_put(int regname, yankreg_T *reg, int dir, long count, int flags)
    * For special registers '%' (file name), '#' (alternate file name) and
    * ':' (last command line), etc. we have to create a fake yank register.
    */
-  if (get_spec_reg(regname, &insert_string, &allocated, true)) {
+  if (!reg && get_spec_reg(regname, &insert_string, &allocated, true)) {
     if (insert_string == NULL) {
       return;
     }
@@ -5570,11 +5575,12 @@ void cursor_pos_info(dict_T *dict)
     }
 
     bom_count = bomb_size();
-    if (bom_count > 0) {
+    if (dict == NULL && bom_count > 0) {
       vim_snprintf((char *)IObuff + STRLEN(IObuff), IOSIZE - STRLEN(IObuff),
                    _("(+%" PRId64 " for BOM)"), (int64_t)bom_count);
     }
     if (dict == NULL) {
+      // Don't shorten this message, the user asked for it.
       p = p_shm;
       p_shm = (char_u *)"";
       msg(IObuff);
@@ -5673,6 +5679,85 @@ static yankreg_T *adjust_clipboard_name(int *name, bool quiet, bool writing)
 
 end:
   return target;
+}
+
+/// @param[out] reg Expected to be empty
+bool prepare_yankreg_from_object(yankreg_T *reg, String regtype, size_t lines)
+{
+  char type = regtype.data ? regtype.data[0] : NUL;
+
+  switch (type) {
+  case 0:
+    reg->y_type = kMTUnknown;
+    break;
+  case 'v': case 'c':
+    reg->y_type = kMTCharWise;
+    break;
+  case 'V': case 'l':
+    reg->y_type = kMTLineWise;
+    break;
+  case 'b': case Ctrl_V:
+    reg->y_type = kMTBlockWise;
+    break;
+  default:
+    return false;
+  }
+
+  reg->y_width = 0;
+  if (regtype.size > 1) {
+    if (reg->y_type != kMTBlockWise) {
+      return false;
+    }
+
+    // allow "b7" for a block at least 7 spaces wide
+    if (!ascii_isdigit(regtype.data[1])) {
+      return false;
+    }
+    const char *p = regtype.data+1;
+    reg->y_width = getdigits_int((char_u **)&p, false, 1) - 1;
+    if (regtype.size > (size_t)(p-regtype.data)) {
+      return false;
+    }
+  }
+
+  reg->y_array = xcalloc(lines, sizeof(uint8_t *));
+  reg->y_size = lines;
+  reg->additional_data = NULL;
+  reg->timestamp = 0;
+  return true;
+}
+
+void finish_yankreg_from_object(yankreg_T *reg, bool clipboard_adjust)
+{
+  if (reg->y_size > 0 && strlen((char *)reg->y_array[reg->y_size-1]) == 0) {
+    // a known-to-be charwise yank might have a final linebreak
+    // but otherwise there is no line after the final newline
+    if (reg->y_type != kMTCharWise) {
+      if (reg->y_type == kMTUnknown || clipboard_adjust) {
+        xfree(reg->y_array[reg->y_size-1]);
+        reg->y_size--;
+      }
+      if (reg->y_type == kMTUnknown) {
+        reg->y_type = kMTLineWise;
+      }
+    }
+  } else {
+    if (reg->y_type == kMTUnknown) {
+      reg->y_type = kMTCharWise;
+    }
+  }
+
+  if (reg->y_type == kMTBlockWise) {
+    size_t maxlen = 0;
+    for (size_t i = 0; i < reg->y_size; i++) {
+      size_t rowlen = STRLEN(reg->y_array[i]);
+      if (rowlen > maxlen) {
+        maxlen = rowlen;
+      }
+    }
+    assert(maxlen <= INT_MAX);
+    reg->y_width = MAX(reg->y_width, (int)maxlen - 1);
+  }
 }
 
 static bool get_clipboard(int name, yankreg_T **target, bool quiet)

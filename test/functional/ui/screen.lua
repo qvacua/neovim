@@ -159,6 +159,8 @@ function Screen.new(width, height)
     wildmenu_selected = nil,
     win_position = {},
     float_pos = {},
+    msg_grid = nil,
+    msg_grid_pos = nil,
     _session = nil,
     messages = {},
     msg_history = {},
@@ -316,9 +318,10 @@ local ext_keys = {
 -- cmdline_block:  Expected ext_cmdline block (for function definitions)
 -- wildmenu_items: Expected items for ext_wildmenu
 -- wildmenu_pos:   Expected position for ext_wildmenu
-function Screen:expect(expected, attr_ids, attr_ignore)
+function Screen:expect(expected, attr_ids, attr_ignore, ...)
   local grid, condition = nil, nil
   local expected_rows = {}
+  assert(next({...}) == nil, "invalid args to expect()")
   if type(expected) == "table" then
     assert(not (attr_ids ~= nil or attr_ignore ~= nil))
     local is_key = {grid=true, attr_ids=true, attr_ignore=true, condition=true,
@@ -390,27 +393,31 @@ function Screen:expect(expected, attr_ids, attr_ignore)
     end
 
     if grid ~= nil then
+      local err_msg, msg_expected_rows = nil, {}
       -- `expected` must match the screen lines exactly.
       if #actual_rows ~= #expected_rows then
-        return "Expected screen state's row count(" .. #expected_rows
-        .. ') differs from configured height(' .. #actual_rows .. ') of Screen.'
+        err_msg = "Expected screen height " .. #expected_rows
+        .. ' differs from actual height ' .. #actual_rows .. '.'
       end
-      for i = 1, #actual_rows do
+      for i = 1, #expected_rows do
+         msg_expected_rows[i] = expected_rows[i]
         if expected_rows[i] ~= actual_rows[i] and expected_rows[i] ~= "{IGNORE}|" then
-          local msg_expected_rows = {}
-          for j = 1, #expected_rows do
-            msg_expected_rows[j] = expected_rows[j]
-          end
           msg_expected_rows[i] = '*' .. msg_expected_rows[i]
-          actual_rows[i] = '*' .. actual_rows[i]
-          return (
-            'Row ' .. tostring(i) .. ' did not match.\n'
-            ..'Expected:\n  |'..table.concat(msg_expected_rows, '\n  |')..'\n'
-            ..'Actual:\n  |'..table.concat(actual_rows, '\n  |')..'\n\n'..[[
+          if i <= #actual_rows then
+            actual_rows[i] = '*' .. actual_rows[i]
+          end
+          if err_msg == nil then
+            err_msg = 'Row ' .. tostring(i) .. ' did not match.'
+          end
+        end
+      end
+      if err_msg ~= nil then
+        return (
+          err_msg..'\nExpected:\n  |'..table.concat(msg_expected_rows, '\n  |')..'\n'
+          ..'Actual:\n  |'..table.concat(actual_rows, '\n  |')..'\n\n'..[[
 To print the expect() call that would assert the current screen state, use
 screen:snapshot_util(). In case of non-deterministic failures, use
 screen:redraw_debug() to show all intermediate screen states.  ]])
-        end
       end
     end
 
@@ -499,7 +506,8 @@ function Screen:_wait(check, flags)
   local did_miminal_timeout = false
 
   local function notification_cb(method, args)
-    assert(method == 'redraw')
+    assert(method == 'redraw', string.format(
+      'notification_cb: unexpected method (%s, args=%s)', method, inspect(args)))
     did_flush = self:_redraw(args)
     if not did_flush then
       return
@@ -607,7 +615,12 @@ function Screen:_redraw(updates)
       local handler_name = '_handle_'..method
       local handler = self[handler_name]
       if handler ~= nil then
-        handler(self, unpack(update[i]))
+        local status, res = pcall(handler, self, unpack(update[i]))
+        if not status then
+          error(handler_name..' failed'
+            ..'\n  payload: '..inspect(update)
+            ..'\n  error:   '..tostring(res))
+        end
       else
         assert(self._on_event,
           "Add Screen:"..handler_name.." or call Screen:set_on_event_handler")
@@ -670,13 +683,12 @@ function Screen:_handle_grid_resize(grid, width, height)
   }
 end
 
-function Screen:_handle_win_scroll_over_start()
-   self.scroll_over = true
-   self.scroll_over_pos = self._grids[1].height
-end
 
-function Screen:_handle_win_scroll_over_reset()
-   self.scroll_over = false
+function Screen:_handle_msg_set_pos(grid, row, scrolled, char)
+  self.msg_grid = grid
+  self.msg_grid_pos = row
+  self.msg_scrolled = scrolled
+  self.msg_sep_char = char
 end
 
 function Screen:_handle_flush()
@@ -817,10 +829,6 @@ function Screen:_handle_scroll(count)
 end
 
 function Screen:_handle_grid_scroll(g, top, bot, left, right, rows, cols)
-  if self.scroll_over and g == 1 and top < self.scroll_over_pos then
-    self.scroll_over_pos = top
-  end
-
   top = top+1
   left = left+1
   assert(cols == 0)
@@ -851,7 +859,7 @@ function Screen:_handle_grid_scroll(g, top, bot, left, right, rows, cols)
 
   -- clear invalid rows
   for i = stop + step, stop + rows, step do
-    self:_clear_row_section(grid, i, left, right)
+    self:_clear_row_section(grid, i, left, right, true)
   end
 end
 
@@ -1057,10 +1065,10 @@ function Screen:_clear_block(grid, top, bot, left, right)
   end
 end
 
-function Screen:_clear_row_section(grid, rownum, startcol, stopcol)
+function Screen:_clear_row_section(grid, rownum, startcol, stopcol, invalid)
   local row = grid.rows[rownum]
   for i = startcol, stopcol do
-    row[i].text = ' '
+    row[i].text = (invalid and '�' or ' ')
     row[i].attrs = self._clear_attrs
   end
 end
@@ -1070,10 +1078,10 @@ function Screen:_row_repr(gridnr, rownr, attr_state, cursor)
   local current_attr_id
   local i = 1
   local has_windows = self._options.ext_multigrid and gridnr == 1
-  if self.scroll_over and self.scroll_over_pos < rownr then
-    has_windows = false
-  end
   local row = self._grids[gridnr].rows[rownr]
+  if has_windows and self.msg_grid and self.msg_grid_pos < rownr then
+    return '['..self.msg_grid..':'..string.rep('-',#row)..']'
+  end
   while i <= #row do
     local did_window = false
     if has_windows then
@@ -1211,9 +1219,18 @@ function Screen:render(headers, attr_state, preview)
   local rv = {}
   for igrid,grid in pairs(self._grids) do
     if headers then
-      table.insert(rv, "## grid "..igrid)
+      local suffix = ""
+      if igrid > 1 and self.win_position[igrid] == nil
+        and self.float_pos[igrid] == nil and self.msg_grid ~= igrid then
+        suffix = " (hidden)"
+      end
+      table.insert(rv, "## grid "..igrid..suffix)
     end
-    for i = 1, grid.height do
+    local height = grid.height
+    if igrid == self.msg_grid then
+      height = self._grids[1].height - self.msg_grid_pos
+    end
+    for i = 1, height do
       local cursor = self._cursor.grid == igrid and self._cursor.row == i
       local prefix = (headers or preview) and "  " or ""
       table.insert(rv, prefix..self:_row_repr(igrid, i, attr_state, cursor).."|")
@@ -1292,6 +1309,7 @@ function Screen:print_snapshot(attrs, ignore)
     end
     attrstr = (", attr_ids={\n"..table.concat(attrstrs, "\n").."\n}")
   end
+
   print( "\nscreen:expect{grid=[[")
   print(kwargs.grid)
   io.stdout:write( "]]"..attrstr)
@@ -1491,7 +1509,8 @@ function Screen:_equal_attrs(a, b)
        a.underline == b.underline and a.undercurl == b.undercurl and
        a.italic == b.italic and a.reverse == b.reverse and
        a.foreground == b.foreground and a.background == b.background and
-       a.special == b.special
+       a.special == b.special and a.blend == b.blend and
+       a.strikethrough == b.strikethrough
 end
 
 function Screen:_equal_info(a, b)

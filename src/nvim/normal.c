@@ -2082,7 +2082,8 @@ static void op_colon(oparg_T *oap)
 /*
  * Handle the "g@" operator: call 'operatorfunc'.
  */
-static void op_function(oparg_T *oap)
+static void op_function(const oparg_T *oap)
+  FUNC_ATTR_NONNULL_ALL
 {
   const TriState save_virtual_op = virtual_op;
 
@@ -2111,7 +2112,7 @@ static void op_function(oparg_T *oap)
     // function.
     virtual_op = kNone;
 
-    (void)call_func_retnr(p_opfunc, 1, argv, false);
+    (void)call_func_retnr(p_opfunc, 1, argv);
 
     virtual_op = save_virtual_op;
   }
@@ -3454,16 +3455,18 @@ static void display_showcmd(void)
     return;
   }
 
+  msg_grid_validate();
   int showcmd_row = Rows - 1;
-  grid_puts_line_start(&default_grid, showcmd_row);
+  grid_puts_line_start(&msg_grid_adj, showcmd_row);
 
   if (!showcmd_is_clear) {
-    grid_puts(&default_grid, showcmd_buf, showcmd_row, sc_col, 0);
+    grid_puts(&msg_grid_adj, showcmd_buf, showcmd_row, sc_col,
+              HL_ATTR(HLF_MSG));
   }
 
   // clear the rest of an old message by outputting up to SHOWCMD_COLS spaces
-  grid_puts(&default_grid, (char_u *)"          " + len, showcmd_row,
-            sc_col + len, 0);
+  grid_puts(&msg_grid_adj, (char_u *)"          " + len, showcmd_row,
+            sc_col + len, HL_ATTR(HLF_MSG));
 
   grid_puts_line_flush(false);
 }
@@ -7509,6 +7512,23 @@ static void nv_esc(cmdarg_T *cap)
     restart_edit = 'a';
 }
 
+// Move the cursor for the "A" command.
+void set_cursor_for_append_to_line(void)
+{
+  curwin->w_set_curswant = true;
+  if (ve_flags == VE_ALL) {
+    const int save_State = State;
+
+    // Pretend Insert mode here to allow the cursor on the
+    // character past the end of the line
+    State = INSERT;
+    coladvance((colnr_T)MAXCOL);
+    State = save_State;
+  } else {
+    curwin->w_cursor.col += (colnr_T)STRLEN(get_cursor_pos_ptr());
+  }
+}
+
 /// Handle "A", "a", "I", "i" and <Insert> commands.
 static void nv_edit(cmdarg_T *cap)
 {
@@ -7530,18 +7550,8 @@ static void nv_edit(cmdarg_T *cap)
     clearop(cap->oap);
   } else if (!checkclearopq(cap->oap)) {
     switch (cap->cmdchar) {
-    case 'A':           /* "A"ppend after the line */
-      curwin->w_set_curswant = true;
-      if (ve_flags == VE_ALL) {
-        int save_State = State;
-
-        /* Pretend Insert mode here to allow the cursor on the
-         * character past the end of the line */
-        State = INSERT;
-        coladvance((colnr_T)MAXCOL);
-        State = save_State;
-      } else
-        curwin->w_cursor.col += (colnr_T)STRLEN(get_cursor_pos_ptr());
+    case 'A':           // "A"ppend after the line
+      set_cursor_for_append_to_line();
       break;
 
     case 'I':           /* "I"nsert before the first non-blank */
@@ -7831,13 +7841,15 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
       // 'virtualedit' and past the end of the line, we use the 'c' operator in
       // do_put(), which requires the visual selection to still be active.
       if (!VIsual_active || VIsual_mode == 'V' || regname != '.') {
-        // Now delete the selected text.
+        // Now delete the selected text. Avoid messages here.
         cap->cmdchar = 'd';
         cap->nchar = NUL;
         cap->oap->regname = NUL;
+        msg_silent++;
         nv_operator(cap);
         do_pending_operator(cap, 0, false);
         empty = (curbuf->b_ml.ml_flags & ML_EMPTY);
+        msg_silent--;
 
         // delete PUT_LINE_BACKWARD;
         cap->oap->regname = regname;
@@ -7886,6 +7898,7 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
      * line that needs to be deleted now. */
     if (empty && *ml_get(curbuf->b_ml.ml_line_count) == NUL) {
       ml_delete(curbuf->b_ml.ml_line_count, true);
+      deleted_lines(curbuf->b_ml.ml_line_count + 1, 1);
 
       /* If the cursor was in that line, move it to the end of the last
        * line. */

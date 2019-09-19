@@ -100,7 +100,7 @@ void raw_line(Integer grid, Integer row, Integer startcol,
 void event(char *name, Array args, bool *args_consumed)
   FUNC_API_NOEXPORT;
 
-void win_pos(Integer grid, Integer win, Integer startrow,
+void win_pos(Integer grid, Window win, Integer startrow,
              Integer startcol, Integer width, Integer height)
   FUNC_API_SINCE(6) FUNC_API_REMOTE_ONLY;
 void win_float_pos(Integer grid, Window win, String anchor, Integer anchor_grid,
@@ -112,9 +112,7 @@ void win_hide(Integer grid)
   FUNC_API_SINCE(6) FUNC_API_REMOTE_ONLY;
 void win_close(Integer grid)
   FUNC_API_SINCE(6) FUNC_API_REMOTE_ONLY;
-void win_scroll_over_start(void)
-  FUNC_API_SINCE(6) FUNC_API_BRIDGE_IMPL FUNC_API_COMPOSITOR_IMPL;
-void win_scroll_over_reset(void)
+void msg_set_pos(Integer grid, Integer row, Boolean scrolled, String sep_char)
   FUNC_API_SINCE(6) FUNC_API_BRIDGE_IMPL FUNC_API_COMPOSITOR_IMPL;
 
 void popupmenu_show(Array items, Integer selected,

@@ -268,8 +268,10 @@ Name			triggered by ~
 |BufNew|		just after creating a new buffer
 
 |SwapExists|		detected an existing swap file
-|TermOpen|		when a terminal job starts
-|TermClose|		when a terminal job ends
+|TermOpen|		starting a terminal job
+|TermEnter|		entering Terminal-mode
+|TermLeave|		leaving Terminal-mode
+|TermClose|		stopping a terminal job
 |ChanOpen|		after a channel opened
 |ChanInfo|		after a channel has its state changed
 
@@ -280,8 +282,8 @@ Name			triggered by ~
 
 	Startup and exit
 |VimEnter|		after doing all the startup stuff
-|GUIEnter|		after starting the GUI successfully
-|GUIFailed|		after starting the GUI failed
+|UIEnter|		after a UI attaches
+|UILeave|		after a UI detaches
 |TermResponse|		after the terminal response to t_RV is received
 |QuitPre|		when using `:quit`, before deciding whether to exit
 |ExitPre|		when using a command that may make Vim exit
@@ -805,19 +807,17 @@ FuncUndefined			When a user function is used but it isn't
 				NOTE: When writing Vim scripts a better
 				alternative is to use an autoloaded function.
 				See |autoload-functions|.
-							*GUIEnter*
-GUIEnter			After starting the GUI successfully, and after
-				opening the window.  It is triggered before
-				VimEnter when using gvim.  Can be used to
-				position the window from a gvimrc file: >
-	:autocmd GUIEnter * winpos 100 50
-<							*GUIFailed*
-GUIFailed			After starting the GUI failed.  Vim may
-				continue to run in the terminal, if possible
-				(only on Unix and alikes, when connecting the
-				X server fails).  You may want to quit Vim: >
-	:autocmd GUIFailed * qall
-<							*InsertChange*
+							*UIEnter*
+UIEnter				After a UI connects via |nvim_ui_attach()|,
+				after VimEnter.  Can be used for GUI-specific
+				configuration.
+				Sets these |v:event| keys:
+				    chan
+							*UILeave*
+UILeave				After a UI disconnects from Nvim.
+				Sets these |v:event| keys:
+				    chan
+							*InsertChange*
 InsertChange			When typing <Insert> while in Insert or
 				Replace mode.  The |v:insertmode| variable
 				indicates the new mode.
@@ -1051,11 +1051,17 @@ TabNewEntered			After entering a new tab page. |tab-page|
 							*TabClosed*
 TabClosed			After closing a tab page. <afile> can be used
 				for the tab page number.
-							*TermClose*
-TermClose			When a |terminal| job ends.
 							*TermOpen*
 TermOpen			When a |terminal| job is starting.  Can be
 				used to configure the terminal buffer.
+							*TermEnter*
+TermEnter			After entering |Terminal-mode|.
+				After TermOpen.
+							*TermLeave*
+TermLeave			After leaving |Terminal-mode|.
+				After TermClose.
+							*TermClose*
+TermClose			When a |terminal| job ends.
 							*TermResponse*
 TermResponse			After the response to t_RV is received from
 				the terminal.  The value of |v:termresponse|

@@ -25,9 +25,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <stdbool.h>
-#include <stdint.h>
 #include <string.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
 
@@ -200,7 +198,7 @@ typedef struct vimoption {
                                 // local option: indirect option index
   char_u      *def_val[2];      // default values for variable (vi and vim)
   LastSet last_set;             // script in which the option was last set
-# define SCRIPTID_INIT , 0
+# define SCTX_INIT , { 0, 0, 0 }
 } vimoption_T;
 
 #define VI_DEFAULT  0       // def_val[VI_DEFAULT] is Vi default value
@@ -896,7 +894,7 @@ set_option_default(
     *flagsp = *flagsp & ~P_INSECURE;
   }
 
-  set_option_scriptID_idx(opt_idx, opt_flags, current_SID);
+  set_option_sctx_idx(opt_idx, opt_flags, current_sctx);
 }
 
 /*
@@ -1384,10 +1382,10 @@ int do_set(
             if (varp == options[opt_idx].var) {
               option_last_set_msg(options[opt_idx].last_set);
             } else if ((int)options[opt_idx].indir & PV_WIN) {
-              option_last_set_msg(curwin->w_p_scriptID[
+              option_last_set_msg(curwin->w_p_script_ctx[
                   (int)options[opt_idx].indir & PV_MASK]);
             } else if ((int)options[opt_idx].indir & PV_BUF) {
-              option_last_set_msg(curbuf->b_p_scriptID[
+              option_last_set_msg(curbuf->b_p_script_ctx[
                   (int)options[opt_idx].indir & PV_MASK]);
             }
           }
@@ -1587,7 +1585,7 @@ int do_set(
                */
               else if (varp == (char_u *)&p_bs
                        && ascii_isdigit(**(char_u **)varp)) {
-                i = getdigits_int((char_u **)varp);
+                i = getdigits_int((char_u **)varp, true, 0);
                 switch (i) {
                 case 0:
                   *(char_u **)varp = empty_option;
@@ -1615,7 +1613,7 @@ int do_set(
               else if (varp == (char_u *)&p_ww
                        && ascii_isdigit(*arg)) {
                 *errbuf = NUL;
-                i = getdigits_int(&arg);
+                i = getdigits_int(&arg, true, 0);
                 if (i & 1) {
                   STRCAT(errbuf, "b,");
                 }
@@ -2359,13 +2357,12 @@ static void redraw_titles(void)
 
 static int shada_idx = -1;
 
-/*
- * Set a string option to a new value (without checking the effect).
- * The string is copied into allocated memory.
- * if ("opt_idx" == -1) "name" is used, otherwise "opt_idx" is used.
- * When "set_sid" is zero set the scriptID to current_SID.  When "set_sid" is
- * SID_NONE don't set the scriptID.  Otherwise set the scriptID to "set_sid".
- */
+// Set a string option to a new value (without checking the effect).
+// The string is copied into allocated memory.
+// if ("opt_idx" == -1) "name" is used, otherwise "opt_idx" is used.
+// When "set_sid" is zero set the scriptID to current_sctx.sc_sid.  When
+// "set_sid" is SID_NONE don't set the scriptID.  Otherwise set the scriptID to
+// "set_sid".
 void
 set_string_option_direct(
     char_u *name,
@@ -2417,9 +2414,18 @@ set_string_option_direct(
       free_string_option(*varp);
       *varp = empty_option;
     }
-    if (set_sid != SID_NONE)
-      set_option_scriptID_idx(idx, opt_flags,
-          set_sid == 0 ? current_SID : set_sid);
+    if (set_sid != SID_NONE) {
+      sctx_T script_ctx;
+
+      if (set_sid == 0) {
+        script_ctx = current_sctx;
+      } else {
+        script_ctx.sc_sid = set_sid;
+        script_ctx.sc_seq = 0;
+        script_ctx.sc_lnum = 0;
+      }
+      set_option_sctx_idx(idx, opt_flags, script_ctx);
+    }
   }
 }
 
@@ -2989,6 +2995,7 @@ ambw_end:
       errmsg = e_invarg;
     } else {
       (void)init_chartab();
+      msg_grid_validate();
     }
   } else if (varp == &p_ead) {  // 'eadirection'
     if (check_opt_strings(p_ead, p_ead_values, false) != OK) {
@@ -3046,7 +3053,7 @@ ambw_end:
       if (*++s == '-') {        // ignore a '-'
         s++;
       }
-      wid = getdigits_int(&s);
+      wid = getdigits_int(&s, true, 0);
       if (wid && *s == '(' && (errmsg = check_stl_option(p_ruf)) == NULL) {
         ru_wid = wid;
       } else {
@@ -3295,12 +3302,10 @@ ambw_end:
     }
   } else {
     // Remember where the option was set.
-    set_option_scriptID_idx(opt_idx, opt_flags, current_SID);
-    /*
-     * Free string options that are in allocated memory.
-     * Use "free_oldval", because recursiveness may change the flags under
-     * our fingers (esp. init_highlight()).
-     */
+    set_option_sctx_idx(opt_idx, opt_flags, current_sctx);
+    // Free string options that are in allocated memory.
+    // Use "free_oldval", because recursiveness may change the flags under
+    // our fingers (esp. init_highlight()).
     if (free_oldval) {
       free_string_option(oldval);
     }
@@ -3435,7 +3440,7 @@ char_u *check_colorcolumn(win_T *wp)
       if (!ascii_isdigit(*s)) {
         return e_invarg;
       }
-      col = col * getdigits_int(&s);
+      col = col * getdigits_int(&s, true, 0);
       if (wp->w_buffer->b_p_tw == 0) {
         goto skip;          // 'textwidth' not set, skip this item
       }
@@ -3450,7 +3455,7 @@ char_u *check_colorcolumn(win_T *wp)
         goto skip;
       }
     } else if (ascii_isdigit(*s)) {
-      col = getdigits_int(&s);
+      col = getdigits_int(&s, true, 0);
     } else {
       return e_invarg;
     }
@@ -3785,15 +3790,16 @@ static bool parse_winhl_opt(win_T *wp)
   return true;
 }
 
-/*
- * Set the scriptID for an option, taking care of setting the buffer- or
- * window-local value.
- */
-static void set_option_scriptID_idx(int opt_idx, int opt_flags, int id)
+// Set the script_ctx for an option, taking care of setting the buffer- or
+// window-local value.
+static void set_option_sctx_idx(int opt_idx, int opt_flags, sctx_T script_ctx)
 {
   int both = (opt_flags & (OPT_LOCAL | OPT_GLOBAL)) == 0;
   int indir = (int)options[opt_idx].indir;
-  const LastSet last_set = { id, current_channel_id };
+  const LastSet last_set = { .script_ctx =
+    { script_ctx.sc_sid, script_ctx.sc_seq,
+      script_ctx.sc_lnum + sourcing_lnum },
+    current_channel_id };
 
   // Remember where the option was set.  For local options need to do that
   // in the buffer or window structure.
@@ -3802,9 +3808,9 @@ static void set_option_scriptID_idx(int opt_idx, int opt_flags, int id)
   }
   if (both || (opt_flags & OPT_LOCAL)) {
     if (indir & PV_BUF) {
-      curbuf->b_p_scriptID[indir & PV_MASK] = last_set;
+      curbuf->b_p_script_ctx[indir & PV_MASK] = last_set;
     } else if (indir & PV_WIN) {
-      curwin->w_p_scriptID[indir & PV_MASK] = last_set;
+      curwin->w_p_script_ctx[indir & PV_MASK] = last_set;
     }
   }
 }
@@ -3831,7 +3837,7 @@ static char *set_bool_option(const int opt_idx, char_u *const varp,
 
   *(int *)varp = value;             // set the new value
   // Remember where the option was set.
-  set_option_scriptID_idx(opt_idx, opt_flags, current_SID);
+  set_option_sctx_idx(opt_idx, opt_flags, current_sctx);
 
 
   // May set global value for local option.
@@ -3958,7 +3964,7 @@ static char *set_bool_option(const int opt_idx, char_u *const varp,
     redraw_all_later(SOME_VALID);
   } else if ((int *)varp == &p_hls) {
     // when 'hlsearch' is set or reset: reset no_hlsearch
-    SET_NO_HLSEARCH(false);
+    set_no_hlsearch(false);
   } else if ((int *)varp == &curwin->w_p_scb) {
   // when 'scrollbind' is set: snapshot the current position to avoid a jump
   // at the end of normal_cmd()
@@ -4309,7 +4315,7 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
 
   *pp = value;
   // Remember where the option was set.
-  set_option_scriptID_idx(opt_idx, opt_flags, current_SID);
+  set_option_sctx_idx(opt_idx, opt_flags, current_sctx);
 
   // For these options we want to fix some invalid values.
   if (pp == &p_window) {
@@ -4329,19 +4335,26 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
 
   // Number options that need some action when changed
   if (pp == &p_wh) {
+    // 'winheight'
     if (!ONE_WINDOW && curwin->w_height < p_wh) {
       win_setheight((int)p_wh);
     }
   } else if (pp == &p_hh) {
+    // 'helpheight'
     if (!ONE_WINDOW && curbuf->b_help && curwin->w_height < p_hh) {
       win_setheight((int)p_hh);
     }
   } else if (pp == &p_wmh) {
+    // 'winminheight'
     win_setminheight();
   } else if (pp == &p_wiw) {
+    // 'winwidth'
     if (!ONE_WINDOW && curwin->w_width < p_wiw) {
       win_setwidth((int)p_wiw);
     }
+  } else if (pp == &p_wmw) {
+    // 'winminwidth'
+    win_setminwidth();
   } else if (pp == &p_ls) {
     last_status(false);  // (re)set last window status line.
   } else if (pp == &p_stal) {
@@ -4643,6 +4656,15 @@ int findoption_len(const char *const arg, const size_t len)
   }
   if (s == NULL) {
     opt_idx = -1;
+  } else {
+    // Nvim: handle option aliases.
+    if (STRNCMP(options[opt_idx].fullname, "viminfo", 7) == 0) {
+      if (STRLEN(options[opt_idx].fullname) == 7) {
+        return findoption_len("shada", 5);
+      }
+      assert(STRCMP(options[opt_idx].fullname, "viminfofile") == 0);
+      return findoption_len("shadafile", 9);
+    }
   }
   return opt_idx;
 }
@@ -5456,6 +5478,7 @@ void comp_col(void)
   if (ru_col <= 0) {
     ru_col = 1;
   }
+  set_vim_var_nr(VV_ECHOSPACE, sc_col - 1);
 }
 
 // Unset local option value, similar to ":set opt<".
@@ -6974,6 +6997,7 @@ void save_file_ff(buf_T *buf)
 /// When "ignore_empty" is true don't consider a new, empty buffer to be
 /// changed.
 bool file_ff_differs(buf_T *buf, bool ignore_empty)
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT
 {
   // In a buffer that was never loaded the options are not valid.
   if (buf->b_flags & BF_NEVERLOADED) {
@@ -7085,12 +7109,12 @@ static bool briopt_check(win_T *wp)
         && ((p[6] == '-' && ascii_isdigit(p[7])) || ascii_isdigit(p[6])))
     {
       p += 6;
-      bri_shift = getdigits_int(&p);
+      bri_shift = getdigits_int(&p, true, 0);
     }
     else if (STRNCMP(p, "min:", 4) == 0 && ascii_isdigit(p[4]))
     {
       p += 4;
-      bri_min = getdigits_int(&p);
+      bri_min = getdigits_int(&p, true, 0);
     }
     else if (STRNCMP(p, "sbr", 3) == 0)
     {

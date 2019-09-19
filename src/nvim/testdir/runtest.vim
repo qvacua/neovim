@@ -51,13 +51,9 @@ source setup.vim
 " This also enables use of line continuation.
 set nocp viminfo+=nviminfo
 
-" Use utf-8 or latin1 by default, instead of whatever the system default
-" happens to be.  Individual tests can overrule this at the top of the file.
-if has('multi_byte')
-  set encoding=utf-8
-else
-  set encoding=latin1
-endif
+" Use utf-8 by default, instead of whatever the system default happens to be.
+" Individual tests can overrule this at the top of the file.
+set encoding=utf-8
 
 " REDIR_TEST_TO_NULL has a very permissive SwapExists autocommand which is for
 " the test_name.vim file itself. Replace it here with a more restrictive one,
@@ -77,6 +73,9 @@ set nomore
 
 " Output all messages in English.
 lang mess C
+
+" Nvim: append runtime from build dir, which contains the generated doc/tags.
+let &runtimepath .= ','.expand($BUILD_DIR).'/runtime/'
 
 " Always use forward slashes.
 set shellslash
@@ -272,6 +271,9 @@ if expand('%') =~ 'test_vimscript.vim'
 else
   try
     source %
+  catch /^\cskipped/
+    call add(s:messages, '    Skipped')
+    call add(s:skipped, 'SKIPPED ' . expand('%') . ': ' . substitute(v:exception, '^\S*\s\+', '',  ''))
   catch
     let s:fail += 1
     call add(s:errors, 'Caught exception: ' . v:exception . ' @ ' . v:throwpoint)

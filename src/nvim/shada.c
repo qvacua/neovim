@@ -5,7 +5,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
-#include <stdint.h>
 #include <inttypes.h>
 #include <errno.h>
 #include <assert.h>
@@ -32,6 +31,7 @@
 #include "nvim/api/private/helpers.h"
 #include "nvim/buffer.h"
 #include "nvim/buffer_defs.h"
+#include "nvim/ex_docmd.h"
 #include "nvim/ex_getln.h"
 #include "nvim/search.h"
 #include "nvim/regexp.h"
@@ -1274,7 +1274,7 @@ static void shada_read(ShaDaReadDef *const sd_reader, const int flags)
         if (cur_entry.data.search_pattern.is_last_used) {
           set_last_used_pattern(
               cur_entry.data.search_pattern.is_substitute_pattern);
-          SET_NO_HLSEARCH(!cur_entry.data.search_pattern.highlighted);
+          set_no_hlsearch(!cur_entry.data.search_pattern.highlighted);
         }
         // Do not free shada entry: its allocated memory was saved above.
         break;
@@ -2366,7 +2366,7 @@ static inline bool ignore_buf(const buf_T *const buf,
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_ALWAYS_INLINE
 {
   return (buf->b_ffname == NULL || !buf->b_p_bl || bt_quickfix(buf) \
-          || in_bufset(removable_bufs, buf));
+          || bt_terminal(buf) || in_bufset(removable_bufs, buf));
 }
 
 /// Get list of buffers to write to the shada file
@@ -2704,6 +2704,11 @@ static ShaDaWriteResult shada_write(ShaDaWriteDef *const sd_writer,
     } while (var_iter != NULL);
   }
 
+  // Initialize jump list
+  setpcmark();
+  cleanup_jumplist(curwin, false);
+  wms->jumps_size = shada_init_jumps(wms->jumps, &removable_bufs);
+
   const bool search_highlighted = !(no_hlsearch
                                     || find_shada_parameter('h') != NULL);
   const bool search_last_used = search_was_last_used();
@@ -2734,9 +2739,6 @@ static ShaDaWriteResult shada_write(ShaDaWriteDef *const sd_writer,
       }
     };
   }
-
-  // Initialize jump list
-  wms->jumps_size = shada_init_jumps(wms->jumps, &removable_bufs);
 
   // Initialize global marks
   if (dump_global_marks) {
@@ -4085,11 +4087,13 @@ static bool shada_removable(const char *name)
 static inline size_t shada_init_jumps(
     PossiblyFreedShadaEntry *jumps, khash_t(bufset) *const removable_bufs)
 {
-  // Initialize jump list
+  if (!curwin->w_jumplistlen) {
+    return 0;
+  }
+
   size_t jumps_size = 0;
   const void *jump_iter = NULL;
-  setpcmark();
-  cleanup_jumplist(curwin, false);
+
   do {
     xfmark_T fm;
     jump_iter = mark_jumplist_iter(jump_iter, curwin, &fm);
@@ -4163,6 +4167,7 @@ void shada_encode_jumps(msgpack_sbuffer *const sbuf)
   khash_t(bufset) removable_bufs = KHASH_EMPTY_TABLE(bufset);
   find_removable_bufs(&removable_bufs);
   PossiblyFreedShadaEntry jumps[JUMPLISTSIZE];
+  cleanup_jumplist(curwin, true);
   size_t jumps_size = shada_init_jumps(jumps, &removable_bufs);
   msgpack_packer packer;
   msgpack_packer_init(&packer, sbuf, msgpack_sbuffer_write);

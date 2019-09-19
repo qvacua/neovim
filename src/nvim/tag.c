@@ -2310,7 +2310,6 @@ static int jumpto_tag(
   int retval = FAIL;
   int getfile_result = GETFILE_UNUSED;
   int search_options;
-  int save_no_hlsearch;
   win_T       *curwin_save = NULL;
   char_u      *full_fname = NULL;
   const bool old_KeyTyped = KeyTyped;       // getting the file may reset it
@@ -2453,9 +2452,9 @@ static int jumpto_tag(
     secure = 1;
     ++sandbox;
     save_magic = p_magic;
-    p_magic = FALSE;            /* always execute with 'nomagic' */
-    /* Save value of no_hlsearch, jumping to a tag is not a real search */
-    save_no_hlsearch = no_hlsearch;
+    p_magic = false;            // always execute with 'nomagic'
+    // Save value of no_hlsearch, jumping to a tag is not a real search
+    const bool save_no_hlsearch = no_hlsearch;
 
     /*
      * If 'cpoptions' contains 't', store the search pattern for the "n"
@@ -2560,7 +2559,7 @@ static int jumpto_tag(
     --sandbox;
     /* restore no_hlsearch when keeping the old search pattern */
     if (search_options) {
-      SET_NO_HLSEARCH(save_no_hlsearch);
+      set_no_hlsearch(save_no_hlsearch);
     }
 
     // Return OK if jumped to another file (at least we found the file!).
@@ -2771,10 +2770,11 @@ expand_tags (
 static int 
 add_tag_field (
     dict_T *dict,
-    char *field_name,
-    char_u *start,                 /* start of the value */
-    char_u *end                   /* after the value; can be NULL */
+    const char *field_name,
+    const char_u *start,          // start of the value
+    const char_u *end             // after the value; can be NULL
 )
+  FUNC_ATTR_NONNULL_ARG(1, 2)
 {
   int len = 0;
   int retval;
@@ -2812,7 +2812,7 @@ add_tag_field (
 int get_tags(list_T *list, char_u *pat, char_u *buf_fname)
 {
   int num_matches, i, ret;
-  char_u      **matches, *p;
+  char_u      **matches;
   char_u      *full_fname;
   dict_T      *dict;
   tagptrs_T tp;
@@ -2850,16 +2850,16 @@ int get_tags(list_T *list, char_u *pat, char_u *buf_fname)
       xfree(full_fname);
 
       if (tp.command_end != NULL) {
-        for (p = tp.command_end + 3;
-             *p != NUL && *p != '\n' && *p != '\r'; ++p) {
-          if (p == tp.tagkind || (p + 5 == tp.tagkind
-                                  && STRNCMP(p, "kind:", 5) == 0))
-            /* skip "kind:<kind>" and "<kind>" */
+        for (char_u *p = tp.command_end + 3;
+             *p != NUL && *p != '\n' && *p != '\r'; p++) {
+          if (p == tp.tagkind
+              || (p + 5 == tp.tagkind && STRNCMP(p, "kind:", 5) == 0)) {
+            // skip "kind:<kind>" and "<kind>"
             p = tp.tagkind_end - 1;
-          else if (STRNCMP(p, "file:", 5) == 0)
-            /* skip "file:" (static tag) */
+          } else if (STRNCMP(p, "file:", 5) == 0) {
+            // skip "file:" (static tag)
             p += 4;
-          else if (!ascii_iswhite(*p)) {
+          } else if (!ascii_iswhite(*p)) {
             char_u  *s, *n;
             int len;
 

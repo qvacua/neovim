@@ -72,12 +72,6 @@
 # define VIMRC_FILE     ".nvimrc"
 #endif
 
-typedef enum {
-  kNone  = -1,
-  kFalse = 0,
-  kTrue  = 1,
-} TriState;
-
 EXTERN struct nvim_stats_s {
   int64_t fsync;
   int64_t redraw;
@@ -338,8 +332,8 @@ EXTERN int garbage_collect_at_exit INIT(= false);
 #define SID_LUA         -7      // for Lua scripts/chunks
 #define SID_API_CLIENT  -8      // for API clients
 
-// ID of script being sourced or was sourced to define the current function.
-EXTERN scid_T current_SID INIT(= 0);
+// Script CTX being sourced or was sourced to define the current function.
+EXTERN sctx_T current_sctx INIT(= { 0 COMMA 0 COMMA 0 });
 // ID of the current channel making a client API call
 EXTERN uint64_t current_channel_id INIT(= 0);
 
@@ -348,8 +342,8 @@ EXTERN bool did_source_packages INIT(= false);
 // Scope information for the code that indirectly triggered the current
 // provider function call
 EXTERN struct caller_scope {
-  scid_T SID;
-  uint8_t *sourcing_name, *autocmd_fname, *autocmd_match; 
+  sctx_T script_ctx;
+  uint8_t *sourcing_name, *autocmd_fname, *autocmd_match;
   linenr_T sourcing_lnum;
   int autocmd_bufnr;
   void *funccalp;
@@ -661,9 +655,10 @@ EXTERN char_u *fenc_default INIT(= NULL);
 ///    finish_op  :    When State is NORMAL, after typing the operator and
 ///                    before typing the motion command.
 ///    motion_force:   Last motion_force from do_pending_operator()
+///    debug_mode:     Debug mode
 EXTERN int State INIT(= NORMAL);        // This is the current state of the
                                         // command interpreter.
-
+EXTERN bool debug_mode INIT(= false);
 EXTERN bool finish_op INIT(= false);    // true while an operator is pending
 EXTERN long opcount INIT(= 0);          // count for pending operator
 EXTERN int motion_force INIT(=0);       // motion force for pending operator
@@ -867,8 +862,8 @@ EXTERN char_u wim_flags[4];
 # define STL_IN_TITLE   2
 EXTERN int stl_syntax INIT(= 0);
 
-/* don't use 'hlsearch' temporarily */
-EXTERN int no_hlsearch INIT(= FALSE);
+// don't use 'hlsearch' temporarily
+EXTERN bool no_hlsearch INIT(= false);
 
 /* Page number used for %N in 'pageheader' and 'guitablabel'. */
 EXTERN linenr_T printer_page_num;

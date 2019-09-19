@@ -1,17 +1,18 @@
 -- Test suite for testing interactions with API bindings
 local helpers = require('test.functional.helpers')(after_each)
+local Screen = require('test.functional.ui.screen')
 
 local funcs = helpers.funcs
 local clear = helpers.clear
 local eq = helpers.eq
 local eval = helpers.eval
 local feed = helpers.feed
-local meth_pcall = helpers.meth_pcall
+local pcall_err = helpers.pcall_err
 local exec_lua = helpers.exec_lua
 
 before_each(clear)
 
-describe('lua function', function()
+describe('lua stdlib', function()
   -- İ: `tolower("İ")` is `i` which has length 1 while `İ` itself has
   --    length 2 (in bytes).
   -- Ⱥ: `tolower("Ⱥ")` is `ⱥ` which has length 2 while `Ⱥ` itself has
@@ -146,11 +147,11 @@ describe('lua function', function()
     eq({"yy","xx"}, exec_lua("return test_table"))
 
     -- type checked args
-    eq({false, 'Error executing lua: vim.schedule: expected function'},
-       meth_pcall(exec_lua, "vim.schedule('stringly')"))
+    eq('Error executing lua: vim.schedule: expected function',
+      pcall_err(exec_lua, "vim.schedule('stringly')"))
 
-    eq({false, 'Error executing lua: vim.schedule: expected function'},
-       meth_pcall(exec_lua, "vim.schedule()"))
+    eq('Error executing lua: vim.schedule: expected function',
+      pcall_err(exec_lua, "vim.schedule()"))
 
     exec_lua([[
       vim.schedule(function()
@@ -160,6 +161,37 @@ describe('lua function', function()
 
     feed("<cr>")
     eq('Error executing vim.schedule lua callback: [string "<nvim>"]:2: big failure\nvery async', eval("v:errmsg"))
+
+    local screen = Screen.new(60,5)
+    screen:set_default_attr_ids({
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {bold = true, reverse = true},
+      [3] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+    })
+    screen:attach()
+    screen:expect{grid=[[
+      ^                                                            |
+      {1:~                                                           }|
+      {1:~                                                           }|
+      {1:~                                                           }|
+                                                                  |
+    ]]}
+
+    -- nvim_command causes a vimL exception, check that it is properly caught
+    -- and propagated as an error message in async contexts.. #10809
+    exec_lua([[
+      vim.schedule(function()
+        vim.api.nvim_command(":echo 'err")
+      end)
+    ]])
+    screen:expect{grid=[[
+                                                                  |
+      {2:                                                            }|
+      {3:Error executing vim.schedule lua callback: [string "<nvim>"]}|
+      {3::2: Vim(echo):E115: Missing quote: 'err}                     |
+      {4:Press ENTER or type command to continue}^                     |
+    ]]}
   end)
 
   it("vim.split", function()
@@ -250,5 +282,10 @@ describe('lua function', function()
     ]])
 
     assert(is_dc)
+  end)
+
+  it('vim.pesc', function()
+    eq('foo%-bar', exec_lua([[return vim.pesc('foo-bar')]]))
+    eq('foo%%%-bar', exec_lua([[return vim.pesc(vim.pesc('foo-bar'))]]))
   end)
 end)

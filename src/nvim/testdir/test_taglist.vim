@@ -80,6 +80,8 @@ func Test_tags_too_long()
 endfunc
 
 func Test_tagfiles()
+  " Nvim: different default for 'tags'.
+  set tags=./tags,tags
   call assert_equal([], tagfiles())
 
   call writefile(["FFoo\tXfoo\t1"], 'Xtags1')
@@ -89,8 +91,11 @@ func Test_tagfiles()
 
   help
   let tf = tagfiles()
+  " Nvim: expectation(s) based on tags in build dir (added to &rtp).
+  "       Filter out the (non-existing) '../../../runtime/doc/tags'.
+  call filter(tf, 'filereadable(v:val)')
   call assert_equal(1, len(tf))
-  call assert_equal(fnamemodify(expand('$VIMRUNTIME/doc/tags'), ':p:gs?\\?/?'),
+  call assert_equal(fnamemodify(expand('$BUILD_DIR/runtime/doc/tags'), ':p:gs?\\?/?'),
 	\           fnamemodify(tf[0], ':p:gs?\\?/?'))
   helpclose
   call assert_equal(['Xtags1', 'Xtags2'], tagfiles())

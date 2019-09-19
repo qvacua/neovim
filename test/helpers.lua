@@ -6,6 +6,8 @@ local lfs = require('lfs')
 local relpath = require('pl.path').relpath
 local Paths = require('test.config.paths')
 
+assert:set_parameter('TableFormatLevel', 100)
+
 local quote_me = '[^.%w%+%-%@%_%/]' -- complement (needn't quote)
 local function shell_quote(str)
   if string.find(str, quote_me) or str == '' then
@@ -59,8 +61,8 @@ end
 function module.neq(expected, actual, context)
   return assert.are_not.same(expected, actual, context)
 end
-function module.ok(res)
-  return assert.is_true(res)
+function module.ok(res, msg)
+  return assert.is_true(res, msg)
 end
 function module.near(actual, expected, tolerance)
   return assert.is.near(actual, expected, tolerance)
@@ -71,12 +73,23 @@ function module.matches(pat, actual)
   end
   error(string.format('Pattern does not match.\nPattern:\n%s\nActual:\n%s', pat, actual))
 end
--- Expect an error matching pattern `pat`.
-function module.expect_err(pat, ...)
-  local fn = select(1, ...)
-  local fn_args = {...}
-  table.remove(fn_args, 1)
-  assert.error_matches(function() return fn(unpack(fn_args)) end, pat)
+
+-- Invokes `fn` and returns the error string, or raises an error if `fn` succeeds.
+--
+-- Usage:
+--    -- Match exact string.
+--    eq('e', pcall_err(function(a, b) error('e') end, 'arg1', 'arg2'))
+--    -- Match Lua pattern.
+--    matches('e[or]+$', pcall_err(function(a, b) error('some error') end, 'arg1', 'arg2'))
+--
+function module.pcall_err(fn, ...)
+  assert(type(fn) == 'function')
+  local status, rv = pcall(fn, ...)
+  if status == true then
+    error('expected failure, but got success')
+  end
+  local errmsg = tostring(rv):gsub('^[^:]+:%d+: ', '')
+  return errmsg
 end
 
 -- initial_path:  directory to recurse into
@@ -124,7 +137,7 @@ end
 
 function module.check_logs()
   local log_dir = os.getenv('LOG_DIR')
-  local runtime_errors = 0
+  local runtime_errors = {}
   if log_dir and lfs.attributes(log_dir, 'mode') == 'directory' then
     for tail in lfs.dir(log_dir) do
       if tail:sub(1, 30) == 'valgrind-' or tail:find('san%.') then
@@ -148,15 +161,21 @@ function module.check_logs()
           out:write(start_msg .. '\n')
           out:write('= ' .. table.concat(lines, '\n= ') .. '\n')
           out:write(select(1, start_msg:gsub('.', '=')) .. '\n')
-          runtime_errors = runtime_errors + 1
+          table.insert(runtime_errors, file)
         end
       end
     end
   end
-  assert(0 == runtime_errors)
+  assert(0 == #runtime_errors, string.format(
+    'Found runtime errors in logfile(s): %s',
+    table.concat(runtime_errors, ', ')))
 end
 
--- Tries to get platform name from $SYSTEM_NAME, uname; fallback is "Windows".
+function module.iswin()
+  return package.config:sub(1,1) == '\\'
+end
+
+-- Gets (lowercase) OS name from CMake, uname, or "win" if iswin().
 module.uname = (function()
   local platform = nil
   return (function()
@@ -164,21 +183,32 @@ module.uname = (function()
       return platform
     end
 
-    platform = os.getenv("SYSTEM_NAME")
-    if platform then
+    if os.getenv("SYSTEM_NAME") then  -- From CMAKE_SYSTEM_NAME.
+      platform = string.lower(os.getenv("SYSTEM_NAME"))
       return platform
     end
 
     local status, f = pcall(module.popen_r, 'uname', '-s')
     if status then
-      platform = f:read("*l")
+      platform = string.lower(f:read("*l"))
       f:close()
+    elseif module.iswin() then
+      platform = 'windows'
     else
-      platform = 'Windows'
+      error('unknown platform')
     end
     return platform
   end)
 end)()
+
+function module.is_os(s)
+  if not (s == 'win' or s == 'mac' or s == 'unix') then
+    error('unknown platform: '..tostring(s))
+  end
+  return ((s == 'win' and module.iswin())
+    or (s == 'mac' and module.uname() == 'darwin')
+    or (s == 'unix'))
+end
 
 local function tmpdir_get()
   return os.getenv('TMPDIR') and os.getenv('TMPDIR') or os.getenv('TEMP')
@@ -201,11 +231,11 @@ module.tmpname = (function()
       return fname
     else
       local fname = os.tmpname()
-      if module.uname() == 'Windows' and fname:sub(1, 2) == '\\s' then
+      if module.uname() == 'windows' and fname:sub(1, 2) == '\\s' then
         -- In Windows tmpname() returns a filename starting with
         -- special sequence \s, prepend $TEMP path
         return tmpdir..fname
-      elseif fname:match('^/tmp') and module.uname() == 'Darwin' then
+      elseif fname:match('^/tmp') and module.uname() == 'darwin' then
         -- In OS X /tmp links to /private/tmp
         return '/private'..fname
       else
@@ -455,6 +485,12 @@ local SUBTBL = {
   '\\030', '\\031',
 }
 
+-- Formats Lua value `v`.
+--
+-- TODO(justinmk): redundant with vim.inspect() ?
+--
+-- "Nice table formatting similar to screen:snapshot_util()".
+-- Commit: 520c0b91a528
 function module.format_luav(v, indent, opts)
   opts = opts or {}
   local linesep = '\n'
@@ -533,6 +569,9 @@ function module.format_luav(v, indent, opts)
   return ret
 end
 
+-- Like Python repr(), "{!r}".format(s)
+--
+-- Commit: 520c0b91a528
 function module.format_string(fmt, ...)
   local i = 0
   local args = {...}

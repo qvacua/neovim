@@ -151,7 +151,6 @@ static char_u typebuf_init[TYPELEN_INIT];       /* initial typebuf.tb_buf */
 static char_u noremapbuf_init[TYPELEN_INIT];    /* initial typebuf.tb_noremap */
 
 static size_t last_recorded_len = 0;      // number of last recorded chars
-static const uint8_t ui_toggle[] = { K_SPECIAL, KS_EXTRA, KE_PASTE, 0 };
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "getchar.c.generated.h"
@@ -524,15 +523,12 @@ void AppendToRedobuff(const char *s)
   }
 }
 
-/*
- * Append to Redo buffer literally, escaping special characters with CTRL-V.
- * K_SPECIAL and CSI are escaped as well.
- */
-void 
-AppendToRedobuffLit (
-    char_u *str,
-    int len                    /* length of "str" or -1 for up to the NUL */
-)
+/// Append to Redo buffer literally, escaping special characters with CTRL-V.
+/// K_SPECIAL and CSI are escaped as well.
+///
+/// @param str  String to append
+/// @param len  Length of `str` or -1 for up to the NUL.
+void AppendToRedobuffLit(const char_u *str, int len)
 {
   if (block_redo) {
     return;
@@ -1536,8 +1532,9 @@ int safe_vgetc(void)
   int c;
 
   c = vgetc();
-  if (c == NUL)
-    c = get_keystroke();
+  if (c == NUL) {
+    c = get_keystroke(NULL);
+  }
   return c;
 }
 
@@ -1902,14 +1899,8 @@ static int vgetorpeek(int advance)
             }
           }
 
-          // Check for a key that can toggle the 'paste' option
-          if (mp == NULL && (State & (INSERT|NORMAL))) {
-            bool match = typebuf_match_len(ui_toggle, &mlen);
-            if (!match && mlen != typebuf.tb_len && *p_pt != NUL) {
-              // didn't match ui_toggle_key and didn't try the whole typebuf,
-              // check the 'pastetoggle'
-              match = typebuf_match_len(p_pt, &mlen);
-            }
+          if (*p_pt != NUL && mp == NULL && (State & (INSERT|NORMAL))) {
+            bool match = typebuf_match_len(p_pt, &mlen);
             if (match) {
               // write chars to script file(s)
               if (mlen > typebuf.tb_maplen) {
@@ -1940,8 +1931,7 @@ static int vgetorpeek(int advance)
           }
 
           if ((mp == NULL || max_mlen >= mp_match_len)
-              && keylen != KEYLEN_PART_MAP
-              && !(keylen == KEYLEN_PART_KEY && c1 == ui_toggle[0])) {
+              && keylen != KEYLEN_PART_MAP) {
             // No matching mapping found or found a non-matching mapping that
             // matches at least what the matching mapping matched
             keylen = 0;
@@ -2458,9 +2448,10 @@ int inchar(
       char_u dum[DUM_LEN + 1];
 
       for (;; ) {
-        len = os_inchar(dum, DUM_LEN, 0L, 0);
-        if (len == 0 || (len == 1 && dum[0] == 3))
+        len = os_inchar(dum, DUM_LEN, 0L, 0, NULL);
+        if (len == 0 || (len == 1 && dum[0] == 3)) {
           break;
+        }
       }
       return retesc;
     }
@@ -2471,7 +2462,7 @@ int inchar(
 
     // Fill up to a third of the buffer, because each character may be
     // tripled below.
-    len = os_inchar(buf, maxlen / 3, (int)wait_time, tb_change_cnt);
+    len = os_inchar(buf, maxlen / 3, (int)wait_time, tb_change_cnt, NULL);
   }
 
   // If the typebuf was changed further down, it is like nothing was added by
@@ -2968,7 +2959,8 @@ int buf_do_map(int maptype, MapArguments *args, int mode, bool is_abbrev,
                 mp->m_silent = args->silent;
                 mp->m_mode = mode;
                 mp->m_expr = args->expr;
-                mp->m_script_ID = current_SID;
+                mp->m_script_ctx = current_sctx;
+                mp->m_script_ctx.sc_lnum += sourcing_lnum;
                 did_it = true;
               }
             }
@@ -3043,7 +3035,8 @@ int buf_do_map(int maptype, MapArguments *args, int mode, bool is_abbrev,
   mp->m_silent = args->silent;
   mp->m_mode = mode;
   mp->m_expr = args->expr;
-  mp->m_script_ID = current_SID;
+  mp->m_script_ctx = current_sctx;
+  mp->m_script_ctx.sc_lnum += sourcing_lnum;
 
   // add the new entry in front of the abbrlist or maphash[] list
   if (is_abbrev) {
@@ -3386,9 +3379,10 @@ showmap (
     msg_outtrans_special(s, FALSE);
     xfree(s);
   }
-  if (p_verbose > 0)
-    last_set_msg(mp->m_script_ID);
-  ui_flush();                          /* show one line at a time */
+  if (p_verbose > 0) {
+    last_set_msg(mp->m_script_ctx);
+  }
+  ui_flush();                          // show one line at a time
 }
 
 /// Check if a map exists that has given string in the rhs

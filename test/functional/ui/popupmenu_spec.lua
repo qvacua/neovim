@@ -7,6 +7,8 @@ local meths = helpers.meths
 local command = helpers.command
 local funcs = helpers.funcs
 local get_pathsep = helpers.get_pathsep
+local eq = helpers.eq
+local matches = helpers.matches
 
 describe('ui/ext_popupmenu', function()
   local screen
@@ -368,6 +370,125 @@ describe('ui/ext_popupmenu', function()
     ]])
   end)
 
+  local function source_complete_month()
+    source([[
+    function! TestCompleteMonth() abort
+    call complete(1, ['January', 'February', 'March', 'April',
+    \ 'May', 'June', 'July', 'August',
+    \ 'September', 'October', 'November', 'December'])
+    return ''
+    endfunction
+    ]])
+  end
+
+  describe('pum_set_height', function()
+    it('can be set pum height', function()
+      source_complete_month()
+      local month_expected = {
+        {'January', '', '', ''},
+        {'February', '', '', ''},
+        {'March', '', '', ''},
+        {'April', '', '', ''},
+        {'May', '', '', ''},
+        {'June', '', '', ''},
+        {'July', '', '', ''},
+        {'August', '', '', ''},
+        {'September', '', '', ''},
+        {'October', '', '', ''},
+        {'November', '', '', ''},
+        {'December', '', '', ''},
+      }
+      local pum_height = 6
+      feed('o<C-r>=TestCompleteMonth()<CR>')
+      meths.ui_pum_set_height(pum_height)
+      feed('<PageDown>')
+      -- pos becomes pum_height-2 because it is subtracting 2 to keep some
+      -- context in ins_compl_key2count()
+      screen:expect{grid=[[
+                                                                  |
+      January^                                                     |
+      {1:~                                                           }|
+      {1:~                                                           }|
+      {1:~                                                           }|
+      {1:~                                                           }|
+      {1:~                                                           }|
+      {2:-- INSERT --}                                                |
+      ]], popupmenu={
+        items=month_expected,
+        pos=pum_height-2,
+        anchor={1,1,0},
+      }}
+    end)
+
+    it('an error occurs if set 0 or less', function()
+      local ok, err, _
+      ok, _ = pcall(meths.ui_pum_set_height, 1)
+      eq(ok, true)
+      ok, err = pcall(meths.ui_pum_set_height, 0)
+      eq(ok, false)
+      matches('.*: Expected pum height > 0', err)
+    end)
+
+    it('an error occurs when ext_popupmenu is false', function()
+      local ok, err, _
+      ok, _ = pcall(meths.ui_pum_set_height, 1)
+      eq(ok, true)
+      screen:set_option('ext_popupmenu', false)
+      ok, err = pcall(meths.ui_pum_set_height, 1)
+      eq(ok, false)
+      matches('.*: It must support the ext_popupmenu option', err)
+    end)
+  end)
+
+  it('<PageUP>, <PageDown> works without ui_pum_set_height', function()
+    source_complete_month()
+    local month_expected = {
+      {'January', '', '', ''},
+      {'February', '', '', ''},
+      {'March', '', '', ''},
+      {'April', '', '', ''},
+      {'May', '', '', ''},
+      {'June', '', '', ''},
+      {'July', '', '', ''},
+      {'August', '', '', ''},
+      {'September', '', '', ''},
+      {'October', '', '', ''},
+      {'November', '', '', ''},
+      {'December', '', '', ''},
+    }
+    feed('o<C-r>=TestCompleteMonth()<CR>')
+    feed('<PageDown>')
+    screen:expect{grid=[[
+                                                                |
+    January^                                                     |
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {2:-- INSERT --}                                                |
+    ]], popupmenu={
+      items=month_expected,
+      pos=3,
+      anchor={1,1,0},
+    }}
+    feed('<PageUp>')
+    screen:expect{grid=[[
+                                                                |
+    January^                                                     |
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {1:~                                                           }|
+    {2:-- INSERT --}                                                |
+    ]], popupmenu={
+      items=month_expected,
+      pos=0,
+      anchor={1,1,0},
+    }}
+  end)
+
   it('works with wildoptions=pum', function()
     screen:try_resize(32,10)
     command('set wildmenu')
@@ -453,6 +574,22 @@ describe('ui/ext_popupmenu', function()
     ]])
     feed('<esc>')
 
+    -- #10042: make sure shift-tab also triggers the pum
+    feed(':sign <S-tab>')
+    screen:expect{grid=[[
+                                      |
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      {1:~                               }|
+      :sign unplace^                   |
+    ]], popupmenu={items=wild_expected, pos=5, anchor={1, 9, 6}}}
+    feed('<esc>')
+
     -- check positioning with multibyte char in pattern
     command("e långfile1")
     command("sp långfile2")
@@ -473,6 +610,7 @@ describe('ui/ext_popupmenu', function()
       items = {{"långfile1", "", "", "" }, {"långfile2", "", "", ""}},
       pos = 0,
     }}
+
   end)
 end)
 
@@ -1128,7 +1266,7 @@ describe('builtin popupmenu', function()
       prefix      |
       bef{n: word  }  |
       tex{n: }^        |
-      {2:-- }{s: text   } |
+      {2:-- INSERT -} |
     ]])
 
     -- can't draw the pum, but check we don't crash
@@ -1597,6 +1735,54 @@ describe('builtin popupmenu', function()
     ]])
   end)
 
+  it('works with wildoptions=pum with scrolled mesages ', function()
+    screen:try_resize(40,10)
+    command('set wildmenu')
+    command('set wildoptions=pum')
+
+    feed(':echoerr "fail"|echoerr "error"<cr>')
+    screen:expect{grid=[[
+                                              |
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {4:                                        }|
+      {6:fail}                                    |
+      {6:error}                                   |
+      {5:Press ENTER or type command to continue}^ |
+    ]]}
+
+    feed(':sign <tab>')
+    screen:expect{grid=[[
+                                              |
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~    }{s: define         }{1:                   }|
+      {1:~    }{n: jump           }{1:                   }|
+      {1:~    }{n: list           }{1:                   }|
+      {4:     }{n: place          }{4:                   }|
+      {6:fail} {n: undefine       }                   |
+      {6:error}{n: unplace        }                   |
+      :sign define^                            |
+    ]]}
+
+    feed('d')
+    screen:expect{grid=[[
+                                              |
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {1:~                                       }|
+      {4:                                        }|
+      {6:fail}                                    |
+      {6:error}                                   |
+      :sign defined^                           |
+    ]]}
+  end)
+
   it("'pumblend' RGB-color", function()
     screen:try_resize(60,14)
     screen:set_default_attr_ids({
@@ -1644,6 +1830,7 @@ describe('builtin popupmenu', function()
       [42] = {foreground = tonumber('0x0c0c0c'), background = tonumber('0xe5a8e5')},
       [43] = {background = tonumber('0x7f5d7f'), bold = true, foreground = tonumber('0x3f3f3f')},
       [44] = {foreground = tonumber('0x3f3f3f'), background = tonumber('0x7f5d7f')},
+      [45] = {background = Screen.colors.WebGray, blend=0},
     })
     command('syntax on')
     command('set mouse=a')
@@ -1761,7 +1948,7 @@ describe('builtin popupmenu', function()
       Lorem ipsum d{1:ol}or sit amet, consectetur                     |
       adipisicing elit, sed do eiusmod tempor                     |
       bla bla incididunt^                                          |
-      incidid{22: incididunt     }{27: }d{1:ol}ore magna aliqua.                |
+      incidid{45: incididunt     }{27: }d{1:ol}ore magna aliqua.                |
       Ut enim{28: }{29:ut}{28: minim veniam}{25:,} quis nostrud                       |
       exercit{28:a}{29:labore}{28:llamco la}{25:b}oris nisi ut aliquip ex             |
       {2:[No Nam}{30:e}{43:et}{30:[+]          }{32: }{2:                                    }|

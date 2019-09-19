@@ -5,18 +5,19 @@ local NIL = helpers.NIL
 local clear, nvim, eq, neq = helpers.clear, helpers.nvim, helpers.eq, helpers.neq
 local command = helpers.command
 local eval = helpers.eval
+local expect = helpers.expect
 local funcs = helpers.funcs
 local iswin = helpers.iswin
-local meth_pcall = helpers.meth_pcall
 local meths = helpers.meths
+local matches = helpers.matches
 local ok, nvim_async, feed = helpers.ok, helpers.nvim_async, helpers.feed
-local os_name = helpers.os_name
+local is_os = helpers.is_os
 local parse_context = helpers.parse_context
 local request = helpers.request
 local source = helpers.source
 local next_msg = helpers.next_msg
 
-local expect_err = helpers.expect_err
+local pcall_err = helpers.pcall_err
 local format_string = helpers.format_string
 local intchar2lua = helpers.intchar2lua
 local mergedicts_copy = helpers.mergedicts_copy
@@ -26,25 +27,25 @@ describe('API', function()
 
   it('validates requests', function()
     -- RPC
-    expect_err('Invalid method: bogus$',
-               request, 'bogus')
-    expect_err('Invalid method: … の り 。…$',
-               request, '… の り 。…')
-    expect_err('Invalid method: <empty>$',
-               request, '')
+    matches('Invalid method: bogus$',
+      pcall_err(request, 'bogus'))
+    matches('Invalid method: … の り 。…$',
+      pcall_err(request, '… の り 。…'))
+    matches('Invalid method: <empty>$',
+      pcall_err(request, ''))
 
     -- Non-RPC: rpcrequest(v:servername) uses internal channel.
-    expect_err('Invalid method: … の り 。…$',
-               request, 'nvim_eval',
-               [=[rpcrequest(sockconnect('pipe', v:servername, {'rpc':1}), '… の り 。…')]=])
-    expect_err('Invalid method: bogus$',
-               request, 'nvim_eval',
-               [=[rpcrequest(sockconnect('pipe', v:servername, {'rpc':1}), 'bogus')]=])
+    matches('Invalid method: … の り 。…$',
+      pcall_err(request, 'nvim_eval',
+        [=[rpcrequest(sockconnect('pipe', v:servername, {'rpc':1}), '… の り 。…')]=]))
+    matches('Invalid method: bogus$',
+      pcall_err(request, 'nvim_eval',
+        [=[rpcrequest(sockconnect('pipe', v:servername, {'rpc':1}), 'bogus')]=]))
 
     -- XXX: This must be the last one, else next one will fail:
     --      "Packer instance already working. Use another Packer ..."
-    expect_err("can't serialize object$",
-               request, nil)
+    matches("can't serialize object$",
+      pcall_err(request, nil))
   end)
 
   it('handles errors in async requests', function()
@@ -82,7 +83,7 @@ describe('API', function()
       nvim('command', 'w')
       local f = io.open(fname)
       ok(f ~= nil)
-      if os_name() == 'windows' then
+      if is_os('win') then
         eq('testing\r\napi\r\n', f:read('*a'))
       else
         eq('testing\napi\n', f:read('*a'))
@@ -178,6 +179,11 @@ describe('API', function()
       -- Verify NO hit-enter prompt.
       eq({mode='n', blocking=false}, nvim("get_mode"))
     end)
+
+    it('Does not cause heap buffer overflow with large output', function()
+      eq(eval('string(range(1000000))'),
+         nvim('command_output', 'echo range(1000000)'))
+    end)
   end)
 
   describe('nvim_eval', function()
@@ -197,8 +203,8 @@ describe('API', function()
     end)
 
     it("VimL error: returns error details, does NOT update v:errmsg", function()
-      expect_err('E121: Undefined variable: bogus$', request,
-                 'nvim_eval', 'bogus expression')
+      eq('Vim:E121: Undefined variable: bogus',
+        pcall_err(request, 'nvim_eval', 'bogus expression'))
       eq('', eval('v:errmsg'))  -- v:errmsg was not updated.
     end)
   end)
@@ -212,21 +218,21 @@ describe('API', function()
     end)
 
     it("VimL validation error: returns specific error, does NOT update v:errmsg", function()
-      expect_err('E117: Unknown function: bogus function$', request,
-                 'nvim_call_function', 'bogus function', {'arg1'})
-      expect_err('E119: Not enough arguments for function: atan', request,
-                 'nvim_call_function', 'atan', {})
+      eq('Vim:E117: Unknown function: bogus function',
+        pcall_err(request, 'nvim_call_function', 'bogus function', {'arg1'}))
+      eq('Vim:E119: Not enough arguments for function: atan',
+        pcall_err(request, 'nvim_call_function', 'atan', {}))
       eq('', eval('v:exception'))
       eq('', eval('v:errmsg'))  -- v:errmsg was not updated.
     end)
 
     it("VimL error: returns error details, does NOT update v:errmsg", function()
-      expect_err('E808: Number or Float required$', request,
-                 'nvim_call_function', 'atan', {'foo'})
-      expect_err('Invalid channel stream "xxx"$', request,
-                 'nvim_call_function', 'chanclose', {999, 'xxx'})
-      expect_err('E900: Invalid channel id$', request,
-                 'nvim_call_function', 'chansend', {999, 'foo'})
+      eq('Vim:E808: Number or Float required',
+        pcall_err(request, 'nvim_call_function', 'atan', {'foo'}))
+      eq('Vim:Invalid channel stream "xxx"',
+        pcall_err(request, 'nvim_call_function', 'chanclose', {999, 'xxx'}))
+      eq('Vim:E900: Invalid channel id',
+        pcall_err(request, 'nvim_call_function', 'chansend', {999, 'foo'}))
       eq('', eval('v:exception'))
       eq('', eval('v:errmsg'))  -- v:errmsg was not updated.
     end)
@@ -237,8 +243,7 @@ describe('API', function()
           throw 'wtf'
         endfunction
       ]])
-      expect_err('wtf$', request,
-                 'nvim_call_function', 'Foo', {})
+      eq('wtf', pcall_err(request, 'nvim_call_function', 'Foo', {}))
       eq('', eval('v:exception'))
       eq('', eval('v:errmsg'))  -- v:errmsg was not updated.
     end)
@@ -251,8 +256,8 @@ describe('API', function()
         endfunction
       ]])
       -- E740
-      expect_err('Function called with too many arguments$', request,
-                 'nvim_call_function', 'Foo', too_many_args)
+      eq('Function called with too many arguments',
+        pcall_err(request, 'nvim_call_function', 'Foo', too_many_args))
     end)
   end)
 
@@ -287,24 +292,24 @@ describe('API', function()
 
     it('validates args', function()
       command('let g:d={"baz":"zub","meep":[]}')
-      expect_err('Not found: bogus$', request,
-                 'nvim_call_dict_function', 'g:d', 'bogus', {1,2})
-      expect_err('Not a function: baz$', request,
-                 'nvim_call_dict_function', 'g:d', 'baz', {1,2})
-      expect_err('Not a function: meep$', request,
-                 'nvim_call_dict_function', 'g:d', 'meep', {1,2})
-      expect_err('E117: Unknown function: f$', request,
-                 'nvim_call_dict_function', { f = '' }, 'f', {1,2})
-      expect_err('Not a function: f$', request,
-                 'nvim_call_dict_function', "{ 'f': '' }", 'f', {1,2})
-      expect_err('dict argument type must be String or Dictionary$', request,
-                 'nvim_call_dict_function', 42, 'f', {1,2})
-      expect_err('Failed to evaluate dict expression$', request,
-                 'nvim_call_dict_function', 'foo', 'f', {1,2})
-      expect_err('dict not found$', request,
-                 'nvim_call_dict_function', '42', 'f', {1,2})
-      expect_err('Invalid %(empty%) function name$', request,
-                 'nvim_call_dict_function', "{ 'f': '' }", '', {1,2})
+      eq('Not found: bogus',
+        pcall_err(request, 'nvim_call_dict_function', 'g:d', 'bogus', {1,2}))
+      eq('Not a function: baz',
+        pcall_err(request, 'nvim_call_dict_function', 'g:d', 'baz', {1,2}))
+      eq('Not a function: meep',
+        pcall_err(request, 'nvim_call_dict_function', 'g:d', 'meep', {1,2}))
+      eq('Vim:E117: Unknown function: f',
+        pcall_err(request, 'nvim_call_dict_function', { f = '' }, 'f', {1,2}))
+      eq('Not a function: f',
+        pcall_err(request, 'nvim_call_dict_function', "{ 'f': '' }", 'f', {1,2}))
+      eq('dict argument type must be String or Dictionary',
+        pcall_err(request, 'nvim_call_dict_function', 42, 'f', {1,2}))
+      eq('Failed to evaluate dict expression',
+        pcall_err(request, 'nvim_call_dict_function', 'foo', 'f', {1,2}))
+      eq('dict not found',
+        pcall_err(request, 'nvim_call_dict_function', '42', 'f', {1,2}))
+      eq('Invalid (empty) function name',
+        pcall_err(request, 'nvim_call_dict_function', "{ 'f': '' }", '', {1,2}))
     end)
   end)
 
@@ -320,25 +325,20 @@ describe('API', function()
     end)
 
     it('reports errors', function()
-      eq({false, 'Error loading lua: [string "<nvim>"]:1: '..
-                 "'=' expected near '+'"},
-         meth_pcall(meths.execute_lua, 'a+*b', {}))
+      eq([[Error loading lua: [string "<nvim>"]:1: '=' expected near '+']],
+        pcall_err(meths.execute_lua, 'a+*b', {}))
 
-      eq({false, 'Error loading lua: [string "<nvim>"]:1: '..
-                 "unexpected symbol near '1'"},
-         meth_pcall(meths.execute_lua, '1+2', {}))
+      eq([[Error loading lua: [string "<nvim>"]:1: unexpected symbol near '1']],
+        pcall_err(meths.execute_lua, '1+2', {}))
 
-      eq({false, 'Error loading lua: [string "<nvim>"]:1: '..
-                 "unexpected symbol"},
-         meth_pcall(meths.execute_lua, 'aa=bb\0', {}))
+      eq([[Error loading lua: [string "<nvim>"]:1: unexpected symbol]],
+        pcall_err(meths.execute_lua, 'aa=bb\0', {}))
 
-      eq({false, 'Error executing lua: [string "<nvim>"]:1: '..
-                 "attempt to call global 'bork' (a nil value)"},
-         meth_pcall(meths.execute_lua, 'bork()', {}))
+      eq([[Error executing lua: [string "<nvim>"]:1: attempt to call global 'bork' (a nil value)]],
+        pcall_err(meths.execute_lua, 'bork()', {}))
 
-      eq({false, 'Error executing lua: [string "<nvim>"]:1: '..
-                 "did\nthe\nfail"},
-         meth_pcall(meths.execute_lua, 'error("did\\nthe\\nfail")', {}))
+      eq('Error executing lua: [string "<nvim>"]:1: did\nthe\nfail',
+        pcall_err(meths.execute_lua, 'error("did\\nthe\\nfail")', {}))
     end)
 
     it('uses native float values', function()
@@ -357,6 +357,218 @@ describe('API', function()
       local v_errnum = string.match(nvim("eval", "v:errmsg"), "E%d*:")
       eq(true, status)        -- nvim_input() did not fail.
       eq("E117:", v_errnum)   -- v:errmsg was updated.
+    end)
+  end)
+
+  describe('nvim_paste', function()
+    it('validates args', function()
+      eq('Invalid phase: -2',
+        pcall_err(request, 'nvim_paste', 'foo', true, -2))
+      eq('Invalid phase: 4',
+        pcall_err(request, 'nvim_paste', 'foo', true, 4))
+    end)
+    it('stream: multiple chunks form one undo-block', function()
+      nvim('paste', '1/chunk 1 (start)\n', true, 1)
+      nvim('paste', '1/chunk 2 (end)\n', true, 3)
+      local expected1 = [[
+        1/chunk 1 (start)
+        1/chunk 2 (end)
+        ]]
+      expect(expected1)
+      nvim('paste', '2/chunk 1 (start)\n', true, 1)
+      nvim('paste', '2/chunk 2\n', true, 2)
+      expect([[
+        1/chunk 1 (start)
+        1/chunk 2 (end)
+        2/chunk 1 (start)
+        2/chunk 2
+        ]])
+      nvim('paste', '2/chunk 3\n', true, 2)
+      nvim('paste', '2/chunk 4 (end)\n', true, 3)
+      expect([[
+        1/chunk 1 (start)
+        1/chunk 2 (end)
+        2/chunk 1 (start)
+        2/chunk 2
+        2/chunk 3
+        2/chunk 4 (end)
+        ]])
+      feed('u')  -- Undo.
+      expect(expected1)
+    end)
+    it('non-streaming', function()
+      -- With final "\n".
+      nvim('paste', 'line 1\nline 2\nline 3\n', true, -1)
+      expect([[
+        line 1
+        line 2
+        line 3
+        ]])
+      eq({0,4,1,0}, funcs.getpos('.'))  -- Cursor follows the paste.
+      eq(false, nvim('get_option', 'paste'))
+      command('%delete _')
+      -- Without final "\n".
+      nvim('paste', 'line 1\nline 2\nline 3', true, -1)
+      expect([[
+        line 1
+        line 2
+        line 3]])
+      eq({0,3,6,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- CRLF #10872
+      nvim('paste', 'line 1\r\nline 2\r\nline 3\r\n', true, -1)
+      expect([[
+        line 1
+        line 2
+        line 3
+        ]])
+      eq({0,4,1,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- CRLF without final "\n".
+      nvim('paste', 'line 1\r\nline 2\r\nline 3\r', true, -1)
+      expect([[
+        line 1
+        line 2
+        line 3
+        ]])
+      eq({0,4,1,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- CRLF without final "\r\n".
+      nvim('paste', 'line 1\r\nline 2\r\nline 3', true, -1)
+      expect([[
+        line 1
+        line 2
+        line 3]])
+      eq({0,3,6,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- Various other junk.
+      nvim('paste', 'line 1\r\n\r\rline 2\nline 3\rline 4\r', true, -1)
+      expect('line 1\n\n\nline 2\nline 3\nline 4\n')
+      eq({0,7,1,0}, funcs.getpos('.'))
+      eq(false, nvim('get_option', 'paste'))
+    end)
+    it('crlf=false does not break lines at CR, CRLF', function()
+      nvim('paste', 'line 1\r\n\r\rline 2\nline 3\rline 4\r', false, -1)
+      expect('line 1\r\n\r\rline 2\nline 3\rline 4\r')
+      eq({0,3,14,0}, funcs.getpos('.'))
+    end)
+    it('vim.paste() failure', function()
+      nvim('execute_lua', 'vim.paste = (function(lines, phase) error("fake fail") end)', {})
+      eq([[Error executing lua: [string "<nvim>"]:1: fake fail]],
+        pcall_err(request, 'nvim_paste', 'line 1\nline 2\nline 3', false, 1))
+    end)
+  end)
+
+  describe('nvim_put', function()
+    it('validates args', function()
+      eq('Invalid lines (expected array of strings)',
+        pcall_err(request, 'nvim_put', {42}, 'l', false, false))
+      eq("Invalid type: 'x'",
+        pcall_err(request, 'nvim_put', {'foo'}, 'x', false, false))
+    end)
+    it("fails if 'nomodifiable'", function()
+      command('set nomodifiable')
+      eq([[Vim:E21: Cannot make changes, 'modifiable' is off]],
+        pcall_err(request, 'nvim_put', {'a','b'}, 'l', true, true))
+    end)
+    it('inserts text', function()
+      -- linewise
+      nvim('put', {'line 1','line 2','line 3'}, 'l', true, true)
+      expect([[
+
+        line 1
+        line 2
+        line 3]])
+      eq({0,4,1,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- charwise
+      nvim('put', {'line 1','line 2','line 3'}, 'c', true, false)
+      expect([[
+        line 1
+        line 2
+        line 3]])
+      eq({0,1,1,0}, funcs.getpos('.'))  -- follow=false
+      -- blockwise
+      nvim('put', {'AA','BB'}, 'b', true, true)
+      expect([[
+        lAAine 1
+        lBBine 2
+        line 3]])
+      eq({0,2,4,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- Empty lines list.
+      nvim('put', {}, 'c', true, true)
+      eq({0,1,1,0}, funcs.getpos('.'))
+      expect([[]])
+      -- Single empty line.
+      nvim('put', {''}, 'c', true, true)
+      eq({0,1,1,0}, funcs.getpos('.'))
+      expect([[
+      ]])
+      nvim('put', {'AB'}, 'c', true, true)
+      -- after=false, follow=true
+      nvim('put', {'line 1','line 2'}, 'c', false, true)
+      expect([[
+        Aline 1
+        line 2B]])
+      eq({0,2,7,0}, funcs.getpos('.'))
+      command('%delete _')
+      nvim('put', {'AB'}, 'c', true, true)
+      -- after=false, follow=false
+      nvim('put', {'line 1','line 2'}, 'c', false, false)
+      expect([[
+        Aline 1
+        line 2B]])
+      eq({0,1,2,0}, funcs.getpos('.'))
+      eq('', nvim('eval', 'v:errmsg'))
+    end)
+
+    it('detects charwise/linewise text (empty {type})', function()
+      -- linewise (final item is empty string)
+      nvim('put', {'line 1','line 2','line 3',''}, '', true, true)
+      expect([[
+
+        line 1
+        line 2
+        line 3]])
+      eq({0,4,1,0}, funcs.getpos('.'))
+      command('%delete _')
+      -- charwise (final item is non-empty)
+      nvim('put', {'line 1','line 2','line 3'}, '', true, true)
+      expect([[
+        line 1
+        line 2
+        line 3]])
+      eq({0,3,6,0}, funcs.getpos('.'))
+    end)
+
+    it('allows block width', function()
+      -- behave consistently with setreg(); support "\022{NUM}" return by getregtype()
+      meths.put({'line 1','line 2','line 3'}, 'l', false, false)
+      expect([[
+        line 1
+        line 2
+        line 3
+        ]])
+
+      -- larger width create spaces
+      meths.put({'a', 'bc'}, 'b3', false, false)
+      expect([[
+        a  line 1
+        bc line 2
+        line 3
+        ]])
+      -- smaller width is ignored
+      meths.put({'xxx', 'yyy'}, '\0221', false, true)
+      expect([[
+        xxxa  line 1
+        yyybc line 2
+        line 3
+        ]])
+      eq("Invalid type: 'bx'",
+         pcall_err(meths.put, {'xxx', 'yyy'}, 'bx', false, true))
+      eq("Invalid type: 'b3x'",
+         pcall_err(meths.put, {'xxx', 'yyy'}, 'b3x', false, true))
     end)
   end)
 
@@ -389,19 +601,19 @@ describe('API', function()
       eq(1, funcs.exists('g:lua'))
       meths.del_var('lua')
       eq(0, funcs.exists('g:lua'))
-      eq({false, "Key not found: lua"}, meth_pcall(meths.del_var, 'lua'))
+      eq("Key not found: lua", pcall_err(meths.del_var, 'lua'))
       meths.set_var('lua', 1)
 
       -- Set locked g: var.
       command('lockvar lua')
-      eq({false, 'Key is locked: lua'}, meth_pcall(meths.del_var, 'lua'))
-      eq({false, 'Key is locked: lua'}, meth_pcall(meths.set_var, 'lua', 1))
+      eq('Key is locked: lua', pcall_err(meths.del_var, 'lua'))
+      eq('Key is locked: lua', pcall_err(meths.set_var, 'lua', 1))
     end)
 
     it('nvim_get_vvar, nvim_set_vvar', function()
       -- Set readonly v: var.
-      expect_err('Key is read%-only: count$', request,
-                 'nvim_set_vvar', 'count', 42)
+      eq('Key is read-only: count',
+        pcall_err(request, 'nvim_set_vvar', 'count', 42))
       -- Set writable v: var.
       meths.set_vvar('errmsg', 'set by API')
       eq('set by API', meths.get_vvar('errmsg'))
@@ -621,12 +833,12 @@ describe('API', function()
       -- Make any RPC request (can be non-async: op-pending does not block).
       nvim('get_current_buf')
       -- Buffer should not change.
-      helpers.expect([[
+      expect([[
         FIRST LINE
         SECOND LINE]])
       -- Now send input to complete the operator.
       nvim('input', 'j')
-      helpers.expect([[
+      expect([[
         first line
         second line]])
     end)
@@ -659,7 +871,7 @@ describe('API', function()
       nvim('get_api_info')
       -- Send input to complete the mapping.
       nvim('input', 'd')
-      helpers.expect([[
+      expect([[
         FIRST LINE
         SECOND LINE]])
       eq('it worked...', helpers.eval('g:foo'))
@@ -675,16 +887,24 @@ describe('API', function()
       nvim('get_api_info')
       -- Send input to complete the mapping.
       nvim('input', 'x')
-      helpers.expect([[
+      expect([[
         FIRST LINE
         SECOND LINfooE]])
     end)
   end)
 
   describe('nvim_get_context', function()
-    it('returns context dictionary of current editor state', function()
-      local ctx_items = {'regs', 'jumps', 'buflist', 'gvars'}
-      eq({}, parse_context(nvim('get_context', ctx_items)))
+    it('validates args', function()
+      eq('unexpected key: blah',
+        pcall_err(nvim, 'get_context', {blah={}}))
+      eq('invalid value for key: types',
+        pcall_err(nvim, 'get_context', {types=42}))
+      eq('unexpected type: zub',
+        pcall_err(nvim, 'get_context', {types={'jumps', 'zub', 'zam',}}))
+    end)
+    it('returns map of current editor state', function()
+      local opts = {types={'regs', 'jumps', 'bufs', 'gvars'}}
+      eq({}, parse_context(nvim('get_context', {})))
 
       feed('i1<cr>2<cr>3<c-[>ddddddqahjklquuu')
       feed('gg')
@@ -704,33 +924,33 @@ describe('API', function()
         },
 
         ['jumps'] = eval(([[
-        filter(map(add(
-        getjumplist()[0], { 'bufnr': bufnr('%'), 'lnum': getcurpos()[1] }),
-        'filter(
-        { "f": expand("#".v:val.bufnr.":p"), "l": v:val.lnum },
-        { k, v -> k != "l" || v != 1 })'), '!empty(v:val.f)')
+        filter(map(getjumplist()[0], 'filter(
+          { "f": expand("#".v:val.bufnr.":p"), "l": v:val.lnum },
+          { k, v -> k != "l" || v != 1 })'), '!empty(v:val.f)')
         ]]):gsub('\n', '')),
 
-        ['buflist'] = eval([[
+        ['bufs'] = eval([[
         filter(map(getbufinfo(), '{ "f": v:val.name }'), '!empty(v:val.f)')
         ]]),
 
         ['gvars'] = {{'one', 1}, {'Two', 2}, {'THREE', 3}},
       }
 
-      eq(expected_ctx, parse_context(nvim('get_context', ctx_items)))
+      eq(expected_ctx, parse_context(nvim('get_context', opts)))
+      eq(expected_ctx, parse_context(nvim('get_context', {})))
+      eq(expected_ctx, parse_context(nvim('get_context', {types={}})))
     end)
   end)
 
   describe('nvim_load_context', function()
     it('sets current editor state to given context dictionary', function()
-      local ctx_items = {'regs', 'jumps', 'buflist', 'gvars'}
-      eq({}, parse_context(nvim('get_context', ctx_items)))
+      local opts = {types={'regs', 'jumps', 'bufs', 'gvars'}}
+      eq({}, parse_context(nvim('get_context', opts)))
 
       nvim('set_var', 'one', 1)
       nvim('set_var', 'Two', 2)
       nvim('set_var', 'THREE', 3)
-      local ctx = nvim('get_context', ctx_items)
+      local ctx = nvim('get_context', opts)
       nvim('set_var', 'one', 'a')
       nvim('set_var', 'Two', 'b')
       nvim('set_var', 'THREE', 'c')
@@ -979,8 +1199,8 @@ describe('API', function()
       eq({info=info}, meths.get_var("info_event"))
       eq({[1]=testinfo,[2]=stderr,[3]=info}, meths.list_chans())
 
-      eq({false, "Vim:Error invoking 'nvim_set_current_buf' on channel 3 (amazing-cat):\nWrong type for argument 1, expecting Buffer"},
-         meth_pcall(eval, 'rpcrequest(3, "nvim_set_current_buf", -1)'))
+      eq("Vim:Error invoking 'nvim_set_current_buf' on channel 3 (amazing-cat):\nWrong type for argument 1, expecting Buffer",
+         pcall_err(eval, 'rpcrequest(3, "nvim_set_current_buf", -1)'))
     end)
 
     it('works for :terminal channel', function()
@@ -1350,7 +1570,6 @@ describe('API', function()
         return ('%s(%s)%s'):format(typ, args, rest)
       end
     end
-    assert:set_parameter('TableFormatLevel', 1000000)
     require('test.unit.viml.expressions.parser_tests')(
         it_maybe_pending, _check_parsing, hl, fmtn)
   end)
@@ -1504,6 +1723,11 @@ describe('API', function()
         {1:~                   }|
                             |
       ]])
+    end)
+
+    it('does not cause heap-use-after-free on exit while setting options', function()
+      command('au OptionSet * q')
+      command('silent! call nvim_create_buf(0, 1)')
     end)
   end)
 end)

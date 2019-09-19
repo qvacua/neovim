@@ -10,7 +10,7 @@ local ok = helpers.ok
 local meths = helpers.meths
 local spawn, merge_args = helpers.spawn, helpers.merge_args
 local set_session = helpers.set_session
-local meth_pcall = helpers.meth_pcall
+local pcall_err = helpers.pcall_err
 
 describe('server -> client', function()
   local cid
@@ -169,8 +169,7 @@ describe('server -> client', function()
         if method == "notification" then
           eq('done!', eval('rpcrequest('..cid..', "nested")'))
         elseif method == "nested_done" then
-          -- this should never have been sent
-          ok(false)
+          ok(false, 'this should never have been sent')
         end
       end
 
@@ -181,7 +180,7 @@ describe('server -> client', function()
   end)
 
   describe('recursive (child) nvim client', function()
-    if helpers.isCI('travis') and helpers.os_name() == 'osx' then
+    if helpers.isCI('travis') and helpers.is_os('mac') then
       -- XXX: Hangs Travis macOS since e9061117a5b8f195c3f26a5cb94e18ddd7752d86.
       pending("[Hangs on Travis macOS. #5002]", function() end)
       return
@@ -221,8 +220,8 @@ describe('server -> client', function()
     end)
 
     it('returns an error if the request failed', function()
-      eq({false, "Vim:Error invoking 'does-not-exist' on channel 3:\nInvalid method: does-not-exist" },
-         meth_pcall(eval, "rpcrequest(vim, 'does-not-exist')"))
+      eq("Vim:Error invoking 'does-not-exist' on channel 3:\nInvalid method: does-not-exist",
+         pcall_err(eval, "rpcrequest(vim, 'does-not-exist')"))
     end)
   end)
 
@@ -340,7 +339,7 @@ describe('server -> client', function()
 
   describe('connecting to its own pipe address', function()
     it('does not deadlock', function()
-      if not helpers.isCI('travis') and helpers.os_name() == 'osx' then
+      if not helpers.isCI('travis') and helpers.is_os('mac') then
         -- It does, in fact, deadlock on QuickBuild. #6851
         pending("deadlocks on QuickBuild", function() end)
         return

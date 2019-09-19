@@ -103,7 +103,7 @@ typedef struct AutoCmd {
   bool once;                            // "One shot": removed after execution
   char nested;                          // If autocommands nest here
   char last;                            // last command in list
-  scid_T scriptID;                      // script ID where defined
+  sctx_T script_ctx;                    // script context where defined
   struct AutoCmd  *next;                // Next AutoCmd in list
 } AutoCmd;
 
@@ -3485,10 +3485,10 @@ restore_backup:
   if (reset_changed && whole && !append
       && !write_info.bw_conv_error
       && (overwriting || vim_strchr(p_cpo, CPO_PLUS) != NULL)) {
-    unchanged(buf, true);
+    unchanged(buf, true, false);
     const varnumber_T changedtick = buf_get_changedtick(buf);
     if (buf->b_last_changedtick + 1 == changedtick) {
-      // changedtick is always incremented in unchanged() but that
+      // b:changedtick may be incremented in unchanged() but that
       // should not trigger a TextChanged event.
       buf->b_last_changedtick = changedtick;
     }
@@ -5107,14 +5107,14 @@ void buf_reload(buf_T *buf, int orig_mode)
         }
         (void)move_lines(savebuf, buf);
       }
-    } else if (buf == curbuf) {  /* "buf" still valid */
-      /* Mark the buffer as unmodified and free undo info. */
-      unchanged(buf, TRUE);
+    } else if (buf == curbuf) {  // "buf" still valid.
+      // Mark the buffer as unmodified and free undo info.
+      unchanged(buf, true, true);
       if ((flags & READ_KEEP_UNDO) == 0) {
         u_blockfree(buf);
         u_clearall(buf);
       } else {
-        /* Mark all undo states as changed. */
+        // Mark all undo states as changed.
         u_unchanged(curbuf);
       }
     }
@@ -5422,20 +5422,25 @@ static void show_autocmd(AutoPat *ap, event_T event)
     if (ac->cmd == NULL) {              /* skip removed commands */
       continue;
     }
-    if (msg_col >= 14)
+    if (msg_col >= 14) {
       msg_putchar('\n');
+    }
     msg_col = 14;
-    if (got_int)
+    if (got_int) {
       return;
+    }
     msg_outtrans(ac->cmd);
-    if (p_verbose > 0)
-      last_set_msg(ac->scriptID);
-    if (got_int)
+    if (p_verbose > 0) {
+      last_set_msg(ac->script_ctx);
+    }
+    if (got_int) {
       return;
+    }
     if (ac->next != NULL) {
       msg_putchar('\n');
-      if (got_int)
+      if (got_int) {
         return;
+      }
     }
   }
 }
@@ -6241,7 +6246,8 @@ static int do_autocmd_event(event_T event, char_u *pat, bool once, int nested,
         prev_ac = &ac->next;
       ac = xmalloc(sizeof(AutoCmd));
       ac->cmd = vim_strsave(cmd);
-      ac->scriptID = current_SID;
+      ac->script_ctx = current_sctx;
+      ac->script_ctx.sc_lnum += sourcing_lnum;
       ac->next = NULL;
       *prev_ac = ac;
       ac->once = once;
@@ -6691,7 +6697,6 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   static int nesting = 0;
   AutoPatCmd patcmd;
   AutoPat     *ap;
-  scid_T save_current_SID;
   void        *save_funccalp;
   char_u      *save_cmdarg;
   long save_cmdbang;
@@ -6880,7 +6885,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   save_sourcing_lnum = sourcing_lnum;
   sourcing_lnum = 0;            /* no line number here */
 
-  save_current_SID = current_SID;
+  const sctx_T save_current_sctx = current_sctx;
 
   if (do_profiling == PROF_YES)
     prof_child_enter(&wait_time);     /* doesn't count for the caller itself */
@@ -6974,7 +6979,7 @@ static bool apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io,
   autocmd_fname = save_autocmd_fname;
   autocmd_bufnr = save_autocmd_bufnr;
   autocmd_match = save_autocmd_match;
-  current_SID = save_current_SID;
+  current_sctx = save_current_sctx;
   restore_funccal(save_funccalp);
   if (do_profiling == PROF_YES)
     prof_child_exit(&wait_time);
@@ -7167,7 +7172,7 @@ char_u *getnextac(int c, void *cookie, int indent)
     au_del_cmd(ac);
   }
   autocmd_nested = ac->nested;
-  current_SID = ac->scriptID;
+  current_sctx = ac->script_ctx;
   if (ac->last) {
     acp->nextcmd = NULL;
   } else {

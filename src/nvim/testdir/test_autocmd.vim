@@ -300,7 +300,6 @@ func Test_augroup_warning()
 endfunc
 
 func Test_BufReadCmdHelp()
-  helptags ALL
   " This used to cause access to free memory
   au BufReadCmd * e +h
   help
@@ -382,7 +381,6 @@ func Test_three_windows()
 
   only
 
-  helptags ALL
   help
   wincmd w
   1quit
@@ -811,7 +809,6 @@ endfunc
 " Test for autocommand that deletes the current buffer on BufLeave event.
 " Also test deleting the last buffer, should give a new, empty buffer.
 func Test_BufLeave_Wipe()
-  throw 'skipped: TODO: '
   %bwipe!
   let content = ['start of test file Xxx',
 	      \ 'this is a test',
@@ -1346,6 +1343,8 @@ func Test_Changed_FirstTime()
   call writefile([''], 'Xchanged.txt')
   let buf = term_start([GetVimProg(), '--clean', '-c', 'set noswapfile'], {'term_rows': 3})
   call assert_equal('running', term_getstatus(buf))
+  " Wait for the ruler (in the status line) to be shown.
+  call WaitFor({-> term_getline(buf, 3) =~# '\<All$'})
   " It's only adding autocmd, so that no event occurs.
   call term_sendkeys(buf, ":au! TextChanged <buffer> call writefile(['No'], 'Xchanged.txt')\<cr>")
   call term_sendkeys(buf, "\<C-\\>\<C-N>:qa!\<cr>")

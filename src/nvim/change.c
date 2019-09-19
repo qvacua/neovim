@@ -289,8 +289,11 @@ static void changed_common(linenr_T lnum, colnr_T col, linenr_T lnume,
         set_topline(wp, wp->w_topline);
       }
 
-      // relative numbering may require updating more
-      if (wp->w_p_rnu) {
+      // Relative numbering may require updating more.  Cursor line
+      // highlighting probably needs to be updated if it's below the
+      // change.
+      if (wp->w_p_rnu
+          || (wp->w_p_cul && lnum <= wp->w_last_cursorline)) {
         redraw_win_later(wp, SOME_VALID);
       }
     }
@@ -475,9 +478,11 @@ changed_lines(
   }
 }
 
-/// Called when the changed flag must be reset for buffer "buf".
-/// When "ff" is true also reset 'fileformat'.
-void unchanged(buf_T *buf, int ff)
+/// Called when the changed flag must be reset for buffer `buf`.
+/// When `ff` is true also reset 'fileformat'.
+/// When `always_inc_changedtick` is true b:changedtick is incremented even
+/// when the changed flag was off.
+void unchanged(buf_T *buf, int ff, bool always_inc_changedtick)
 {
   if (buf->b_changed || (ff && file_ff_differs(buf, false))) {
     buf->b_changed = false;
@@ -488,8 +493,10 @@ void unchanged(buf_T *buf, int ff)
     check_status(buf);
     redraw_tabline = true;
     need_maketitle = true;  // set window title later
+    buf_inc_changedtick(buf);
+  } else if (always_inc_changedtick) {
+    buf_inc_changedtick(buf);
   }
-  buf_inc_changedtick(buf);
 }
 
 /// Insert string "p" at the cursor position.  Stops at a NUL byte.
@@ -1316,7 +1323,7 @@ int open_line(
           if (*p == COM_RIGHT || *p == COM_LEFT) {
               c = *p++;
           } else if (ascii_isdigit(*p) || *p == '-') {
-              off = getdigits_int(&p);
+              off = getdigits_int(&p, true, 0);
           } else {
               p++;
           }

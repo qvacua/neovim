@@ -26,7 +26,22 @@ func Test_pydo()
   endif
 endfunc
 
+func Test_set_cursor()
+  " Check that setting the cursor position works.
+  py import vim
+  new
+  call setline(1, ['first line', 'second line'])
+  normal gg
+  pydo vim.current.window.cursor = (1, 5)
+  call assert_equal([1, 6], [line('.'), col('.')])
+
+  " Check that movement after setting cursor position keeps current column.
+  normal j
+  call assert_equal([2, 6], [line('.'), col('.')])
+endfunc
+
 func Test_vim_function()
+  throw 'skipped: Nvim does not support vim.bindeval()'
   " Check creating vim.Function object
   py import vim
 
@@ -51,6 +66,14 @@ func Test_vim_function()
 
   py del f
   delfunc s:foo
+endfunc
+
+func Test_skipped_python_command_does_not_affect_pyxversion()
+  set pyxversion=0
+  if 0
+    python import vim
+  endif
+  call assert_equal(0, &pyxversion)  " This assertion would have failed with Vim 8.0.0251. (pyxversion was introduced in 8.0.0251.)
 endfunc
 
 func _SetUpHiddenBuffer()

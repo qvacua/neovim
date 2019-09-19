@@ -198,10 +198,7 @@ static Array cmdline_block = ARRAY_DICT_INIT;
 /*
  * Type used by call_user_expand_func
  */
-typedef void *(*user_expand_func_T)(const char_u *,
-                                    int,
-                                    typval_T *,
-                                    bool);
+typedef void *(*user_expand_func_T)(const char_u *, int, typval_T *);
 
 static histentry_T *(history[HIST_COUNT]) = {NULL, NULL, NULL, NULL, NULL};
 static int hisidx[HIST_COUNT] = {-1, -1, -1, -1, -1};       /* lastused entry */
@@ -312,6 +309,8 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
   } else {
     cmdmsg_rl = false;
   }
+
+  msg_grid_validate();
 
   redir_off = true;             // don't redirect the typed command
   if (!cmd_silent) {
@@ -532,7 +531,7 @@ static int command_line_check(VimState *state)
 
 static int command_line_execute(VimState *state, int key)
 {
-  if (key == K_IGNORE || key == K_PASTE) {
+  if (key == K_IGNORE) {
     return -1;  // get another key
   }
 
@@ -911,7 +910,7 @@ static int command_line_execute(VimState *state, int key)
 
       if (!cmd_silent) {
         if (!ui_has(kUICmdline)) {
-          ui_cursor_goto(msg_row, 0);
+          cmd_cursor_goto(msg_row, 0);
         }
         ui_flush();
       }
@@ -1022,9 +1021,11 @@ static int command_line_execute(VimState *state, int key)
 
   // <S-Tab> goes to last match, in a clumsy way
   if (s->c == K_S_TAB && KeyTyped) {
-    if (nextwild(&s->xpc, WILD_EXPAND_KEEP, 0, s->firstc != '@') == OK
-        && nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@') == OK
-        && nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@') == OK) {
+    if (nextwild(&s->xpc, WILD_EXPAND_KEEP, 0, s->firstc != '@') == OK) {
+      showmatches(&s->xpc, p_wmnu
+                  && ((wim_flags[s->wim_index] & WIM_LIST) == 0));
+      nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@');
+      nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@');
       return command_line_changed(s);
     }
   }
@@ -1831,7 +1832,7 @@ static int command_line_changed(CommandLineState *s)
     // If there is no command line, don't do anything
     if (ccline.cmdlen == 0) {
       i = 0;
-      SET_NO_HLSEARCH(true);  // turn off previous highlight
+      set_no_hlsearch(true);  // turn off previous highlight
       redraw_all_later(SOME_VALID);
     } else {
       int search_flags = SEARCH_OPT + SEARCH_NOOF + SEARCH_PEEK;
@@ -1889,7 +1890,7 @@ static int command_line_changed(CommandLineState *s)
     // Disable 'hlsearch' highlighting if the pattern matches
     // everything. Avoids a flash when typing "foo\|".
     if (empty_pattern(ccline.cmdbuff)) {
-      SET_NO_HLSEARCH(true);
+      set_no_hlsearch(true);
     }
 
     validate_cursor();
@@ -1910,7 +1911,7 @@ static int command_line_changed(CommandLineState *s)
     redrawcmdline();
     s->did_incsearch = true;
   } else if (s->firstc == ':'
-             && current_SID == 0    // only if interactive
+             && current_sctx.sc_sid == 0    // only if interactive
              && *p_icm != NUL       // 'inccommand' is set
              && curbuf->b_p_ma      // buffer is modifiable
              && cmdline_star == 0   // not typing a password
@@ -2326,7 +2327,7 @@ redraw:
           }
         }
         msg_clr_eos();
-        ui_cursor_goto(msg_row, msg_col);
+        cmd_cursor_goto(msg_row, msg_col);
         continue;
       }
 
@@ -2394,7 +2395,7 @@ redraw:
     line_ga.ga_len += len;
     escaped = FALSE;
 
-    ui_cursor_goto(msg_row, msg_col);
+    cmd_cursor_goto(msg_row, msg_col);
     pend = (char_u *)(line_ga.ga_data) + line_ga.ga_len;
 
     /* We are done when a NL is entered, but not when it comes after an
@@ -3439,7 +3440,7 @@ void redrawcmd(void)
 
   /* when 'incsearch' is set there may be no command line while redrawing */
   if (ccline.cmdbuff == NULL) {
-    ui_cursor_goto(cmdline_row, 0);
+    cmd_cursor_goto(cmdline_row, 0);
     msg_clr_eos();
     return;
   }
@@ -3513,7 +3514,14 @@ static void cursorcmd(void)
     }
   }
 
-  ui_cursor_goto(msg_row, msg_col);
+  cmd_cursor_goto(msg_row, msg_col);
+}
+
+static void cmd_cursor_goto(int row, int col)
+{
+  ScreenGrid *grid = &msg_grid_adj;
+  screen_adjust_grid(&grid, &row, &col);
+  ui_grid_cursor_goto(grid->handle, row, col);
 }
 
 void gotocmdline(int clr)
@@ -3522,13 +3530,15 @@ void gotocmdline(int clr)
     return;
   }
   msg_start();
-  if (cmdmsg_rl)
+  if (cmdmsg_rl) {
     msg_col = Columns - 1;
-  else
-    msg_col = 0;            /* always start in column 0 */
-  if (clr)                  /* clear the bottom line(s) */
-    msg_clr_eos();          /* will reset clear_cmdline */
-  ui_cursor_goto(cmdline_row, 0);
+  } else {
+    msg_col = 0;  // always start in column 0
+  }
+  if (clr) {  // clear the bottom line(s)
+    msg_clr_eos();  // will reset clear_cmdline
+  }
+  cmd_cursor_goto(cmdline_row, 0);
 }
 
 /*
@@ -4212,24 +4222,24 @@ static int showmatches(expand_T *xp, int wildmenu)
             || xp->xp_context == EXPAND_BUFFERS) {
           /* highlight directories */
           if (xp->xp_numfiles != -1) {
-            char_u  *halved_slash;
-            char_u  *exp_path;
-
-            /* Expansion was done before and special characters
-             * were escaped, need to halve backslashes.  Also
-             * $HOME has been replaced with ~/. */
-            exp_path = expand_env_save_opt(files_found[k], TRUE);
-            halved_slash = backslash_halve_save(
-                exp_path != NULL ? exp_path : files_found[k]);
+            // Expansion was done before and special characters
+            // were escaped, need to halve backslashes.  Also
+            // $HOME has been replaced with ~/.
+            char_u *exp_path = expand_env_save_opt(files_found[k], true);
+            char_u *path = exp_path != NULL ? exp_path : files_found[k];
+            char_u *halved_slash = backslash_halve_save(path);
             j = os_isdir(halved_slash);
             xfree(exp_path);
-            xfree(halved_slash);
-          } else
-            /* Expansion was done here, file names are literal. */
+            if (halved_slash != path) {
+              xfree(halved_slash);
+            }
+          } else {
+            // Expansion was done here, file names are literal.
             j = os_isdir(files_found[k]);
-          if (showtail)
+          }
+          if (showtail) {
             p = L_SHOWFILE(k);
-          else {
+          } else {
             home_replace(NULL, files_found[k], NameBuff, MAXPATHL,
                 TRUE);
             p = NameBuff;
@@ -5059,12 +5069,12 @@ static void expand_shellcmd(char_u *filepat, int *num_file, char_u ***file,
 /// return the result (either a string or a List).
 static void * call_user_expand_func(user_expand_func_T user_expand_func,
                                     expand_T *xp, int *num_file, char_u ***file)
+  FUNC_ATTR_NONNULL_ALL
 {
   char_u keep = 0;
   typval_T args[4];
   char_u *pat = NULL;
-  int save_current_SID = current_SID;
-  void        *ret;
+  const sctx_T save_current_sctx = current_sctx;
   struct cmdline_info save_ccline;
 
   if (xp->xp_arg == NULL || xp->xp_arg[0] == '\0' || xp->xp_line == NULL)
@@ -5090,17 +5100,15 @@ static void * call_user_expand_func(user_expand_func_T user_expand_func,
   save_ccline = ccline;
   ccline.cmdbuff = NULL;
   ccline.cmdprompt = NULL;
-  current_SID = xp->xp_scriptID;
+  current_sctx = xp->xp_script_ctx;
 
-  ret = user_expand_func(xp->xp_arg,
-                         3,
-                         args,
-                         false);
+  void *const ret = user_expand_func(xp->xp_arg, 3, args);
 
   ccline = save_ccline;
-  current_SID = save_current_SID;
-  if (ccline.cmdbuff != NULL)
+  current_sctx = save_current_sctx;
+  if (ccline.cmdbuff != NULL) {
     ccline.cmdbuff[ccline.cmdlen] = keep;
+  }
 
   xfree(pat);
   return ret;

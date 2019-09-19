@@ -389,7 +389,7 @@ endfunc
 
 func Test_ownsyntax_completion()
   call feedkeys(":ownsyntax java\<C-A>\<C-B>\"\<CR>", 'tx')
-  call assert_equal('"ownsyntax java javacc javascript', @:)
+  call assert_equal('"ownsyntax java javacc javascript javascriptreact', @:)
 endfunc
 
 func Test_highlight_invalid_arg()
@@ -496,8 +496,8 @@ endfunc
 
 " Check highlighting for a small piece of C code with a screen dump.
 func Test_syntax_c()
-  if !has('terminal')
-    return
+  if !CanRunVimInTerminal()
+    throw 'Skipped: cannot make screendumps'
   endif
   call writefile([
 	\ '/* comment line at the top */',
@@ -520,10 +520,16 @@ func Test_syntax_c()
 	\ '  }',
 	\ '}',
 	\ ], 'Xtest.c')
+
+  " This makes the default for 'background' use "dark", check that the
+  " response to t_RB corrects it to "light".
+  let $COLORFGBG = '15;0'
+
   let buf = RunVimInTerminal('Xtest.c', {})
   call VerifyScreenDump(buf, 'Test_syntax_c_01')
   call StopVimInTerminal(buf)
 
+  let $COLORFGBG = ''
   call delete('Xtest.c')
 endfun
 

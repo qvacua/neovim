@@ -18,6 +18,7 @@ local function test_embed(ext_linegrid)
       [2] = {bold = true, foreground = Screen.colors.SeaGreen4},
       [3] = {bold = true, foreground = Screen.colors.Blue1},
       [4] = {bold = true, foreground = Screen.colors.Green},
+      [5] = {bold = true, reverse = true},
     })
   end
 
@@ -48,12 +49,16 @@ local function test_embed(ext_linegrid)
   end)
 
   it("doesn't erase output when setting color scheme", function()
+    if 'openbsd' == helpers.uname() then
+      pending('FIXME #10804', function() end)
+      return
+    end
     startup('--cmd', 'echoerr "foo"', '--cmd', 'color default', '--cmd', 'echoerr "bar"')
     screen:expect([[
                                                                   |
                                                                   |
                                                                   |
-                                                                  |
+      {5:                                                            }|
       Error detected while processing pre-vimrc command line:     |
       foo                                                         |
       {1:bar}                                                         |
@@ -75,6 +80,20 @@ local function test_embed(ext_linegrid)
     ]], condition=function()
       eq(Screen.colors.Green, screen.default_colors.rgb_bg)
     end}
+  end)
+
+  it("set display-=msgsep before first redraw", function()
+    startup('--cmd', 'set display-=msgsep')
+    screen:expect{grid=[[
+      ^                                                            |
+      {3:~                                                           }|
+      {3:~                                                           }|
+      {3:~                                                           }|
+      {3:~                                                           }|
+      {3:~                                                           }|
+      {3:~                                                           }|
+                                                                  |
+    ]]}
   end)
 end
 

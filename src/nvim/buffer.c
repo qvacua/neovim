@@ -97,6 +97,11 @@ static char *e_auabort = N_("E855: Autocommands caused command to abort");
 // Number of times free_buffer() was called.
 static int buf_free_count = 0;
 
+typedef enum {
+  kBffClearWinInfo = 1,
+  kBffInitChangedtick = 2,
+} BufFreeFlags;
+
 // Read data from buffer for retrying.
 static int
 read_buffer(
@@ -139,7 +144,7 @@ read_buffer(
     if (!readonlymode && !BUFEMPTY()) {
       changed();
     } else if (retval != FAIL) {
-      unchanged(curbuf, false);
+      unchanged(curbuf, false, true);
     }
 
     apply_autocmds_retval(EVENT_STDINREADPOST, NULL, NULL, false,
@@ -294,7 +299,7 @@ int open_buffer(
       || (aborting() && vim_strchr(p_cpo, CPO_INTMOD) != NULL)) {
     changed();
   } else if (retval != FAIL && !read_stdin && !read_fifo) {
-    unchanged(curbuf, false);
+    unchanged(curbuf, false, true);
   }
   save_file_ff(curbuf);                 // keep this fileformat
 
@@ -619,9 +624,9 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
     free_buffer(buf);
   } else {
     if (del_buf) {
-      /* Free all internal variables and reset option values, to make
-       * ":bdel" compatible with Vim 5.7. */
-      free_buffer_stuff(buf, true);
+      // Free all internal variables and reset option values, to make
+      // ":bdel" compatible with Vim 5.7.
+      free_buffer_stuff(buf, kBffClearWinInfo | kBffInitChangedtick);
 
       // Make it look like a new buffer.
       buf->b_flags = BF_CHECK_RO | BF_NEVERLOADED;
@@ -636,13 +641,11 @@ void close_buffer(win_T *win, buf_T *buf, int action, int abort_if_last)
   }
 }
 
-/*
- * Make buffer not contain a file.
- */
+/// Make buffer not contain a file.
 void buf_clear_file(buf_T *buf)
 {
   buf->b_ml.ml_line_count = 1;
-  unchanged(buf, true);
+  unchanged(buf, true, true);
   buf->b_p_eol = true;
   buf->b_start_eol = true;
   buf->b_p_bomb = false;
@@ -756,7 +759,12 @@ static void free_buffer(buf_T *buf)
 {
   handle_unregister_buffer(buf);
   buf_free_count++;
-  free_buffer_stuff(buf, true);
+  // b:changedtick uses an item in buf_T.
+  free_buffer_stuff(buf, kBffClearWinInfo);
+  if (buf->b_vars->dv_refcount > DO_NOT_FREE_CNT) {
+    tv_dict_add(buf->b_vars,
+                tv_dict_item_copy((dictitem_T *)(&buf->changedtick_di)));
+  }
   unref_var_dict(buf->b_vars);
   aubuflocal_remove(buf);
   tv_dict_unref(buf->additional_data);
@@ -781,22 +789,19 @@ static void free_buffer(buf_T *buf)
   }
 }
 
-/*
- * Free stuff in the buffer for ":bdel" and when wiping out the buffer.
- */
-static void
-free_buffer_stuff(
-    buf_T *buf,
-    int free_options                       // free options as well
-)
+/// Free stuff in the buffer for ":bdel" and when wiping out the buffer.
+///
+/// @param buf  Buffer pointer
+/// @param free_flags  BufFreeFlags
+static void free_buffer_stuff(buf_T *buf, int free_flags)
 {
-  if (free_options) {
+  if (free_flags & kBffClearWinInfo) {
     clear_wininfo(buf);                 // including window-local options
     free_buf_options(buf, true);
     ga_clear(&buf->b_s.b_langp);
   }
   {
-    // Avoid loosing b:changedtick when deleting buffer: clearing variables
+    // Avoid losing b:changedtick when deleting buffer: clearing variables
     // implies using clear_tv() on b:changedtick and that sets changedtick to
     // zero.
     hashitem_T *const changedtick_hi = hash_find(
@@ -806,7 +811,9 @@ free_buffer_stuff(
   }
   vars_clear(&buf->b_vars->dv_hashtab);   // free all internal variables
   hash_init(&buf->b_vars->dv_hashtab);
-  buf_init_changedtick(buf);
+  if (free_flags & kBffInitChangedtick) {
+    buf_init_changedtick(buf);
+  }
   uc_clear(&buf->b_ucmds);               // clear local user commands
   buf_delete_signs(buf, (char_u *)"*");  // delete any signs
   bufhl_clear_all(buf);                  // delete any highligts
@@ -1009,8 +1016,9 @@ do_bufdel(
             break;
           }
           arg = p;
-        } else
-          bnr = getdigits_int(&arg);
+        } else {
+          bnr = getdigits_int(&arg, false, 0);
+        }
       }
     }
     if (!got_int && do_current
@@ -1785,7 +1793,7 @@ buf_T * buflist_new(char_u *ffname, char_u *sfname, linenr_T lnum, int flags)
     if (aborting()) {           // autocmds may abort script processing
       return NULL;
     }
-    free_buffer_stuff(buf, false);      // delete local variables et al.
+    free_buffer_stuff(buf, kBffInitChangedtick);  // delete local vars et al.
 
     // Init the options.
     buf->b_p_initialized = false;
@@ -2645,8 +2653,7 @@ void buflist_list(exarg_T *eap)
         buf == curbuf ? (int64_t)curwin->w_cursor.lnum
                       : (int64_t)buflist_findlnum(buf));
     msg_outtrans(IObuff);
-    ui_flush();            // output one line at a time
-    os_breakcheck();
+    line_breakcheck();
   }
 }
 
@@ -3620,10 +3627,7 @@ int build_stl_str_hl(
 
     // The first digit group is the item's min width
     if (ascii_isdigit(*fmt_p)) {
-      minwid = getdigits_int(&fmt_p);
-      if (minwid < 0) {         // overflow
-        minwid = 0;
-      }
+      minwid = getdigits_int(&fmt_p, false, 0);
     }
 
     // User highlight groups override the min width field
@@ -3706,10 +3710,7 @@ int build_stl_str_hl(
     if (*fmt_p == '.') {
       fmt_p++;
       if (ascii_isdigit(*fmt_p)) {
-        maxwid = getdigits_int(&fmt_p);
-        if (maxwid <= 0) {              // overflow
-          maxwid = 50;
-        }
+        maxwid = getdigits_int(&fmt_p, false, 50);
       }
     }
 
@@ -5058,7 +5059,6 @@ chk_modeline(
   int retval = OK;
   char_u      *save_sourcing_name;
   linenr_T save_sourcing_lnum;
-  scid_T save_SID;
 
   prev = -1;
   for (s = ml_get(lnum); *s != NUL; s++) {
@@ -5073,7 +5073,7 @@ chk_modeline(
         } else {
           e = s + 3;
         }
-        if (getdigits_safe(&e, &vers) != OK) {
+        if (!try_getdigits(&e, &vers)) {
           continue;
         }
 
@@ -5146,15 +5146,17 @@ chk_modeline(
 
     if (*s != NUL) {                  // skip over an empty "::"
       const int secure_save = secure;
-      save_SID = current_SID;
-      current_SID = SID_MODELINE;
+      const sctx_T save_current_sctx = current_sctx;
+      current_sctx.sc_sid = SID_MODELINE;
+      current_sctx.sc_seq = 0;
+      current_sctx.sc_lnum = 0;
       // Make sure no risky things are executed as a side effect.
       secure = 1;
 
       retval = do_set(s, OPT_MODELINE | OPT_LOCAL | flags);
 
       secure = secure_save;
-      current_SID = save_SID;
+      current_sctx = save_current_sctx;
       if (retval == FAIL) {                   // stop if error found
         break;
       }

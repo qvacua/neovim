@@ -1003,7 +1003,7 @@ void ml_recover(void)
     set_option_value("fenc", 0L, (char *)b0_fenc, OPT_LOCAL);
     xfree(b0_fenc);
   }
-  unchanged(curbuf, TRUE);
+  unchanged(curbuf, true, true);
 
   bnum = 1;             /* start with block 1 */
   page_count = 1;       /* which is 1 page */
@@ -3523,10 +3523,7 @@ static char *findswapname(buf_T *buf, char **dirp, char *old_fname,
             xfree(name);
 
             // pretend screen didn't scroll, need redraw anyway
-            // TODO(bfredl): when doing the message grid refactor,
-            // simplify this special case.
-            msg_scrolled = 0;
-            redraw_all_later(NOT_VALID);
+            msg_reset_scroll();
           }
 
           if (choice > 0) {

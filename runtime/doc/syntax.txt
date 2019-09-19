@@ -4720,6 +4720,7 @@ the same syntax file on all UIs.
 
 					*bold* *underline* *undercurl*
 					*inverse* *italic* *standout*
+					*strikethrough*
 cterm={attr-list}			*attr-list* *highlight-cterm* *E418*
 	attr-list is a comma separated list (without spaces) of the
 	following items (in any order):
@@ -4730,6 +4731,7 @@ cterm={attr-list}			*attr-list* *highlight-cterm* *E418*
 		inverse		same as reverse
 		italic
 		standout
+		strikethrough
 		NONE		no attributes used (used to reset it)
 
 	Note that "bold" can be used here and by using a bold font.  They
@@ -4969,6 +4971,8 @@ MatchParen	The character under the cursor or just before it, if it
 
 							*hl-ModeMsg*
 ModeMsg		'showmode' message (e.g., "-- INSERT --")
+							*hl-MsgArea*
+MsgArea		Area for messages and cmdline
 							*hl-MsgSeparator*
 MsgSeparator	Separator for scrolled messages, `msgsep` flag of 'display'
 							*hl-MoreMsg*
@@ -5023,11 +5027,6 @@ StatusLine	status line of current window
 StatusLineNC	status lines of not-current windows
 		Note: if this is equal to "StatusLine" Vim will use "^^^" in
 		the status line of the current window.
-							*hl-StatusLineTerm*
-StatusLineTerm	status line of current window, if it is a |terminal| window.
-							*hl-StatusLineTermNC*
-StatusLineTermNC   status lines of not-current windows that is a |terminal|
-		window.
 							*hl-TabLine*
 TabLine		tab pages line, not active tab page label
 							*hl-TabLineFill*

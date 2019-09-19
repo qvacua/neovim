@@ -1,3 +1,6 @@
+-- To test tui/input.c, this module spawns `nvim` inside :terminal and sends
+-- bytes via jobsend().  Note: the functional/helpers.lua test-session methods
+-- operate on the _host_ session, _not_ the child session.
 local helpers = require('test.functional.helpers')(nil)
 local Screen = require('test.functional.ui.screen')
 local nvim_dir = helpers.nvim_dir
@@ -26,6 +29,7 @@ local function set_bg(num) feed_termcode('[48;5;'..num..'m') end
 local function set_bold() feed_termcode('[1m') end
 local function set_italic() feed_termcode('[3m') end
 local function set_underline() feed_termcode('[4m') end
+local function set_strikethrough() feed_termcode('[9m') end
 local function clear_attrs() feed_termcode('[0;10m') end
 -- mouse
 local function enable_mouse() feed_termcode('[?1002h') end
@@ -53,6 +57,8 @@ local function screen_setup(extra_rows, command, cols, opts)
     [8] = {foreground = 15, background = 1}, -- error message
     [9] = {foreground = 4},
     [10] = {foreground = 121},  -- "Press ENTER" in embedded :terminal session.
+    [11] = {foreground = tonumber('0x00000b')},
+    [12] = {reverse = true, foreground = tonumber('0x000079')},
   })
 
   screen:attach(opts or {rgb=false})
@@ -108,6 +114,7 @@ return {
   set_bold = set_bold,
   set_italic = set_italic,
   set_underline = set_underline,
+  set_strikethrough = set_strikethrough,
   clear_attrs = clear_attrs,
   enable_mouse = enable_mouse,
   disable_mouse = disable_mouse,

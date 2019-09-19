@@ -7,6 +7,7 @@
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/map.h"
+#include "nvim/message.h"
 #include "nvim/popupmnu.h"
 #include "nvim/screen.h"
 #include "nvim/syntax.h"
@@ -161,6 +162,8 @@ int hl_get_ui_attr(int idx, int final_id, bool optional)
     if (pum_drawn()) {
       must_redraw_pum = true;
     }
+  } else if (idx == HLF_MSG) {
+    msg_grid.blending = attrs.hl_blend > -1;
   }
 
   if (optional && !available) {
@@ -233,6 +236,7 @@ int hl_get_underline(void)
           .rgb_fg_color = -1,
           .rgb_bg_color = -1,
           .rgb_sp_color = -1,
+          .hl_blend = -1,
       },
       .kind = kHlUI,
       .id1 = 0,
@@ -427,6 +431,8 @@ int hl_blend_attrs(int back_attr, int front_attr, bool *through)
   cattrs.rgb_bg_color = rgb_blend(ratio, battrs.rgb_bg_color,
                                   fattrs.rgb_bg_color);
 
+  cattrs.hl_blend = -1;  // blend property was consumed
+
   HlKind kind = *through ? kHlBlendThrough : kHlBlend;
   id = get_attr_entry((HlEntry){ .attr = cattrs, .kind = kind,
                                  .id1 = back_attr, .id2 = front_attr });
@@ -592,6 +598,10 @@ Dictionary hlattrs2dict(HlAttrs ae, bool use_rgb)
     PUT(hl, "reverse", BOOLEAN_OBJ(true));
   }
 
+  if (mask & HL_STRIKETHROUGH) {
+    PUT(hl, "strikethrough", BOOLEAN_OBJ(true));
+  }
+
   if (use_rgb) {
     if (ae.rgb_fg_color != -1) {
       PUT(hl, "foreground", INTEGER_OBJ(ae.rgb_fg_color));
@@ -612,6 +622,10 @@ Dictionary hlattrs2dict(HlAttrs ae, bool use_rgb)
     if (cterm_normal_bg_color != ae.cterm_bg_color) {
       PUT(hl, "background", INTEGER_OBJ(ae.cterm_bg_color - 1));
     }
+  }
+
+  if (ae.hl_blend > -1) {
+      PUT(hl, "blend", INTEGER_OBJ(ae.hl_blend));
   }
 
   return hl;

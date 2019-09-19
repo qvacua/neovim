@@ -115,13 +115,13 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 4)
-set(NVIM_VERSION_PATCH 0)
-set(NVIM_VERSION_PRERELEASE "-dev") # for package maintainers
+set(NVIM_VERSION_PATCH 2)
+set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
 set(NVIM_API_LEVEL 6)         # Bump this after any API change.
 set(NVIM_API_LEVEL_COMPAT 0)  # Adjust this after a _breaking_ API change.
-set(NVIM_API_PRERELEASE true)
+set(NVIM_API_PRERELEASE false)
 
 file(TO_CMAKE_PATH ${CMAKE_CURRENT_LIST_DIR}/.git FORCED_GIT_DIR)
 include(GetGitRevisionDescription)
@@ -419,7 +419,7 @@ endif()
 option(FEAT_TUI "Enable the Terminal UI" ON)
 
 if(FEAT_TUI)
-  find_package(Unibilium 2.0 REQUIRED)
+  find_package(UNIBILIUM 2.0 REQUIRED)
   include_directories(SYSTEM ${UNIBILIUM_INCLUDE_DIRS})
 
   list(APPEND CMAKE_REQUIRED_INCLUDES "${UNIBILIUM_INCLUDE_DIRS}")
@@ -443,7 +443,7 @@ if(FEAT_TUI)
   include_directories(SYSTEM ${LIBTERMKEY_INCLUDE_DIRS})
 endif()
 
-find_package(LibVterm REQUIRED)
+find_package(LIBVTERM 0.1 REQUIRED)
 include_directories(SYSTEM ${LIBVTERM_INCLUDE_DIRS})
 
 if(WIN32)
@@ -544,14 +544,12 @@ install_helper(
 #
 
 add_subdirectory(src/nvim)
-# Read compilation flags from src/nvim, used in config subdirectory below.
-include(GetCompileFlags)
-get_compile_flags(NVIM_VERSION_CFLAGS)
-
+get_directory_property(NVIM_VERSION_CFLAGS DIRECTORY src/nvim DEFINITION NVIM_VERSION_CFLAGS)
 add_subdirectory(test/includes)
 add_subdirectory(config)
 add_subdirectory(test/functional/fixtures)  # compile test programs
 add_subdirectory(runtime)
+get_directory_property(GENERATED_HELP_TAGS DIRECTORY runtime DEFINITION GENERATED_HELP_TAGS)
 if(WIN32)
   install_helper(
     FILES ${DEPS_PREFIX}/share/nvim-qt/runtime/plugin/nvim_gui_shim.vim
@@ -573,7 +571,7 @@ if(BUSTED_PRG)
   endif()
 
   set(UNITTEST_PREREQS nvim-test unittest-headers)
-  set(FUNCTIONALTEST_PREREQS nvim printargs-test shell-test)
+  set(FUNCTIONALTEST_PREREQS nvim printargs-test shell-test streams-test ${GENERATED_HELP_TAGS})
   if(NOT WIN32)
     list(APPEND FUNCTIONALTEST_PREREQS tty-test)
   endif()

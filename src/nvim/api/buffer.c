@@ -110,10 +110,10 @@ String buffer_get_line(Buffer buffer, Integer index, Error *err)
 ///        `nvim_buf_lines_event`. Otherwise, the first notification will be
 ///        a `nvim_buf_changedtick_event`. Not used for lua callbacks.
 /// @param  opts  Optional parameters.
-///               `on_lines`:       lua callback received on change.
-///               `on_changedtick`: lua callback received on changedtick
+///             - `on_lines`:       lua callback received on change.
+///             - `on_changedtick`: lua callback received on changedtick
 ///                                 increment without text change.
-///               `utf_sizes`:      include UTF-32 and UTF-16 size of
+///             - `utf_sizes`:      include UTF-32 and UTF-16 size of
 ///                                 the replaced region.
 ///               See |api-buffer-updates-lua| for more information
 /// @param[out] err Error details, if any
@@ -182,6 +182,8 @@ error:
 }
 
 /// Deactivates buffer-update events on the channel.
+///
+/// For Lua callbacks see |api-lua-detach|.
 ///
 /// @param channel_id
 /// @param buffer Buffer handle, or 0 for current buffer
@@ -452,6 +454,11 @@ void nvim_buf_set_lines(uint64_t channel_id,
   try_start();
   aco_save_T aco;
   aucmd_prepbuf(&aco, (buf_T *)buf);
+
+  if (!MODIFIABLE(buf)) {
+    api_set_error(err, kErrorTypeException, "Buffer is not 'modifiable'");
+    goto end;
+  }
 
   if (u_save((linenr_T)(start - 1), (linenr_T)end) == FAIL) {
     api_set_error(err, kErrorTypeException, "Failed to save undo information");

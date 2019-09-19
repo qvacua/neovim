@@ -1313,8 +1313,10 @@ One local buffer variable is predefined:
 					*b:changedtick* *changetick*
 b:changedtick	The total number of changes to the current buffer.  It is
 		incremented for each change.  An undo command is also a change
-		in this case.  This can be used to perform an action only when
-		the buffer has changed.  Example: >
+		in this case.  Resetting 'modified' when writing the buffer is
+		also counted.
+		This can be used to perform an action only when the buffer has
+		changed.  Example: >
 		    :if my_changedtick != b:changedtick
 		    :	let my_changedtick = b:changedtick
 		    :	call My_Update()
@@ -1529,6 +1531,13 @@ v:dying		Normally zero.  When a deadly signal is caught it's set to
 					*v:exiting* *exiting-variable*
 v:exiting	Exit code, or |v:null| if not exiting. |VimLeave|
 
+					*v:echospace* *echospace-variable*
+v:echospace	Number of screen cells that can be used for an `:echo` message
+		in the last screen line before causing the |hit-enter-prompt|.
+		Depends on 'showcmd', 'ruler' and 'columns'.  You need to
+		check 'cmdheight' for whether there are full-width lines
+		available above the last line.
+
 					*v:errmsg* *errmsg-variable*
 v:errmsg	Last given error message.
 		Modifiable (can be set).
@@ -1558,6 +1567,7 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 			abort		Whether the event triggered during
 					an aborting condition (e.g. |c_Esc| or
 					|c_CTRL-C| for |CmdlineLeave|).
+			chan		|channel-id| or 0 for "internal".
 			cmdlevel	Level of cmdline.
 			cmdtype		Type of cmdline, |cmdline-char|.
 			cwd		Current working directory.
@@ -2023,8 +2033,8 @@ bufexists({expr})		Number	|TRUE| if buffer {expr} exists
 buflisted({expr})		Number	|TRUE| if buffer {expr} is listed
 bufload({expr})			Number	load buffer {expr} if not loaded yet
 bufloaded({expr})		Number	|TRUE| if buffer {expr} is loaded
-bufname({expr})		String	Name of the buffer {expr}
-bufnr({expr} [, {create}])	Number	Number of the buffer {expr}
+bufname([{expr}])		String	Name of the buffer {expr}
+bufnr([{expr} [, {create}]])	Number	Number of the buffer {expr}
 bufwinid({expr})		Number	|window-ID| of buffer {expr}
 bufwinnr({expr})		Number	window number of buffer {expr}
 byte2line({byte})		Number	line number at byte count {byte}
@@ -2053,6 +2063,13 @@ count({list}, {expr} [, {ic} [, {start}]])
 				Number	 count how many {expr} are in {list}
 cscope_connection([{num}, {dbpath} [, {prepend}]])
 				Number	checks existence of cscope connection
+ctxget([{index}])		Dict	return the |context| dict at {index}
+ctxpop()			none	pop and restore |context| from the
+					|context-stack|
+ctxpush([{types}])		none	push the current |context| to the
+					|context-stack|
+ctxset({context}[, {index}])	none	set |context| at {index}
+ctxsize()			Number	return |context-stack| size
 cursor({lnum}, {col} [, {off}])
 				Number	move cursor to {lnum}, {col}, {off}
 cursor({list})			Number	move cursor to position in {list}
@@ -2189,7 +2206,10 @@ insert({list}, {item} [, {idx}])
 				List	insert {item} in {list} [before {idx}]
 invert({expr})			Number  bitwise invert
 isdirectory({directory})	Number	|TRUE| if {directory} is a directory
+isinf({expr})			Number	determine if {expr} is infinity value
+					(positive or negative)
 islocked({expr})		Number	|TRUE| if {expr} is locked
+isnan({expr})			Number	|TRUE| if {expr} is NaN
 id({expr})			String	identifier of the container
 items({dict})			List	key-value pairs in {dict}
 jobpid({id})			Number	Returns pid of a job.
@@ -2287,6 +2307,7 @@ rpcrequest({channel}, {method}[, {args}...])
 screenattr({row}, {col})	Number	attribute at screen position
 screenchar({row}, {col})	Number	character at screen position
 screencol()			Number	current cursor column
+screenpos({winid}, {lnum}, {col}) Dict	screen row and col of a text character
 screenrow()			Number	current cursor row
 search({pattern} [, {flags} [, {stopline} [, {timeout}]]])
 				Number	search for {pattern}
@@ -2417,6 +2438,8 @@ uniq({list} [, {func} [, {dict}]])
 values({dict})			List	values in {dict}
 virtcol({expr})			Number	screen column of cursor or mark
 visualmode([expr])		String	last visual mode used
+wait({timeout}, {condition}[, {interval}])
+				Number  Wait until {condition} is satisfied
 wildmenumode()			Number	whether 'wildmenu' mode is active
 win_findbuf({bufnr})		List	find windows containing {bufnr}
 win_getid([{win} [, {tab}]])	Number	get |window-ID| for {win} in {tab}
@@ -2495,6 +2518,21 @@ append({lnum}, {text})					*append()*
 		0 for success.  Example: >
 			:let failed = append(line('$'), "# THE END")
 			:let failed = append(0, ["Chapter 1", "the beginning"])
+
+appendbufline({expr}, {lnum}, {text})			*appendbufline()*
+		Like |append()| but append the text in buffer {expr}.
+
+		For the use of {expr}, see |bufname()|.
+
+		{lnum} is used like with |append()|.  Note that using |line()|
+		would use the current buffer, not the one appending to.
+		Use "$" to append at the end of the buffer.
+
+		On success 0 is returned, on failure 1 is returned.
+
+		If {expr} is not a valid buffer or {lnum} is not valid, an
+		error message is given. Example: >
+			:let failed = appendbufline(13, 0, "# THE START")
 <
 							*argc()*
 argc([{winid}])
@@ -2744,9 +2782,10 @@ bufloaded({expr})					*bufloaded()*
 		{expr} exists and is loaded (shown in a window or hidden).
 		The {expr} argument is used like with |bufexists()|.
 
-bufname({expr})						*bufname()*
+bufname([{expr}])						*bufname()*
 		The result is the name of a buffer, as it is displayed by the
 		":ls" command.
++		If {expr} is omitted the current buffer is used.
 		If {expr} is a Number, that buffer number's name is given.
 		Number zero is the alternate buffer for the current window.
 		If {expr} is a String, it is used as a |file-pattern| to match
@@ -2773,7 +2812,7 @@ bufname({expr})						*bufname()*
 	bufname("file2")	name of buffer where "file2" matches.
 
 							*bufnr()*
-bufnr({expr} [, {create}])
+bufnr([{expr} [, {create}]])
 		The result is the number of a buffer, as it is displayed by
 		the ":ls" command.  For the use of {expr}, see |bufname()|
 		above.
@@ -2781,7 +2820,7 @@ bufnr({expr} [, {create}])
 		{create} argument is present and not zero, a new, unlisted,
 		buffer is created and its number is returned.
 		bufnr("$") is the last buffer: >
-	:let last_buffer = bufnr("$")
+			:let last_buffer = bufnr("$")
 <		The result is a Number, which is the highest buffer number
 		of existing buffers.  Note that not all buffers with a smaller
 		number necessarily exist, because ":bwipeout" may have removed
@@ -2914,9 +2953,9 @@ char2nr({expr} [, {utf8}])					*char2nr()*
 			char2nr("ABC")		returns 65
 			char2nr("á")		returns 225
 			char2nr("á"[0])		returns 195
+			char2nr("\<M-x>")	returns 128
 <		Non-ASCII characters are always treated as UTF-8 characters.
-		{utf8} has no effect, and exists only for
-		backwards-compatibility.
+		{utf8} is ignored, it exists only for backwards-compatibility.
 		A combining character is a separate character.
 		|nr2char()| does the opposite.
 
@@ -3201,6 +3240,32 @@ cscope_connection([{num} , {dbpath} [, {prepend}]])
 		cscope_connection(4, "out", "local")			0
 		cscope_connection(4, "cscope.out", "/usr/local")	1
 <
+
+ctxget([{index}])					*ctxget()*
+		Returns a |Dictionary| representing the |context| at {index}
+		from the top of the |context-stack| (see |context-dict|).
+		If {index} is not given, it is assumed to be 0 (i.e.: top).
+
+ctxpop()						*ctxpop()*
+		Pops and restores the |context| at the top of the
+		|context-stack|.
+
+ctxpush([{types}])					*ctxpush()*
+		Pushes the current editor state (|context|) on the
+		|context-stack|.
+		If {types} is given and is a |List| of |String|s, it specifies
+		which |context-types| to include in the pushed context.
+		Otherwise, all context types are included.
+
+ctxset({context}[, {index}])				*ctxset()*
+		Sets the |context| at {index} from the top of the
+		|context-stack| to that represented by {context}.
+		{context} is a Dictionary with context data (|context-dict|).
+		If {index} is not given, it is assumed to be 0 (i.e.: top).
+
+ctxsize()						*ctxsize()*
+		Returns the size of the |context-stack|.
+
 cursor({lnum}, {col} [, {off}])				*cursor()*
 cursor({list})
 		Positions the cursor at the column (byte count) {col} in the
@@ -3564,7 +3629,10 @@ expand({expr} [, {nosuf} [, {list}]])				*expand()*
 			<abuf>		autocmd buffer number (as a String!)
 			<amatch>	autocmd matched name
 			<sfile>		sourced script file or function name
-			<slnum>		sourced script file line number
+			<slnum>		sourced script line number or function
+					line number
+			<sflnum>	script file line number, also when in
+					a function
 			<cword>		word under the cursor
 			<cWORD>		WORD under the cursor
 			<client>	the {clientid} of the last received
@@ -3943,12 +4011,12 @@ function({name} [, {arglist}] [, {dict}])
 		the Funcref and will be used when the Funcref is called.
 
 		The arguments are passed to the function in front of other
-		arguments.  Example: >
+		arguments, but after any argument from |method|.  Example: >
 			func Callback(arg1, arg2, name)
 			...
-			let Func = function('Callback', ['one', 'two'])
+			let Partial = function('Callback', ['one', 'two'])
 			...
-			call Func('name')
+			call Partial('name')
 <		Invokes the function as with: >
 			call Callback('one', 'two', 'name')
 
@@ -4026,6 +4094,7 @@ getbufinfo([{dict}])
 		be specified in {dict}:
 			buflisted	include only listed buffers.
 			bufloaded	include only loaded buffers.
+			bufmodified	include only modified buffers.
 
 		Otherwise, {expr} specifies a particular buffer to return
 		information for.  For the use of {expr}, see |bufname()|
@@ -4187,17 +4256,6 @@ getchar([expr])						*getchar()*
 			:  endwhile
 			:endfunction
 <
-		You may also receive synthetic characters, such as
-		|<CursorHold>|. Often you will want to ignore this and get
-		another character: >
-			:function GetKey()
-			:  let c = getchar()
-			:  while c == "\<CursorHold>"
-			:    let c = getchar()
-			:  endwhile
-			:  return c
-			:endfunction
-
 getcharmod()						*getcharmod()*
 		The result is a Number which is the state of the modifiers for
 		the last obtained character with getchar() or in another way.
@@ -4725,25 +4783,6 @@ gettagstack([{nr}])					*gettagstack()*
 
 		See |tagstack| for more information about the tag stack.
 
-getwinpos([{timeout}])					*getwinpos()*
-		The result is a list with two numbers, the result of
-		getwinposx() and getwinposy() combined:
-			[x-pos, y-pos]
-		{timeout} can be used to specify how long to wait in msec for
-		a response from the terminal.  When omitted 100 msec is used.
-
-							*getwinposx()*
-getwinposx()	The result is a Number, which is the X coordinate in pixels of
-		the left hand side of the GUI Vim window.  The result will be
-		-1 if the information is not available.
-		The value can be used with `:winpos`.
-
-							*getwinposy()*
-getwinposy()	The result is a Number, which is the Y coordinate in pixels of
-		the top of the GUI Vim window.  The result will be -1 if the
-		information is not available.
-		The value can be used with `:winpos`.
-
 getwininfo([{winid}])					*getwininfo()*
 		Returns information about windows as a List with Dictionaries.
 
@@ -4772,6 +4811,25 @@ getwininfo([{winid}])					*getwininfo()*
 			winid		|window-ID|
 			winnr		window number
 			winrow		topmost screen column of the window
+
+getwinpos([{timeout}])					*getwinpos()*
+		The result is a list with two numbers, the result of
+		getwinposx() and getwinposy() combined:
+			[x-pos, y-pos]
+		{timeout} can be used to specify how long to wait in msec for
+		a response from the terminal.  When omitted 100 msec is used.
+
+							*getwinposx()*
+getwinposx()	The result is a Number, which is the X coordinate in pixels of
+		the left hand side of the GUI Vim window.  The result will be
+		-1 if the information is not available.
+		The value can be used with `:winpos`.
+
+							*getwinposy()*
+getwinposy()	The result is a Number, which is the Y coordinate in pixels of
+		the top of the GUI Vim window.  The result will be -1 if the
+		information is not available.
+		The value can be used with `:winpos`.
 
 getwinvar({winnr}, {varname} [, {def}])				*getwinvar()*
 		Like |gettabwinvar()| for the current tabpage.
@@ -5268,6 +5326,14 @@ isdirectory({directory})				*isdirectory()*
 		exist, or isn't a directory, the result is |FALSE|.  {directory}
 		is any expression, which is used as a String.
 
+isinf({expr})						*isinf()*
+		Return 1 if {expr} is a positive infinity, or -1 a negative
+		infinity, otherwise 0. >
+			:echo isinf(1.0 / 0.0)
+<			1 >
+			:echo isinf(-1.0 / 0.0)
+<			-1
+
 islocked({expr})					*islocked()* *E786*
 		The result is a Number, which is |TRUE| when {expr} is the
 		name of a locked variable.
@@ -5303,6 +5369,10 @@ items({dict})						*items()*
 		entry and the value of this entry.  The |List| is in arbitrary
 		order.
 
+isnan({expr})						*isnan()*
+		Return |TRUE| if {expr} is a float with value NaN. >
+			echo isnan(0.0 / 0.0)
+<			1
 
 jobpid({job})						*jobpid()*
 		Return the PID (process id) of |job-id| {job}.
@@ -5380,27 +5450,26 @@ jobstop({id})						*jobstop()*
 		(if any) will be invoked.
 		See |job-control|.
 
-jobwait({ids}[, {timeout}])				*jobwait()*
-		Wait for a set of jobs to complete.
+jobwait({jobs}[, {timeout}])				*jobwait()*
+		Waits for jobs and their |on_exit| handlers to complete.
 
-		{ids} is a list of |job-id|s to wait for.
+		{jobs} is a List of |job-id|s to wait for.
 		{timeout} is the maximum waiting time in milliseconds, -1
 		means forever.
 
 		Timeout of 0 can be used to check the status of a job: >
 			let running = jobwait([{job-id}], 0)[0] == -1
 <
-		During jobwait() callbacks for jobs not in the {ids} list may
+		During jobwait() callbacks for jobs not in the {jobs} list may
 		be invoked. The screen will not redraw unless |:redraw| is
 		invoked by a callback.
 
-		Returns a list of len({ids}) integers, where each integer is
-		the wait-result of the corresponding job. Each wait-result is
-		one of the following:
-			* Exit-code, if the job exited
-			* -1 if the timeout was exceeded
-			* -2 if the job was interrupted
-			* -3 if the |job-id| is invalid
+		Returns a list of len({jobs}) integers, where each integer is
+		the status of the corresponding job:
+			Exit-code, if the job exited
+			-1 if the timeout was exceeded
+			-2 if the job was interrupted (by |CTRL-C|)
+			-3 if the job-id is invalid
 
 join({list} [, {sep}])					*join()*
 		Join the items in {list} together into one String.
@@ -5613,6 +5682,8 @@ map({expr1}, {expr2})					*map()*
 			call map(myDict, {key, val -> key . '-' . val})
 <		If you do not use "val" you can leave it out: >
 			call map(myDict, {key -> 'item: ' . key})
+<		If you do not use "key" you can use a short name: >
+			call map(myDict, {_, val -> 'item: ' . val})
 <
 		The operation is done in-place.  If you want a |List| or
 		|Dictionary| to remain unmodified make a copy first: >
@@ -5671,6 +5742,7 @@ maparg({name} [, {mode} [, {abbr} [, {dict}]]])			*maparg()*
 				     (|mapmode-ic|)
 		  "sid"	     The script local ID, used for <sid> mappings
 			     (|<SID>|).
+		  "lnum"     The line number in "sid", zero if unknown.
 		  "nowait"   Do not wait for other, longer mappings.
 			     (|:map-<nowait>|).
 
@@ -6763,7 +6835,25 @@ screencol()							*screencol()*
 		the following mappings: >
 			nnoremap <expr> GG ":echom ".screencol()."\n"
 			nnoremap <silent> GG :echom screencol()<CR>
+			noremap GG <Cmd>echom screencol()<Cr>
 <
+screenpos({winid}, {lnum}, {col})				*screenpos()*
+		The result is a Dict with the screen position of the text
+		character in window {winid} at buffer line {lnum} and column
+		{col}.  {col} is a one-based byte index.
+		The Dict has these members:
+			row	screen row
+			col	first screen column
+			endcol	last screen column
+			curscol	cursor screen column
+		If the specified position is not visible, all values are zero.
+		The "endcol" value differs from "col" when the character
+		occupies more than one screen cell.  E.g. for a Tab "col" can
+		be 1 and "endcol" can be 8.
+		The "curscol" value is where the cursor would be placed.  For
+		a Tab it would be the same as "endcol", while for a double
+		width character it would be the same as "col".
+
 screenrow()							*screenrow()*
 		The result is a Number, which is the current screen row of the
 		cursor.  The top line has number one.
@@ -8307,6 +8397,7 @@ synIDattr({synID}, {what} [, {mode}])			*synIDattr()*
 		"standout"	"1" if standout
 		"underline"	"1" if underlined
 		"undercurl"	"1" if undercurled
+		"strikethrough"	"1" if struckthrough
 
 		Example (echoes the color of the syntax item under the
 		cursor): >
@@ -8830,6 +8921,22 @@ visualmode([expr])						*visualmode()*
 		a non-empty String, then the Visual mode will be cleared and
 		the old value is returned.  See |non-zero-arg|.
 
+wait({timeout}, {condition}[, {interval}])			*wait()*
+		Waits until {condition} evaluates to |TRUE|, where {condition}
+		is a |Funcref| or |string| containing an expression.
+
+		{timeout} is the maximum waiting time in milliseconds, -1
+		means forever.
+
+		Condition is evaluated on user events, internal events, and
+		every {interval} milliseconds (default: 200).
+
+		Returns a status integer:
+			0 if the condition was satisfied before timeout
+			-1 if the timeout was exceeded
+			-2 if the function was interrupted (by |CTRL-C|)
+			-3 if an error occurred
+
 wildmenumode()					*wildmenumode()*
 		Returns |TRUE| when the wildmenu is active and |FALSE|
 		otherwise.  See 'wildmenu' and 'wildmode'.
@@ -8872,7 +8979,7 @@ win_id2win({expr})					*win_id2win()*
 win_screenpos({nr})					*win_screenpos()*
 		Return the screen position of window {nr} as a list with two
 		numbers: [row, col].  The first window always has position
-		[1, 1].
+		[1, 1], unless there is a tabline, then it is [2, 1].
 		{nr} can be the window number or the |window-ID|.
 		Return [0, 0] if the window cannot be found in the current
 		tabpage.
@@ -9184,9 +9291,13 @@ See |:verbose-cmd| for more information.
 			deleted if there are no more references to it.
 								*E127* *E122*
 			When a function by this name already exists and [!] is
-			not used an error message is given.  When [!] is used,
-			an existing function is silently replaced.  Unless it
-			is currently being executed, that is an error.
+			not used an error message is given.  There is one
+			exception: When sourcing a script again, a function
+			that was previously defined in that script will be
+			silently replaced.
+			When [!] is used, an existing function is silently
+			replaced.  Unless it is currently being executed, that
+			is an error.
 			NOTE: Use ! wisely.  If used without care it can cause
 			an existing function to be replaced unexpectedly,
 			which is hard to debug.

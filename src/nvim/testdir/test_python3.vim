@@ -1,4 +1,4 @@
-" Test for python 2 commands.
+" Test for python 3 commands.
 " TODO: move tests from test88.in here.
 
 if !has('python3')
@@ -26,7 +26,22 @@ func Test_py3do()
   endif
 endfunc
 
+func Test_set_cursor()
+  " Check that setting the cursor position works.
+  py3 import vim
+  new
+  call setline(1, ['first line', 'second line'])
+  normal gg
+  py3do vim.current.window.cursor = (1, 5)
+  call assert_equal([1, 6], [line('.'), col('.')])
+
+  " Check that movement after setting cursor position keeps current column.
+  normal j
+  call assert_equal([2, 6], [line('.'), col('.')])
+endfunc
+
 func Test_vim_function()
+  throw 'skipped: Nvim does not support vim.bindeval()'
   " Check creating vim.Function object
   py3 import vim
 
@@ -51,6 +66,14 @@ func Test_vim_function()
 
   py3 del f
   delfunc s:foo
+endfunc
+
+func Test_skipped_python3_command_does_not_affect_pyxversion()
+  set pyxversion=0
+  if 0
+    python3 import vim
+  endif
+  call assert_equal(0, &pyxversion)  " This assertion would have failed with Vim 8.0.0251. (pyxversion was introduced in 8.0.0251.)
 endfunc
 
 func _SetUpHiddenBuffer()

@@ -4,6 +4,7 @@ local Screen = require('test.functional.ui.screen')
 local clear = helpers.clear
 local command = helpers.command
 local eq = helpers.eq
+local matches = helpers.matches
 local eval = helpers.eval
 local feed = helpers.feed
 local funcs = helpers.funcs
@@ -217,6 +218,13 @@ describe('startup', function()
     end
   end)
 
+  it('fails on --embed with -es/-Es', function()
+    matches('nvim[.exe]*: %-%-embed conflicts with %-es/%-Es',
+      funcs.system({nvim_prog, '--embed', '-es' }))
+    matches('nvim[.exe]*: %-%-embed conflicts with %-es/%-Es',
+      funcs.system({nvim_prog, '--embed', '-Es' }))
+  end)
+
   it('does not crash if --embed is given twice', function()
     clear{args={'--embed'}}
     eq(2, eval('1+1'))
@@ -250,6 +258,24 @@ describe('startup', function()
                                                                   |
                                                                   |
     ]])
+  end)
+
+  it("sets 'shortmess' when loading other tabs", function()
+    clear({args={'-p', 'a', 'b', 'c'}})
+    local screen = Screen.new(25, 4)
+    screen:attach()
+    screen:expect({grid=[[
+        {1: a }{2: b  c }{3:               }{2:X}|
+        ^                         |
+        {4:~                        }|
+                                 |
+          ]],
+      attr_ids={
+        [1] = {bold = true},
+        [2] = {background = Screen.colors.LightGrey, underline = true},
+        [3] = {reverse = true},
+        [4] = {bold = true, foreground = Screen.colors.Blue1},
+    }})
   end)
 end)
 

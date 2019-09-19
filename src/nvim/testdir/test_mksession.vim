@@ -106,11 +106,20 @@ endfunc
 
 func Test_mksession_winheight()
   new
-  set winheight=10 winminheight=2
+  set winheight=10
+  set winminheight=2
   mksession! Xtest_mks.out
   source Xtest_mks.out
 
   call delete('Xtest_mks.out')
+endfunc
+
+func Test_mksession_large_winheight()
+  set winheight=999
+  mksession! Xtest_mks_winheight.out
+  set winheight&
+  source Xtest_mks_winheight.out
+  call delete('Xtest_mks_winheight.out')
 endfunc
 
 " Verify that arglist is stored correctly to the session file.
@@ -265,6 +274,48 @@ func Test_mksession_quote_in_filename()
 
   %bwipe!
   call delete('Xtest_mks_quoted.out')
+endfunc
+
+func s:ClearMappings()
+  mapclear
+  omapclear
+  mapclear!
+  lmapclear
+  tmapclear
+endfunc
+
+func Test_mkvimrc()
+  let entries = [
+        \ ['', 'nothing', '<Nop>'],
+        \ ['n', 'normal', 'NORMAL'],
+        \ ['v', 'visual', 'VISUAL'],
+        \ ['s', 'select', 'SELECT'],
+        \ ['x', 'visualonly', 'VISUALONLY'],
+        \ ['o', 'operator', 'OPERATOR'],
+        \ ['i', 'insert', 'INSERT'],
+        \ ['l', 'lang', 'LANG'],
+        \ ['c', 'command', 'COMMAND'],
+        \ ['t', 'terminal', 'TERMINAL'],
+        \ ]
+  for entry in entries
+    exe entry[0] .. 'map ' .. entry[1] .. ' ' .. entry[2]
+  endfor
+
+  mkvimrc Xtestvimrc
+
+  call s:ClearMappings()
+  for entry in entries
+    call assert_equal('', maparg(entry[1], entry[0]))
+  endfor
+
+  source Xtestvimrc
+
+  for entry in entries
+    call assert_equal(entry[2], maparg(entry[1], entry[0]))
+  endfor
+
+  call s:ClearMappings()
+  call delete('Xtestvimrc')
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

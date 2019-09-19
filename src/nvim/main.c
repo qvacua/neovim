@@ -12,6 +12,7 @@
 #include "nvim/ascii.h"
 #include "nvim/vim.h"
 #include "nvim/main.h"
+#include "nvim/aucmd.h"
 #include "nvim/buffer.h"
 #include "nvim/charset.h"
 #include "nvim/diff.h"
@@ -145,6 +146,8 @@ void event_init(void)
 {
   log_init();
   loop_init(&main_loop, NULL);
+  resize_events = multiqueue_new_child(main_loop.events);
+
   // early msgpack-rpc initialization
   msgpack_rpc_init_method_table();
   msgpack_rpc_helpers_init();
@@ -361,7 +364,7 @@ int main(int argc, char **argv)
   bool use_remote_ui = (embedded_mode && !headless_mode);
   bool use_builtin_ui = (!headless_mode && !embedded_mode && !silent_mode);
   if (use_remote_ui || use_builtin_ui) {
-    TIME_MSG("waiting for UI to make request");
+    TIME_MSG("waiting for UI");
     if (use_remote_ui) {
       remote_ui_wait_for_attach();
     } else {
@@ -548,6 +551,10 @@ int main(int argc, char **argv)
   set_vim_var_nr(VV_VIM_DID_ENTER, 1L);
   apply_autocmds(EVENT_VIMENTER, NULL, NULL, false, curbuf);
   TIME_MSG("VimEnter autocommands");
+  if (use_remote_ui || use_builtin_ui) {
+    do_autocmd_uienter(use_remote_ui ? CHAN_STDIO : 0, true);
+    TIME_MSG("UIEnter autocommands");
+  }
 
   // Adjust default register name for "unnamed" in 'clipboard'. Can only be
   // done after the clipboard is available and all initial commands that may
@@ -1229,6 +1236,10 @@ scripterror:
     }
   }
 
+  if (embedded_mode && silent_mode) {
+    mainerr(_("--embed conflicts with -es/-Es"), NULL);
+  }
+
   // If there is a "+123" or "-c" command, set v:swapcommand to the first one.
   if (parmp->n_commands > 0) {
     const size_t swcmd_len = STRLEN(parmp->commands[0]) + 3;
@@ -1552,6 +1563,7 @@ static void edit_buffers(mparm_T *parmp, char_u *cwd)
   int i;
   bool advance = true;
   win_T       *win;
+  char *p_shm_save = NULL;
 
   /*
    * Don't execute Win/Buf Enter/Leave autocommands here
@@ -1583,6 +1595,16 @@ static void edit_buffers(mparm_T *parmp, char_u *cwd)
         if (curtab->tp_next == NULL)            /* just checking */
           break;
         goto_tabpage(0);
+        // Temporarily reset 'shm' option to not print fileinfo when
+        // loading the other buffers. This would overwrite the already
+        // existing fileinfo for the first tab.
+        if (i == 1) {
+          char buf[100];
+
+          p_shm_save = xstrdup((char *)p_shm);
+          snprintf(buf, sizeof(buf), "F%s", p_shm);
+          set_option_value("shm", 0L, buf, 0);
+        }
       } else {
         if (curwin->w_next == NULL)             /* just checking */
           break;
@@ -1623,6 +1645,11 @@ static void edit_buffers(mparm_T *parmp, char_u *cwd)
     }
   }
 
+  if (p_shm_save != NULL) {
+    set_option_value("shm", 0L, p_shm_save, 0);
+    xfree(p_shm_save);
+  }
+
   if (parmp->window_layout == WIN_TABS)
     goto_tabpage(1);
   --autocmd_no_enter;
@@ -1657,11 +1684,12 @@ static void exe_pre_commands(mparm_T *parmp)
   if (cnt > 0) {
     curwin->w_cursor.lnum = 0;     /* just in case.. */
     sourcing_name = (char_u *)_("pre-vimrc command line");
-    current_SID = SID_CMDARG;
-    for (i = 0; i < cnt; ++i)
+    current_sctx.sc_sid = SID_CMDARG;
+    for (i = 0; i < cnt; i++) {
       do_cmdline_cmd(cmds[i]);
+    }
     sourcing_name = NULL;
-    current_SID = 0;
+    current_sctx.sc_sid = 0;
     TIME_MSG("--cmd commands");
   }
 }
@@ -1682,16 +1710,18 @@ static void exe_commands(mparm_T *parmp)
   if (parmp->tagname == NULL && curwin->w_cursor.lnum <= 1)
     curwin->w_cursor.lnum = 0;
   sourcing_name = (char_u *)"command line";
-  current_SID = SID_CARG;
-  for (i = 0; i < parmp->n_commands; ++i) {
+  current_sctx.sc_sid = SID_CARG;
+  current_sctx.sc_seq = 0;
+  for (i = 0; i < parmp->n_commands; i++) {
     do_cmdline_cmd(parmp->commands[i]);
     if (parmp->cmds_tofree[i])
       xfree(parmp->commands[i]);
   }
   sourcing_name = NULL;
-  current_SID = 0;
-  if (curwin->w_cursor.lnum == 0)
+  current_sctx.sc_sid = 0;
+  if (curwin->w_cursor.lnum == 0) {
     curwin->w_cursor.lnum = 1;
+  }
 
   if (!exmode_active)
     msg_scroll = FALSE;
@@ -1877,12 +1907,14 @@ static int execute_env(char *env)
     linenr_T save_sourcing_lnum = sourcing_lnum;
     sourcing_name = (char_u *)env;
     sourcing_lnum = 0;
-    scid_T save_sid = current_SID;
-    current_SID = SID_ENV;
+    const sctx_T save_current_sctx = current_sctx;
+    current_sctx.sc_sid = SID_ENV;
+    current_sctx.sc_seq = 0;
+    current_sctx.sc_lnum = 0;
     do_cmdline_cmd((char *)initstr);
     sourcing_name = save_sourcing_name;
     sourcing_lnum = save_sourcing_lnum;
-    current_SID = save_sid;
+    current_sctx = save_current_sctx;
     return OK;
   }
   return FAIL;

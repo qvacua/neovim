@@ -60,12 +60,8 @@ func Do_test_quotestar_for_x11()
   call assert_notmatch(name, serverlist())
 
   let cmd .= ' --servername ' . name
-  let g:job = job_start(cmd, {'stoponexit': 'kill', 'out_io': 'null'})
-  call WaitFor('job_status(g:job) == "run"')
-  if job_status(g:job) != 'run'
-    call assert_report('Cannot run the Vim server')
-    return ''
-  endif
+  let job = job_start(cmd, {'stoponexit': 'kill', 'out_io': 'null'})
+  call WaitFor({-> job_status(job) == "run"})
 
   " Takes a short while for the server to be active.
   call WaitFor('serverlist() =~ "' . name . '"')
@@ -78,20 +74,20 @@ func Do_test_quotestar_for_x11()
   " by the server.
   let @* = 'no'
   call remote_foreground(name)
-  call WaitFor('remote_expr("' . name . '", "@*", "", 1) == "no"', 3000)
+  call WaitFor('remote_expr("' . name . '", "@*", "", 1) == "no"')
 
   " Set the * register on the server.
   call remote_send(name, ":let @* = 'yes'\<CR>")
-  call WaitFor('remote_expr("' . name . '", "@*", "", 1) == "yes"', 3000)
+  call WaitFor('remote_expr("' . name . '", "@*", "", 1) == "yes"')
 
   " Check that the *-register of this vim instance is changed as expected.
-  call WaitFor('@* == "yes"', 3000)
+  call WaitFor('@* == "yes"')
 
   " Handle the large selection over 262040 byte.
   let length = 262044
   let sample = 'a' . repeat('b', length - 2) . 'c'
   let @* = sample
-  call WaitFor('remote_expr("' . name . '", "len(@*) >= ' . length . '", "", 1)', 3000)
+  call WaitFor('remote_expr("' . name . '", "len(@*) >= ' . length . '", "", 1)')
   let res = remote_expr(name, "@*", "", 2)
   call assert_equal(length, len(res))
   " Check length to prevent a large amount of output at assertion failure.
@@ -123,11 +119,14 @@ func Do_test_quotestar_for_x11()
   endif
 
   call remote_send(name, ":qa!\<CR>")
-  call WaitFor('job_status(g:job) == "dead"')
-  if job_status(g:job) != 'dead'
-    call assert_report('Server did not exit')
-    call job_stop(g:job, 'kill')
-  endif
+  try
+    call WaitFor({-> job_status(job) == "dead"})
+  finally
+    if job_status(job) != 'dead'
+      call assert_report('Server did not exit')
+      call job_stop(job, 'kill')
+    endif
+  endtry
 
   return ''
 endfunc

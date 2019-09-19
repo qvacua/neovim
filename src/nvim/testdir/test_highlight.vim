@@ -532,7 +532,7 @@ endfunc
 
 func Test_cursorline_after_yank()
   if !CanRunVimInTerminal()
-    return
+    throw 'Skipped: cannot make screendumps'
   endif
 
   call writefile([
@@ -552,9 +552,29 @@ func Test_cursorline_after_yank()
   call delete('Xtest_cursorline_yank')
 endfunc
 
+" test for issue https://github.com/vim/vim/issues/4862
+func Test_put_before_cursorline()
+  new
+  only!
+  call setline(1, 'A')
+  redraw
+  let std_attr = screenattr(1, 1)
+  set cursorline
+  redraw
+  let cul_attr = screenattr(1, 1)
+  normal yyP
+  redraw
+  " Line 1 has cursor so it should be highlighted with CursorLine.
+  call assert_equal(cul_attr, screenattr(1, 1))
+  " And CursorLine highlighting from the second line should be gone.
+  call assert_equal(std_attr, screenattr(2, 1))
+  set nocursorline
+  bwipe!
+endfunc
+
 func Test_cursorline_with_visualmode()
   if !CanRunVimInTerminal()
-    return
+    throw 'Skipped: cannot make screendumps'
   endif
 
   call writefile([

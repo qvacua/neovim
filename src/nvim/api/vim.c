@@ -2,7 +2,6 @@
 // it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 
 #include <assert.h>
-#include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -29,6 +28,7 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/screen.h"
 #include "nvim/memline.h"
+#include "nvim/mark.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/popupmnu.h"
@@ -36,6 +36,7 @@
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
 #include "nvim/fileio.h"
+#include "nvim/ops.h"
 #include "nvim/option.h"
 #include "nvim/state.h"
 #include "nvim/syntax.h"
@@ -51,6 +52,20 @@
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "api/vim.c.generated.h"
 #endif
+
+// `msg_list` controls the collection of abort-causing non-exception errors,
+// which would otherwise be ignored.  This pattern is from do_cmdline().
+//
+// TODO(bfredl): prepare error-handling at "top level" (nv_event).
+#define TRY_WRAP(code) \
+  do { \
+    struct msglist **saved_msg_list = msg_list; \
+    struct msglist *private_msg_list; \
+    msg_list = &private_msg_list; \
+    private_msg_list = NULL; \
+    code \
+    msg_list = saved_msg_list;  /* Restore the exception context. */ \
+  } while (0)
 
 void api_vim_init(void)
   FUNC_API_NOEXPORT
@@ -364,7 +379,7 @@ String nvim_command_output(String command, Error *err)
     };
     // redir usually (except :echon) prepends a newline.
     if (s.data[0] == '\n') {
-      memmove(s.data, s.data + 1, s.size);
+      memmove(s.data, s.data + 1, s.size - 1);
       s.data[s.size - 1] = '\0';
       s.size = s.size - 1;
     }
@@ -390,13 +405,7 @@ Object nvim_eval(String expr, Error *err)
   static int recursive = 0;  // recursion depth
   Object rv = OBJECT_INIT;
 
-  // `msg_list` controls the collection of abort-causing non-exception errors,
-  // which would otherwise be ignored.  This pattern is from do_cmdline().
-  struct msglist **saved_msg_list = msg_list;
-  struct msglist *private_msg_list;
-  msg_list = &private_msg_list;
-  private_msg_list = NULL;
-
+  TRY_WRAP({
   // Initialize `force_abort`  and `suppress_errthrow` at the top level.
   if (!recursive) {
     force_abort = false;
@@ -421,24 +430,24 @@ Object nvim_eval(String expr, Error *err)
   }
 
   tv_clear(&rettv);
-  msg_list = saved_msg_list;  // Restore the exception context.
   recursive--;
+  });
 
   return rv;
 }
 
-/// Execute lua code. Parameters (if any) are available as `...` inside the
+/// Execute Lua code. Parameters (if any) are available as `...` inside the
 /// chunk. The chunk can return a value.
 ///
 /// Only statements are executed. To evaluate an expression, prefix it
 /// with `return`: return my_function(...)
 ///
-/// @param code       lua code to execute
+/// @param code       Lua code to execute
 /// @param args       Arguments to the code
 /// @param[out] err   Details of an error encountered while parsing
-///                   or executing the lua code.
+///                   or executing the Lua code.
 ///
-/// @return           Return value of lua code if present or NIL.
+/// @return           Return value of Lua code if present or NIL.
 Object nvim_execute_lua(String code, Array args, Error *err)
   FUNC_API_SINCE(3) FUNC_API_REMOTE_ONLY
 {
@@ -472,13 +481,7 @@ static Object _call_function(String fn, Array args, dict_T *self, Error *err)
     }
   }
 
-  // `msg_list` controls the collection of abort-causing non-exception errors,
-  // which would otherwise be ignored.  This pattern is from do_cmdline().
-  struct msglist **saved_msg_list = msg_list;
-  struct msglist *private_msg_list;
-  msg_list = &private_msg_list;
-  private_msg_list = NULL;
-
+  TRY_WRAP({
   // Initialize `force_abort`  and `suppress_errthrow` at the top level.
   if (!recursive) {
     force_abort = false;
@@ -500,8 +503,8 @@ static Object _call_function(String fn, Array args, dict_T *self, Error *err)
     rv = vim_to_object(&rettv);
   }
   tv_clear(&rettv);
-  msg_list = saved_msg_list;  // Restore the exception context.
   recursive--;
+  });
 
 free_vim_args:
   while (i > 0) {
@@ -1015,7 +1018,7 @@ fail:
 ///
 /// Currently this is used to open floating and external windows.
 /// Floats are windows that are drawn above the split layout, at some anchor
-/// position in some other window. Floats can be draw internally or by external
+/// position in some other window. Floats can be drawn internally or by external
 /// GUI with the |ui-multigrid| extension. External windows are only supported
 /// with multigrid GUIs, and are displayed as separate top-level windows.
 ///
@@ -1024,60 +1027,70 @@ fail:
 /// Exactly one of `external` and `relative` must be specified. The `width` and
 /// `height` of the new window must be specified.
 ///
-/// With editor positioning row=0, col=0 refers to the top-left corner of the
-/// screen-grid and row=Lines-1, Columns-1 refers to the bottom-right corner.
-/// Floating point values are allowed, but the builtin implementation (used by
-/// TUI and GUIs without multigrid support) will always round down to nearest
-/// integer.
+/// With relative=editor (row=0,col=0) refers to the top-left corner of the
+/// screen-grid and (row=Lines-1,col=Columns-1) refers to the bottom-right
+/// corner. Fractional values are allowed, but the builtin implementation
+/// (used by non-multigrid UIs) will always round down to nearest integer.
 ///
 /// Out-of-bounds values, and configurations that make the float not fit inside
-/// the main editor, are allowed. The builtin implementation will truncate
-/// values so floats are completely within the main screen grid. External GUIs
+/// the main editor, are allowed. The builtin implementation truncates values
+/// so floats are fully within the main screen grid. External GUIs
 /// could let floats hover outside of the main window like a tooltip, but
 /// this should not be used to specify arbitrary WM screen positions.
 ///
-/// @param buffer handle of buffer to be displayed in the window
-/// @param enter  whether the window should be entered (made the current window)
-/// @param config Dictionary for the window configuration accepts these keys:
-///   - `relative`: If set, the window becomes a floating window. The window
-///       will be placed with row,col coordinates relative to one of the
-///       following:
-///      - "editor" the global editor grid
-///      - "win"    a window. Use `win` to specify a window id,
-///                 or the current window will be used by default.
-///      - "cursor" the cursor position in current window.
-///   - `win`: When using relative='win', window id of the window where the
-///       position is defined.
-///   - `anchor`: The corner of the float that the row,col position defines:
-///      - "NW" north-west (default)
-///      - "NE" north-east
-///      - "SW" south-west
-///      - "SE" south-east
-///   - `height`: window height (in character cells). Minimum of 1.
-///   - `width`: window width (in character cells). Minimum of 1.
-///   - `row`: row position. Screen cell height are used as unit. Can be
-///       floating point.
-///   - `col`: column position. Screen cell width is used as unit. Can be
-///       floating point.
-///   - `focusable`: Whether window can be focused by wincmds and
-///       mouse events. Defaults to true. Even if set to false, the window
-///       can still be entered using |nvim_set_current_win()| API call.
+/// Example (Lua): window-relative float
+/// <pre>
+///     vim.api.nvim_open_win(0, false,
+///       {relative='win', row=3, col=3, width=12, height=3})
+/// </pre>
+///
+/// Example (Lua): buffer-relative float (travels as buffer is scrolled)
+/// <pre>
+///     vim.api.nvim_open_win(0, false,
+///       {relative='win', width=12, height=3, bufpos={100,10}})
+/// </pre>
+///
+/// @param buffer Buffer to display, or 0 for current buffer
+/// @param enter  Enter the window (make it the current window)
+/// @param config Map defining the window configuration. Keys:
+///   - `relative`: Sets the window layout to "floating", placed at (row,col)
+///                 coordinates relative to one of:
+///      - "editor" The global editor grid
+///      - "win"    Window given by the `win` field, or current window by
+///                 default.
+///      - "cursor" Cursor position in current window.
+///   - `win`: |window-ID| for relative="win".
+///   - `anchor`: Decides which corner of the float to place at (row,col):
+///      - "NW" northwest (default)
+///      - "NE" northeast
+///      - "SW" southwest
+///      - "SE" southeast
+///   - `width`: Window width (in character cells). Minimum of 1.
+///   - `height`: Window height (in character cells). Minimum of 1.
+///   - `bufpos`: Places float relative to buffer text (only when
+///               relative="win"). Takes a tuple of zero-indexed [line, column].
+///               `row` and `col` if given are applied relative to this
+///               position, else they default to `row=1` and `col=0`
+///               (thus like a tooltip near the buffer text).
+///   - `row`: Row position in units of "screen cell height", may be fractional.
+///   - `col`: Column position in units of "screen cell width", may be
+///            fractional.
+///   - `focusable`: Enable focus by user actions (wincmds, mouse events).
+///       Defaults to true. Non-focusable windows can be entered by
+///       |nvim_set_current_win()|.
 ///   - `external`: GUI should display the window as an external
 ///       top-level window. Currently accepts no other positioning
 ///       configuration together with this.
-///   - `style`: Configure the apparance of the window. Currently only takes
+///   - `style`: Configure the appearance of the window. Currently only takes
 ///       one non-empty value:
 ///       - "minimal"  Nvim will display the window with many UI options
-///                    disabled. This is useful when displaing a temporary
+///                    disabled. This is useful when displaying a temporary
 ///                    float where the text should not be edited. Disables
 ///                    'number', 'relativenumber', 'cursorline', 'cursorcolumn',
 ///                    'foldcolumn', 'spell' and 'list' options. 'signcolumn'
 ///                    is changed to `auto`. The end-of-buffer region is hidden
 ///                    by setting `eob` flag of 'fillchars' to a space char,
 ///                    and clearing the |EndOfBuffer| region in 'winhighlight'.
-///
-///       top-level window. Currently accepts no other positioning
-///       configuration together with this.
 /// @param[out] err Error details, if any
 ///
 /// @return Window handle, or 0 on error
@@ -1204,6 +1217,140 @@ Dictionary nvim_get_namespaces(void)
   return retval;
 }
 
+/// Pastes at cursor, in any mode.
+///
+/// Invokes the `vim.paste` handler, which handles each mode appropriately.
+/// Sets redo/undo. Faster than |nvim_input()|. Lines break at LF ("\n").
+///
+/// Errors ('nomodifiable', `vim.paste()` failure, …) are reflected in `err`
+/// but do not affect the return value (which is strictly decided by
+/// `vim.paste()`).  On error, subsequent calls are ignored ("drained") until
+/// the next paste is initiated (phase 1 or -1).
+///
+/// @param data  Multiline input. May be binary (containing NUL bytes).
+/// @param crlf  Also break lines at CR and CRLF.
+/// @param phase  -1: paste in a single call (i.e. without streaming).
+///               To "stream" a paste, call `nvim_paste` sequentially with
+///               these `phase` values:
+///                 - 1: starts the paste (exactly once)
+///                 - 2: continues the paste (zero or more times)
+///                 - 3: ends the paste (exactly once)
+/// @param[out] err Error details, if any
+/// @return
+///     - true: Client may continue pasting.
+///     - false: Client must cancel the paste.
+Boolean nvim_paste(String data, Boolean crlf, Integer phase, Error *err)
+  FUNC_API_SINCE(6)
+{
+  static bool draining = false;
+  bool cancel = false;
+
+  if (phase < -1 || phase > 3) {
+    api_set_error(err, kErrorTypeValidation, "Invalid phase: %"PRId64, phase);
+    return false;
+  }
+  Array args = ARRAY_DICT_INIT;
+  Object rv = OBJECT_INIT;
+  if (phase == -1 || phase == 1) {  // Start of paste-stream.
+    draining = false;
+  } else if (draining) {
+    // Skip remaining chunks.  Report error only once per "stream".
+    goto theend;
+  }
+  Array lines = string_to_array(data, crlf);
+  ADD(args, ARRAY_OBJ(lines));
+  ADD(args, INTEGER_OBJ(phase));
+  rv = nvim_execute_lua(STATIC_CSTR_AS_STRING("return vim.paste(...)"), args,
+                        err);
+  if (ERROR_SET(err)) {
+    draining = true;
+    goto theend;
+  }
+  if (!(State & CMDLINE) && !(State & INSERT) && (phase == -1 || phase == 1)) {
+    ResetRedobuff();
+    AppendCharToRedobuff('a');  // Dot-repeat.
+  }
+  // vim.paste() decides if client should cancel.  Errors do NOT cancel: we
+  // want to drain remaining chunks (rather than divert them to main input).
+  cancel = (rv.type == kObjectTypeBoolean && !rv.data.boolean);
+  if (!cancel && !(State & CMDLINE)) {  // Dot-repeat.
+    for (size_t i = 0; i < lines.size; i++) {
+      String s = lines.items[i].data.string;
+      assert(data.size <= INT_MAX);
+      AppendToRedobuffLit((char_u *)s.data, (int)s.size);
+      // readfile()-style: "\n" is indicated by presence of N+1 item.
+      if (i + 1 < lines.size) {
+        AppendCharToRedobuff(NL);
+      }
+    }
+  }
+  if (!(State & CMDLINE) && !(State & INSERT) && (phase == -1 || phase == 3)) {
+    AppendCharToRedobuff(ESC);  // Dot-repeat.
+  }
+theend:
+  api_free_object(rv);
+  api_free_array(args);
+  if (cancel || phase == -1 || phase == 3) {  // End of paste-stream.
+    draining = false;
+  }
+
+  return !cancel;
+}
+
+/// Puts text at cursor, in any mode.
+///
+/// Compare |:put| and |p| which are always linewise.
+///
+/// @param lines  |readfile()|-style list of lines. |channel-lines|
+/// @param type  Edit behavior: any |getregtype()| result, or:
+///              - "b" |blockwise-visual| mode (may include width, e.g. "b3")
+///              - "c" |characterwise| mode
+///              - "l" |linewise| mode
+///              - ""  guess by contents, see |setreg()|
+/// @param after  Insert after cursor (like |p|), or before (like |P|).
+/// @param follow  Place cursor at end of inserted text.
+/// @param[out] err Error details, if any
+void nvim_put(ArrayOf(String) lines, String type, Boolean after,
+              Boolean follow, Error *err)
+  FUNC_API_SINCE(6)
+{
+  yankreg_T *reg = xcalloc(sizeof(yankreg_T), 1);
+  if (!prepare_yankreg_from_object(reg, type, lines.size)) {
+    api_set_error(err, kErrorTypeValidation, "Invalid type: '%s'", type.data);
+    goto cleanup;
+  }
+  if (lines.size == 0) {
+    goto cleanup;  // Nothing to do.
+  }
+
+  for (size_t i = 0; i < lines.size; i++) {
+    if (lines.items[i].type != kObjectTypeString) {
+      api_set_error(err, kErrorTypeValidation,
+                    "Invalid lines (expected array of strings)");
+      goto cleanup;
+    }
+    String line = lines.items[i].data.string;
+    reg->y_array[i] = (char_u *)xmemdupz(line.data, line.size);
+    memchrsub(reg->y_array[i], NUL, NL, line.size);
+  }
+
+  finish_yankreg_from_object(reg, false);
+
+  TRY_WRAP({
+    try_start();
+    bool VIsual_was_active = VIsual_active;
+    msg_silent++;  // Avoid "N more lines" message.
+    do_put(0, reg, after ? FORWARD : BACKWARD, 1, follow ? PUT_CURSEND : 0);
+    msg_silent--;
+    VIsual_active = VIsual_was_active;
+    try_end(err);
+  });
+
+cleanup:
+  free_register(reg);
+  xfree(reg);
+}
+
 /// Subscribes to event broadcasts.
 ///
 /// @param channel_id Channel id (passed automatically by the dispatcher)
@@ -1277,32 +1424,52 @@ Dictionary nvim_get_color_map(void)
 
 /// Gets a map of the current editor state.
 ///
-/// @param  types  Context types ("regs", "jumps", "buflist", "gvars", ...)
-///                to gather, or NIL for all.
+/// @param opts  Optional parameters.
+///               - types:  List of |context-types| ("regs", "jumps", "bufs",
+///                 "gvars", …) to gather, or empty for "all".
+/// @param[out]  err  Error details, if any
 ///
-/// @return map of global context
-Dictionary nvim_get_context(Array types)
+/// @return map of global |context|.
+Dictionary nvim_get_context(Dictionary opts, Error *err)
   FUNC_API_SINCE(6)
 {
-  int int_types = 0;
-  if (types.size == 1 && types.items[0].type == kObjectTypeNil) {
-    int_types = kCtxAll;
-  } else {
+  Array types = ARRAY_DICT_INIT;
+  for (size_t i = 0; i < opts.size; i++) {
+    String k = opts.items[i].key;
+    Object v = opts.items[i].value;
+    if (strequal("types", k.data)) {
+      if (v.type != kObjectTypeArray) {
+        api_set_error(err, kErrorTypeValidation, "invalid value for key: %s",
+                      k.data);
+        return (Dictionary)ARRAY_DICT_INIT;
+      }
+      types = v.data.array;
+    } else {
+      api_set_error(err, kErrorTypeValidation, "unexpected key: %s", k.data);
+      return (Dictionary)ARRAY_DICT_INIT;
+    }
+  }
+
+  int int_types = types.size > 0 ? 0 : kCtxAll;
+  if (types.size > 0) {
     for (size_t i = 0; i < types.size; i++) {
       if (types.items[i].type == kObjectTypeString) {
-        const char *const current = types.items[i].data.string.data;
-        if (strequal(current, "regs")) {
+        const char *const s = types.items[i].data.string.data;
+        if (strequal(s, "regs")) {
           int_types |= kCtxRegs;
-        } else if (strequal(current, "jumps")) {
+        } else if (strequal(s, "jumps")) {
           int_types |= kCtxJumps;
-        } else if (strequal(current, "buflist")) {
-          int_types |= kCtxBuflist;
-        } else if (strequal(current, "gvars")) {
+        } else if (strequal(s, "bufs")) {
+          int_types |= kCtxBufs;
+        } else if (strequal(s, "gvars")) {
           int_types |= kCtxGVars;
-        } else if (strequal(current, "sfuncs")) {
+        } else if (strequal(s, "sfuncs")) {
           int_types |= kCtxSFuncs;
-        } else if (strequal(current, "funcs")) {
+        } else if (strequal(s, "funcs")) {
           int_types |= kCtxFuncs;
+        } else {
+          api_set_error(err, kErrorTypeValidation, "unexpected type: %s", s);
+          return (Dictionary)ARRAY_DICT_INIT;
         }
       }
     }
@@ -1315,9 +1482,9 @@ Dictionary nvim_get_context(Array types)
   return dict;
 }
 
-/// Sets the current editor state to that in given context dictionary.
+/// Sets the current editor state from the given |context| map.
 ///
-/// @param ctx_dict  Context dictionary.
+/// @param  dict  |Context| map.
 Object nvim_load_context(Dictionary dict)
   FUNC_API_SINCE(6)
 {

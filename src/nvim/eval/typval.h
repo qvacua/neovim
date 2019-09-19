@@ -3,11 +3,9 @@
 
 #include <inttypes.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
-#include <limits.h>
 
 #include "nvim/types.h"
 #include "nvim/hashtab.h"
@@ -248,6 +246,18 @@ typedef int scid_T;
 /// Format argument for scid_T
 #define PRIdSCID "d"
 
+// SCript ConteXt (SCTX): identifies a script script line.
+// When sourcing a script "sc_lnum" is zero, "sourcing_lnum" is the current
+// line number. When executing a user function "sc_lnum" is the line where the
+// function was defined, "sourcing_lnum" is the line number inside the
+// function.  When stored with a function, mapping, option, etc. "sc_lnum" is
+// the line number in the script "sc_sid".
+typedef struct {
+  scid_T sc_sid;     // script ID
+  int sc_seq;        // sourcing sequence number
+  linenr_T sc_lnum;  // line number
+} sctx_T;
+
 // Structure to hold info for a function that is currently being executed.
 typedef struct funccall_S funccall_T;
 
@@ -275,7 +285,7 @@ struct ufunc {
   proftime_T   uf_tml_wait;      ///< start wait time for current line
   int          uf_tml_idx;       ///< index of line being timed; -1 if none
   int          uf_tml_execed;    ///< line being timed was executed
-  scid_T       uf_script_ID;     ///< ID of script where function was defined,
+  sctx_T       uf_script_ctx;    ///< SCTX where function was defined,
                                  ///< used for s: variables
   int          uf_refcount;      ///< reference count, see func_name_refcount()
   funccall_T   *uf_scoped;       ///< l: local variables for closure

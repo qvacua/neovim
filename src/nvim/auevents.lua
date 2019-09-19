@@ -90,12 +90,16 @@ return {
     'TabNewEntered',          -- after entering a new tab
     'TermChanged',            -- after changing 'term'
     'TermClose',              -- after the process exits
+    'TermEnter',              -- after entering Terminal mode
+    'TermLeave',              -- after leaving Terminal mode
     'TermOpen',               -- after opening a terminal buffer
     'TermResponse',           -- after setting "v:termresponse"
     'TextChanged',            -- text was modified
     'TextChangedI',           -- text was modified in Insert mode(no popup)
     'TextChangedP',           -- text was modified in Insert mode(popup)
     'TextYankPost',           -- after a yank or delete was done (y, d, c)
+    'UIEnter',                -- after UI attaches
+    'UILeave',                -- after UI detaches
     'User',                   -- user defined autocommand
     'VimEnter',               -- after starting Vim
     'VimLeave',               -- before exiting Vim
@@ -123,5 +127,7 @@ return {
     TabNewEntered=true,
     TermClose=true,
     TermOpen=true,
+    UIEnter=true,
+    UILeave=true,
   },
 }

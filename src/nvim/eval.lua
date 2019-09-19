@@ -20,6 +20,7 @@ return {
     ['and']={args=2},
     api_info={},
     append={args=2},
+    appendbufline={args=3},
     argc={args={0, 1}},
     argidx={},
     arglistid={args={0, 2}},
@@ -43,13 +44,13 @@ return {
     bufadd={args=1},
     bufexists={args=1},
     buffer_exists={args=1, func='f_bufexists'},  -- obsolete
-    buffer_name={args=1, func='f_bufname'},  -- obsolete
-    buffer_number={args=1, func='f_bufnr'},  -- obsolete
+    buffer_name={args={0, 1}, func='f_bufname'},  -- obsolete
+    buffer_number={args={0, 1}, func='f_bufnr'},  -- obsolete
     buflisted={args=1},
     bufload={args=1},
     bufloaded={args=1},
-    bufname={args=1},
-    bufnr={args={1, 2}},
+    bufname={args={0, 1}},
+    bufnr={args={0, 2}},
     bufwinid={args=1},
     bufwinnr={args=1},
     byte2line={args=1},
@@ -188,7 +189,9 @@ return {
     insert={args={2, 3}},
     invert={args=1},
     isdirectory={args=1},
+    isinf={args=1},
     islocked={args=1},
+    isnan={args=1},
     id={args=1},
     items={args=1},
     jobclose={args={1, 2}, func="f_chanclose"},
@@ -263,6 +266,7 @@ return {
     screenattr={args=2},
     screenchar={args=2},
     screencol={},
+    screenpos={args=3},
     screenrow={},
     search={args={1, 4}},
     searchdecl={args={1, 3}},
@@ -363,6 +367,7 @@ return {
     values={args=1},
     virtcol={args=1},
     visualmode={args={0, 1}},
+    wait={args={2,3}},
     wildmenumode={},
     win_findbuf={args=1},
     win_getid={args={0,2}},
