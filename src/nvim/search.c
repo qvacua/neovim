@@ -681,7 +681,7 @@ int searchit(
               }
 
               if (matchcol == matchpos.col && ptr[matchcol] != NUL) {
-                matchcol += MB_PTR2LEN(ptr + matchcol);
+                matchcol += utfc_ptr2len(ptr + matchcol);
               }
 
               if (matchcol == 0 && (options & SEARCH_START)) {
@@ -1755,7 +1755,7 @@ pos_T *findmatchlimit(oparg_T *oap, int initc, int flags, int64_t maxtravel)
           find_mps_values(&initc, &findc, &backwards, FALSE);
           if (findc)
             break;
-          pos.col += MB_PTR2LEN(linep + pos.col);
+          pos.col += utfc_ptr2len(linep + pos.col);
         }
         if (!findc) {
           /* no brace in the line, maybe use "  #if" then */
@@ -2234,14 +2234,14 @@ showmatch(
   for (p = curbuf->b_p_mps; *p != NUL; ++p) {
     if (PTR2CHAR(p) == c && (curwin->w_p_rl ^ p_ri))
       break;
-    p += MB_PTR2LEN(p) + 1;
-    if (PTR2CHAR(p) == c
-        && !(curwin->w_p_rl ^ p_ri)
-        )
+    p += utfc_ptr2len(p) + 1;
+    if (PTR2CHAR(p) == c && !(curwin->w_p_rl ^ p_ri)) {
       break;
-    p += MB_PTR2LEN(p);
-    if (*p == NUL)
+    }
+    p += utfc_ptr2len(p);
+    if (*p == NUL) {
       return;
+    }
   }
 
   if ((lpos = findmatch(NULL, NUL)) == NULL) {  // no match, so beep
@@ -4184,7 +4184,7 @@ static int is_one_char(char_u *pattern, bool move, pos_T *cur,
       nmatched = vim_regexec_multi(&regmatch, curwin, curbuf,
                                    pos.lnum, regmatch.startpos[0].col,
                                    NULL, NULL);
-      if (!nmatched) {
+      if (nmatched != 0) {
         break;
       }
     } while (direction == FORWARD
@@ -4196,7 +4196,10 @@ static int is_one_char(char_u *pattern, bool move, pos_T *cur,
                 && regmatch.startpos[0].lnum == regmatch.endpos[0].lnum
                 && regmatch.startpos[0].col == regmatch.endpos[0].col);
       // one char width
-      if (!result && inc(&pos) >= 0 && pos.col == regmatch.endpos[0].col) {
+      if (!result
+          && nmatched != 0
+          && inc(&pos) >= 0
+          && pos.col == regmatch.endpos[0].col) {
         result = true;
       }
     }
@@ -4458,7 +4461,8 @@ find_pattern_in_path(
           if (i == max_path_depth) {
             break;
           }
-          if (path_full_compare(new_fname, files[i].name, true) & kEqualFiles) {
+          if (path_full_compare(new_fname, files[i].name,
+                                true, true) & kEqualFiles) {
             if (type != CHECK_PATH
                 && action == ACTION_SHOW_ALL && files[i].matched) {
               msg_putchar('\n');  // cursor below last one */
@@ -4844,7 +4848,7 @@ exit_matched:
           && action == ACTION_EXPAND
           && !(compl_cont_status & CONT_SOL)
           && *startp != NUL
-          && *(p = startp + MB_PTR2LEN(startp)) != NUL)
+          && *(p = startp + utfc_ptr2len(startp)) != NUL)
         goto search_line;
     }
     line_breakcheck();

@@ -4553,6 +4553,10 @@ getloclist({nr},[, {what}])				*getloclist()*
 		If the optional {what} dictionary argument is supplied, then
 		returns the items listed in {what} as a dictionary. Refer to
 		|getqflist()| for the supported items in {what}.
+		If {what} contains 'filewinid', then returns the id of the
+		window used to display files from the location list. This
+		field is applicable only when called from a location list
+		window.
 
 getmatches()						*getmatches()*
 		Returns a |List| with all matches previously defined for the
@@ -9779,6 +9783,54 @@ This does NOT work: >
 			Like above, but append/add/subtract the value for each
 			|List| item.
 
+						*:let=<<* *:let-heredoc*
+						*E990* *E991* *E172* *E221*
+:let {var-name} =<< [trim] {marker}
+text...
+text...
+{marker}
+			Set internal variable {var-name} to a List containing
+			the lines of text bounded by the string {marker}.
+			{marker} cannot start with a lower case character.
+			The last line should end only with the {marker} string
+			without any other character.  Watch out for white
+			space after {marker}!
+
+			Without "trim" any white space characters in the lines
+			of text are preserved.  If "trim" is specified before
+			{marker}, then indentation is stripped so you can do: >
+				let text =<< trim END
+				   if ok
+				     echo 'done'
+				   endif
+				END
+<			Results in: ["if ok", "  echo 'done'", "endif"]
+			The marker must line up with "let" and the indentation
+			of the first line is removed from all the text lines.
+			Specifically: all the leading indentation exactly
+			matching the leading indentation of the first
+			non-empty text line is stripped from the input lines.
+			All leading indentation exactly matching the leading
+			indentation before `let` is stripped from the line
+			containing {marker}.  Note that the difference between
+			space and tab matters here.
+
+			If {var-name} didn't exist yet, it is created.
+			Cannot be followed by another command, but can be
+			followed by a comment.
+
+			Examples: >
+				let var1 =<< END
+			Sample text 1
+			    Sample text 2
+			Sample text 3
+			END
+
+				let data =<< trim DATA
+				1 2 3 4
+				5 6 7 8
+				DATA
+<
 								*E121*
 :let {var-name}	..	List the value of variable {var-name}.  Multiple
 			variable names may be given.  Special names recognized

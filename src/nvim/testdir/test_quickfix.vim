@@ -775,68 +775,68 @@ func Test_efm1()
 	return
     endif
 
-    let l = [
-      \ '"Xtestfile", line 4.12: 1506-045 (S) Undeclared identifier fd_set.',
-      \ '﻿"Xtestfile", line 6 col 19; this is an error',
-      \ 'gcc -c -DHAVE_CONFIsing-prototypes -I/usr/X11R6/include  version.c',
-      \ 'Xtestfile:9: parse error before `asd''',
-      \ 'make: *** [vim] Error 1',
-      \ 'in file "Xtestfile" linenr 10: there is an error',
-      \ '',
-      \ '2 returned',
-      \ '"Xtestfile", line 11 col 1; this is an error',
-      \ '"Xtestfile", line 12 col 2; this is another error',
-      \ '"Xtestfile", line 14:10; this is an error in column 10',
-      \ '=Xtestfile=, line 15:10; this is another error, but in vcol 10 this time',
-      \ '"Xtestfile", linenr 16: yet another problem',
-      \ 'Error in "Xtestfile" at line 17:',
-      \ 'x should be a dot',
-      \ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 17',
-      \ '            ^',
-      \ 'Error in "Xtestfile" at line 18:',
-      \ 'x should be a dot',
-      \ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 18',
-      \ '.............^',
-      \ 'Error in "Xtestfile" at line 19:',
-      \ 'x should be a dot',
-      \ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 19',
-      \ '--------------^',
-      \ 'Error in "Xtestfile" at line 20:',
-      \ 'x should be a dot',
-      \ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 20',
-      \ '	       ^',
-      \ '',
-      \ 'Does anyone know what is the problem and how to correction it?',
-      \ '"Xtestfile", line 21 col 9: What is the title of the quickfix window?',
-      \ '"Xtestfile", line 22 col 9: What is the title of the quickfix window?'
-      \ ]
+    let l =<< trim [DATA]
+      "Xtestfile", line 4.12: 1506-045 (S) Undeclared identifier fd_set.
+      ﻿"Xtestfile", line 6 col 19; this is an error
+      gcc -c -DHAVE_CONFIsing-prototypes -I/usr/X11R6/include  version.c
+      Xtestfile:9: parse error before `asd'
+      make: *** [vim] Error 1
+      in file "Xtestfile" linenr 10: there is an error
+  
+      2 returned
+      "Xtestfile", line 11 col 1; this is an error
+      "Xtestfile", line 12 col 2; this is another error
+      "Xtestfile", line 14:10; this is an error in column 10
+      =Xtestfile=, line 15:10; this is another error, but in vcol 10 this time
+      "Xtestfile", linenr 16: yet another problem
+      Error in "Xtestfile" at line 17:
+      x should be a dot
+      	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 17
+                  ^
+      Error in "Xtestfile" at line 18:
+      x should be a dot
+      	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 18
+      .............^
+      Error in "Xtestfile" at line 19:
+      x should be a dot
+      	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 19
+      --------------^
+      Error in "Xtestfile" at line 20:
+      x should be a dot
+      	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 20
+      	       ^
+  
+      Does anyone know what is the problem and how to correction it?
+      "Xtestfile", line 21 col 9: What is the title of the quickfix window?
+      "Xtestfile", line 22 col 9: What is the title of the quickfix window?
+    [DATA]
 
     call writefile(l, 'Xerrorfile1')
     call writefile(l[:-2], 'Xerrorfile2')
 
-    let m = [
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  2',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  3',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  4',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  5',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  6',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  7',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  8',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  9',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 10',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 11',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 12',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 13',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 14',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 15',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 16',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 17',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 18',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 19',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 20',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 21',
-	\ '	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 22'
-	\ ]
+    let m =<< [DATA]
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  2
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  3
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  4
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  5
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  6
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  7
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  8
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line  9
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 10
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 11
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 12
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 13
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 14
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 15
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 16
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 17
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 18
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 19
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 20
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 21
+	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx    line 22
+[DATA]
     call writefile(m, 'Xtestfile')
 
     let save_efm = &efm
@@ -895,20 +895,21 @@ func s:dir_stack_tests(cchar)
   let save_efm=&efm
   set efm=%DEntering\ dir\ '%f',%f:%l:%m,%XLeaving\ dir\ '%f'
 
-  let lines = ["Entering dir 'dir1/a'",
-		\ 'habits2.txt:1:Nine Healthy Habits',
-		\ "Entering dir 'b'",
-		\ 'habits3.txt:2:0 Hours of television',
-		\ 'habits2.txt:7:5 Small meals',
-		\ "Entering dir 'dir1/c'",
-		\ 'habits4.txt:3:1 Hour of exercise',
-		\ "Leaving dir 'dir1/c'",
-		\ "Leaving dir 'dir1/a'",
-		\ 'habits1.txt:4:2 Liters of water',
-		\ "Entering dir 'dir2'",
-		\ 'habits5.txt:5:3 Cups of hot green tea',
-		\ "Leaving dir 'dir2'"
-		\]
+  let lines =<< trim [DATA]
+  Entering dir 'dir1/a'
+  habits2.txt:1:Nine Healthy Habits
+  Entering dir 'b'
+  habits3.txt:2:0 Hours of television
+  habits2.txt:7:5 Small meals
+  Entering dir 'dir1/c'
+  habits4.txt:3:1 Hour of exercise
+  Leaving dir 'dir1/c'
+  Leaving dir 'dir1/a'
+  habits1.txt:4:2 Liters of water
+  Entering dir 'dir2'
+  habits5.txt:5:3 Cups of hot green tea
+  Leaving dir 'dir2
+  [DATA]
 
   Xexpr ""
   for l in lines
@@ -942,18 +943,20 @@ func Test_efm_dirstack()
   call mkdir('dir1/c')
   call mkdir('dir2')
 
-  let lines = ["Nine Healthy Habits",
-		\ "0 Hours of television",
-		\ "1 Hour of exercise",
-		\ "2 Liters of water",
-		\ "3 Cups of hot green tea",
-		\ "4 Short mental breaks",
-		\ "5 Small meals",
-		\ "6 AM wake up time",
-		\ "7 Minutes of laughter",
-		\ "8 Hours of sleep (at least)",
-		\ "9 PM end of the day and off to bed"
-		\ ]
+  let lines =<< trim [DATA]
+  Nine Healthy Habits,
+  0 Hours of television,
+  1 Hour of exercise,
+  2 Liters of water,
+  3 Cups of hot green tea,
+  4 Short mental breaks,
+  5 Small meals,
+  6 AM wake up time,
+  7 Minutes of laughter,
+  8 Hours of sleep (at least),
+  9 PM end of the day and off to bed
+  [DATA]
+
   call writefile(lines, 'habits1.txt')
   call writefile(lines, 'dir1/a/habits2.txt')
   call writefile(lines, 'dir1/a/b/habits3.txt')
@@ -1049,21 +1052,22 @@ func Test_efm2()
   call assert_equal([' 1 Xtestfile:^\VLine search text\$:  '], l)
 
   " Test for %P, %Q and %t format specifiers
-  let lines=["[Xtestfile1]",
-	      \ "(1,17)  error: ';' missing",
-	      \ "(21,2)  warning: variable 'z' not defined",
-	      \ "(67,3)  error: end of file found before string ended",
-	      \ "--",
-	      \ "",
-	      \ "[Xtestfile2]",
-	      \ "--",
-	      \ "",
-	      \ "[Xtestfile3]",
-	      \ "NEW compiler v1.1",
-	      \ "(2,2)   warning: variable 'x' not defined",
-	      \ "(67,3)  warning: 's' already defined",
-	      \ "--"
-	      \]
+  let lines =<< trim [DATA]
+    [Xtestfile1]
+    (1,17)  error: ';' missing
+    (21,2)  warning: variable 'z' not defined
+    (67,3)  error: end of file found before string ended
+    --
+
+    [Xtestfile2]
+    --
+
+    [Xtestfile3]
+    NEW compiler v1.1
+    (2,2)   warning: variable 'x' not defined
+    (67,3)  warning: 's' already defined
+    --
+  [DATA]
   set efm=%+P[%f]%r,(%l\\,%c)%*[\ ]%t%*[^:]:\ %m,%+Q--%r
   " To exercise the push/pop file functionality in quickfix, the test files
   " need to be created.
@@ -1085,11 +1089,13 @@ func Test_efm2()
   call delete('Xtestfile3')
 
   " Tests for %E, %C and %Z format specifiers
-  let lines = ["Error 275",
-	      \ "line 42",
-	      \ "column 3",
-	      \ "' ' expected after '--'"
-	      \]
+  let lines =<< trim [DATA]
+    Error 275
+    line 42
+    column 3
+    ' ' expected after '--'
+  [DATA]
+
   set efm=%EError\ %n,%Cline\ %l,%Ccolumn\ %c,%Z%m
   cgetexpr lines
   let l = getqflist()
@@ -1100,9 +1106,11 @@ func Test_efm2()
   call assert_equal("\n' ' expected after '--'", l[0].text)
 
   " Test for %>
-  let lines = ["Error in line 147 of foo.c:",
-	      \"unknown variable 'i'"
-	      \]
+  let lines =<< trim [DATA]
+    Error in line 147 of foo.c:
+    unknown variable 'i'
+  [DATA]
+
   set efm=unknown\ variable\ %m,%E%>Error\ in\ line\ %l\ of\ %f:,%Z%m
   cgetexpr lines
   let l = getqflist()
@@ -1111,21 +1119,21 @@ func Test_efm2()
   call assert_equal("\nunknown variable 'i'", l[0].text)
 
   " Test for %A, %C and other formats
-  let lines = [
-	  \"==============================================================",
-	  \"FAIL: testGetTypeIdCachesResult (dbfacadeTest.DjsDBFacadeTest)",
-	  \"--------------------------------------------------------------",
-	  \"Traceback (most recent call last):",
-	  \'  File "unittests/dbfacadeTest.py", line 89, in testFoo',
-	  \"    self.assertEquals(34, dtid)",
-	  \'  File "/usr/lib/python2.2/unittest.py", line 286, in',
-	  \" failUnlessEqual",
-	  \"    raise self.failureException, \\",
-	  \"AssertionError: 34 != 33",
-	  \"",
-	  \"--------------------------------------------------------------",
-	  \"Ran 27 tests in 0.063s"
-	  \]
+  let lines =<< trim [DATA]
+  ==============================================================
+  FAIL: testGetTypeIdCachesResult (dbfacadeTest.DjsDBFacadeTest)
+  --------------------------------------------------------------
+  Traceback (most recent call last):
+    File "unittests/dbfacadeTest.py", line 89, in testFoo
+      self.assertEquals(34, dtid)
+    File "/usr/lib/python2.2/unittest.py", line 286, in
+   failUnlessEqual
+      raise self.failureException, \\
+  AssertionError: 34 != 33
+
+  --------------------------------------------------------------
+  Ran 27 tests in 0.063s
+  [DATA]
   set efm=%C\ %.%#,%A\ \ File\ \"%f\"\\,\ line\ %l%.%#,%Z%[%^\ ]%\\@=%m
   cgetexpr lines
   let l = getqflist()
@@ -1954,6 +1962,18 @@ func Xproperty_tests(cchar)
     call g:Xsetlist([], 'r', {'items' : [{'filename' : 'F1', 'lnum' : 10, 'text' : 'L10'}]})
     call g:Xsetlist([], 'r', {'items' : [{'filename' : 'F1', 'lnum' : 10, 'text' : 'L10'}]})
     call assert_equal('TestTitle', g:Xgetlist({'title' : 1}).title)
+
+    " Test for getting id of window associated with a location list window
+    if a:cchar == 'l'
+      only
+      call assert_equal(0, g:Xgetlist({'all' : 1}).filewinid)
+      let wid = win_getid()
+      Xopen
+      call assert_equal(wid, g:Xgetlist({'filewinid' : 1}).filewinid)
+      wincmd w
+      call assert_equal(0, g:Xgetlist({'filewinid' : 1}).filewinid)
+      only
+    endif
 
     " The following used to crash Vim with address sanitizer
     call g:Xsetlist([], 'f')
@@ -3067,7 +3087,17 @@ func Xgetlist_empty_tests(cchar)
   call assert_equal('', g:Xgetlist({'title' : 0}).title)
   call assert_equal(0, g:Xgetlist({'winid' : 0}).winid)
   call assert_equal(0, g:Xgetlist({'changedtick' : 0}).changedtick)
-  call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [], 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0, 'changedtick': 0}, g:Xgetlist({'all' : 0}))
+  if a:cchar == 'c'
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0,
+		  \ 'items' : [], 'nr' : 0, 'size' : 0,
+		  \ 'title' : '', 'winid' : 0, 'changedtick': 0},
+		  \ g:Xgetlist({'all' : 0}))
+  else
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0,
+		\ 'items' : [], 'nr' : 0, 'size' : 0, 'title' : '',
+		\ 'winid' : 0, 'changedtick': 0, 'filewinid' : 0},
+		\ g:Xgetlist({'all' : 0}))
+  endif
 
   " Quickfix window with empty stack
   silent! Xopen
@@ -3100,7 +3130,16 @@ func Xgetlist_empty_tests(cchar)
   call assert_equal('', g:Xgetlist({'id' : qfid, 'title' : 0}).title)
   call assert_equal(0, g:Xgetlist({'id' : qfid, 'winid' : 0}).winid)
   call assert_equal(0, g:Xgetlist({'id' : qfid, 'changedtick' : 0}).changedtick)
-  call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [], 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0, 'changedtick' : 0}, g:Xgetlist({'id' : qfid, 'all' : 0}))
+  if a:cchar == 'c'
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [],
+		\ 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0,
+		\ 'changedtick' : 0}, g:Xgetlist({'id' : qfid, 'all' : 0}))
+  else
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [],
+		\ 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0,
+		\ 'changedtick' : 0, 'filewinid' : 0},
+		\ g:Xgetlist({'id' : qfid, 'all' : 0}))
+  endif
 
   " Non-existing quickfix list number
   call assert_equal('', g:Xgetlist({'nr' : 5, 'context' : 0}).context)
@@ -3112,7 +3151,16 @@ func Xgetlist_empty_tests(cchar)
   call assert_equal('', g:Xgetlist({'nr' : 5, 'title' : 0}).title)
   call assert_equal(0, g:Xgetlist({'nr' : 5, 'winid' : 0}).winid)
   call assert_equal(0, g:Xgetlist({'nr' : 5, 'changedtick' : 0}).changedtick)
-  call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [], 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0, 'changedtick' : 0}, g:Xgetlist({'nr' : 5, 'all' : 0}))
+  if a:cchar == 'c'
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [],
+		\ 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0,
+		\ 'changedtick' : 0}, g:Xgetlist({'nr' : 5, 'all' : 0}))
+  else
+    call assert_equal({'context' : '', 'id' : 0, 'idx' : 0, 'items' : [],
+		\ 'nr' : 0, 'size' : 0, 'title' : '', 'winid' : 0,
+		\ 'changedtick' : 0, 'filewinid' : 0},
+		\ g:Xgetlist({'nr' : 5, 'all' : 0}))
+  endif
 endfunc
 
 func Test_getqflist()
@@ -3594,4 +3642,60 @@ func Test_curswant()
   1cc
   call assert_equal(getcurpos()[4], virtcol('.'))
   cclose | helpclose
+endfunc
+
+" Test for parsing entries using visual screen column
+func Test_viscol()
+  enew
+  call writefile(["Col1\tCol2\tCol3"], 'Xfile1')
+  edit Xfile1
+
+  " Use byte offset for column number
+  set efm&
+  cexpr "Xfile1:1:5:XX\nXfile1:1:9:YY\nXfile1:1:20:ZZ"
+  call assert_equal([5, 8], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([9, 12], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([14, 20], [col('.'), virtcol('.')])
+
+  " Use screen column offset for column number
+  set efm=%f:%l:%v:%m
+  cexpr "Xfile1:1:8:XX\nXfile1:1:12:YY\nXfile1:1:20:ZZ"
+  call assert_equal([5, 8], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([9, 12], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([14, 20], [col('.'), virtcol('.')])
+  cexpr "Xfile1:1:6:XX\nXfile1:1:15:YY\nXfile1:1:24:ZZ"
+  call assert_equal([5, 8], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([10, 16], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([14, 20], [col('.'), virtcol('.')])
+
+  enew
+  call writefile(["Col1\täü\töß\tCol4"], 'Xfile1')
+
+  " Use byte offset for column number
+  set efm&
+  cexpr "Xfile1:1:8:XX\nXfile1:1:11:YY\nXfile1:1:16:ZZ"
+  call assert_equal([8, 10], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([11, 17], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([16, 25], [col('.'), virtcol('.')])
+
+  " Use screen column offset for column number
+  set efm=%f:%l:%v:%m
+  cexpr "Xfile1:1:10:XX\nXfile1:1:17:YY\nXfile1:1:25:ZZ"
+  call assert_equal([8, 10], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([11, 17], [col('.'), virtcol('.')])
+  cnext
+  call assert_equal([16, 25], [col('.'), virtcol('.')])
+
+  enew | only
+  set efm&
+  call delete('Xfile1')
 endfunc

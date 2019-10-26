@@ -74,7 +74,8 @@ function module.matches(pat, actual)
   error(string.format('Pattern does not match.\nPattern:\n%s\nActual:\n%s', pat, actual))
 end
 
--- Invokes `fn` and returns the error string, or raises an error if `fn` succeeds.
+-- Invokes `fn` and returns the error string (may truncate full paths), or
+-- raises an error if `fn` succeeds.
 --
 -- Usage:
 --    -- Match exact string.
@@ -88,7 +89,17 @@ function module.pcall_err(fn, ...)
   if status == true then
     error('expected failure, but got success')
   end
+  -- From this:
+  --    /home/foo/neovim/runtime/lua/vim/shared.lua:186: Expected string, got number
+  -- to this:
+  --     Expected string, got number
   local errmsg = tostring(rv):gsub('^[^:]+:%d+: ', '')
+  -- From this:
+  --    Error executing lua: /very/long/foo.lua:186: Expected string, got number
+  -- to this:
+  --    Error executing lua: .../foo.lua:186: Expected string, got number
+  errmsg = errmsg:gsub([[lua: [a-zA-Z]?:?[^:]-[/\]([^:/\]+):%d+: ]], 'lua: .../%1: ')
+  --                          ^ Windows drive-letter (C:)
   return errmsg
 end
 
@@ -715,13 +726,11 @@ end
 
 function module.isCI(name)
   local any = (name == nil)
-  assert(any or name == 'appveyor' or name == 'quickbuild' or name == 'travis'
-    or name == 'sourcehut')
+  assert(any or name == 'appveyor' or name == 'travis' or name == 'sourcehut')
   local av = ((any or name == 'appveyor') and nil ~= os.getenv('APPVEYOR'))
   local tr = ((any or name == 'travis') and nil ~= os.getenv('TRAVIS'))
-  local qb = ((any or name == 'quickbuild') and nil ~= lfs.attributes('/usr/home/quickbuild'))
   local sh = ((any or name == 'sourcehut') and nil ~= os.getenv('SOURCEHUT'))
-  return tr or av or qb or sh
+  return tr or av or sh
 
 end
 

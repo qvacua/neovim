@@ -1833,13 +1833,13 @@ static int vgetorpeek(int advance)
                 char_u *p1 = mp->m_keys;
                 char_u *p2 = (char_u *)mb_unescape((const char **)&p1);
 
-                if (has_mbyte && p2 != NULL && MB_BYTE2LEN(c1) > MB_PTR2LEN(p2))
+                if (p2 != NULL && MB_BYTE2LEN(c1) > utfc_ptr2len(p2)) {
                   mlen = 0;
-                /*
-                 * Check an entry whether it matches.
-                 * - Full match: mlen == keylen
-                 * - Partly match: mlen == typebuf.tb_len
-                 */
+                }
+
+                // Check an entry whether it matches.
+                // - Full match: mlen == keylen
+                // - Partly match: mlen == typebuf.tb_len
                 keylen = mp->m_keylen;
                 if (mlen == keylen
                     || (mlen == typebuf.tb_len
@@ -4419,7 +4419,7 @@ mapblock_T *get_maphash(int index, buf_T *buf)
 }
 
 /// Get command argument for <Cmd> key
-char_u * getcmdkeycmd(int promptc, void *cookie, int indent)
+char_u * getcmdkeycmd(int promptc, void *cookie, int indent, bool do_concat)
 {
   garray_T line_ga;
   int c1 = -1, c2;

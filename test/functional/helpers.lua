@@ -1,4 +1,5 @@
 require('coxpcall')
+local busted = require('busted')
 local luv = require('luv')
 local lfs = require('lfs')
 local mpack = require('mpack')
@@ -28,10 +29,8 @@ local module = {
 }
 
 local start_dir = lfs.currentdir()
--- XXX: NVIM_PROG takes precedence, QuickBuild sets it.
 module.nvim_prog = (
-  os.getenv('NVIM_PROG')
-  or os.getenv('NVIM_PRG')
+  os.getenv('NVIM_PRG')
   or global_helpers.test_build_dir .. '/bin/nvim'
 )
 -- Default settings for the test session.
@@ -385,7 +384,7 @@ function module.retry(max, max_ms, fn)
     end
     luv.update_time()  -- Update cached value of luv.now() (libuv: uv_now()).
     if (max and tries >= max) or (luv.now() - start_time > timeout) then
-      error("\nretry() attempts: "..tostring(tries).."\n"..tostring(result))
+      busted.fail(string.format("retry() attempts: %d\n%s", tries, tostring(result)), 2)
     end
     tries = tries + 1
     luv.sleep(20)  -- Avoid hot loop...
@@ -437,6 +436,7 @@ function module.new_argv(...)
         'NVIM_LOG_FILE',
         'NVIM_RPLUGIN_MANIFEST',
         'GCOV_ERROR_FILE',
+        'TMPDIR',
       }) do
         if not env_tbl[k] then
           env_tbl[k] = os.getenv(k)
@@ -500,9 +500,16 @@ function module.source(code)
 end
 
 function module.set_shell_powershell()
+  local shell = iswin() and 'powershell' or 'pwsh'
+  assert(module.eval('executable("'..shell..'")'))
+  local cmd = 'Remove-Item -Force '..table.concat(iswin()
+    and {'alias:cat', 'alias:echo', 'alias:sleep'}
+    or  {'alias:echo'}, ',')..';'
   module.source([[
-    set shell=powershell shellquote=( shellpipe=\| shellredir=> shellxquote=
-    let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command Remove-Item -Force alias:sleep; Remove-Item -Force alias:cat;'
+    let &shell = ']]..shell..[['
+    set shellquote= shellpipe=\| shellxquote=
+    let &shellredir = '| Out-File -Encoding UTF8'
+    let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command ]]..cmd..[['
   ]])
 end
 

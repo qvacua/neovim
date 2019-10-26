@@ -117,11 +117,11 @@ typedef struct {
  * reads more lines that may come from the while/for loop.
  */
 struct loop_cookie {
-  garray_T    *lines_gap;               /* growarray with line info */
-  int current_line;                     /* last read line from growarray */
-  int repeating;                        /* TRUE when looping a second time */
-  /* When "repeating" is FALSE use "getline" and "cookie" to get lines */
-  char_u      *(*getline)(int, void *, int);
+  garray_T    *lines_gap;               // growarray with line info
+  int current_line;                     // last read line from growarray
+  int repeating;                        // TRUE when looping a second time
+  // When "repeating" is FALSE use "getline" and "cookie" to get lines
+  char_u      *(*getline)(int, void *, int, bool);
   void        *cookie;
 };
 
@@ -313,8 +313,8 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
   struct msglist      **saved_msg_list = NULL;
   struct msglist      *private_msg_list;
 
-  /* "fgetline" and "cookie" passed to do_one_cmd() */
-  char_u      *(*cmd_getline)(int, void *, int);
+  // "fgetline" and "cookie" passed to do_one_cmd()
+  char_u      *(*cmd_getline)(int, void *, int, bool);
   void        *cmd_cookie;
   struct loop_cookie cmd_loop_cookie;
   void        *real_cookie;
@@ -507,17 +507,20 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
        * Need to set msg_didout for the first line after an ":if",
        * otherwise the ":if" will be overwritten.
        */
-      if (count == 1 && getline_equal(fgetline, cookie, getexline))
-        msg_didout = TRUE;
-      if (fgetline == NULL || (next_cmdline = fgetline(':', cookie,
-                                   cstack.cs_idx <
-                                   0 ? 0 : (cstack.cs_idx + 1) * 2
-                                   )) == NULL) {
-        /* Don't call wait_return for aborted command line.  The NULL
-         * returned for the end of a sourced file or executed function
-         * doesn't do this. */
-        if (KeyTyped && !(flags & DOCMD_REPEAT))
-          need_wait_return = FALSE;
+      if (count == 1 && getline_equal(fgetline, cookie, getexline)) {
+        msg_didout = true;
+      }
+      if (fgetline == NULL
+          || (next_cmdline = fgetline(':', cookie,
+                                      cstack.cs_idx <
+                                      0 ? 0 : (cstack.cs_idx + 1) * 2,
+                                      true)) == NULL) {
+        // Don't call wait_return for aborted command line.  The NULL
+        // returned for the end of a sourced file or executed function
+        // doesn't do this.
+        if (KeyTyped && !(flags & DOCMD_REPEAT)) {
+          need_wait_return = false;
+        }
         retval = FAIL;
         break;
       }
@@ -951,7 +954,7 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
 /*
  * Obtain a line when inside a ":while" or ":for" loop.
  */
-static char_u *get_loop_line(int c, void *cookie, int indent)
+static char_u *get_loop_line(int c, void *cookie, int indent, bool do_concat)
 {
   struct loop_cookie  *cp = (struct loop_cookie *)cookie;
   wcmd_T              *wp;
@@ -961,11 +964,12 @@ static char_u *get_loop_line(int c, void *cookie, int indent)
     if (cp->repeating)
       return NULL;              /* trying to read past ":endwhile"/":endfor" */
 
-    /* First time inside the ":while"/":for": get line normally. */
-    if (cp->getline == NULL)
-      line = getcmdline(c, 0L, indent);
-    else
-      line = cp->getline(c, cp->cookie, indent);
+    // First time inside the ":while"/":for": get line normally.
+    if (cp->getline == NULL) {
+      line = getcmdline(c, 0L, indent, do_concat);
+    } else {
+      line = cp->getline(c, cp->cookie, indent, do_concat);
+    }
     if (line != NULL) {
       store_loop_line(cp->lines_gap, line);
       ++cp->current_line;
@@ -6066,9 +6070,11 @@ static bool before_quit_autocmds(win_T *wp, bool quit_all, int forceit)
   if (quit_all
       || (check_more(false, forceit) == OK && only_one_window())) {
     apply_autocmds(EVENT_EXITPRE, NULL, NULL, false, curbuf);
-    // Refuse to quit when locked or when the buffer in the last window is
-    // being closed (can only happen in autocommands).
-    if (curbuf_locked()
+    // Refuse to quit when locked or when the window was closed or the
+    // buffer in the last window is being closed (can only happen in
+    // autocommands).
+    if (!win_valid(wp)
+        || curbuf_locked()
         || (curbuf->b_nwindows == 1 && curbuf->b_locked > 0)) {
       return true;
     }
@@ -6712,17 +6718,18 @@ static void ex_preserve(exarg_T *eap)
 /// ":recover".
 static void ex_recover(exarg_T *eap)
 {
-  /* Set recoverymode right away to avoid the ATTENTION prompt. */
-  recoverymode = TRUE;
+  // Set recoverymode right away to avoid the ATTENTION prompt.
+  recoverymode = true;
   if (!check_changed(curbuf, (p_awa ? CCGD_AW : 0)
           | CCGD_MULTWIN
           | (eap->forceit ? CCGD_FORCEIT : 0)
           | CCGD_EXCMD)
 
       && (*eap->arg == NUL
-          || setfname(curbuf, eap->arg, NULL, TRUE) == OK))
-    ml_recover();
-  recoverymode = FALSE;
+          || setfname(curbuf, eap->arg, NULL, true) == OK)) {
+    ml_recover(true);
+  }
+  recoverymode = false;
 }
 
 /*
@@ -10016,10 +10023,11 @@ static void ex_setfiletype(exarg_T *eap)
 
 static void ex_digraphs(exarg_T *eap)
 {
-  if (*eap->arg != NUL)
+  if (*eap->arg != NUL) {
     putdigraph(eap->arg);
-  else
-    listdigraphs();
+  } else {
+    listdigraphs(eap->forceit);
+  }
 }
 
 static void ex_set(exarg_T *eap)
@@ -10135,6 +10143,17 @@ static void ex_folddo(exarg_T *eap)
 
   global_exe(eap->arg);  // Execute the command on the marked lines.
   ml_clearmarked();      // clear rest of the marks
+}
+
+// Returns true if the supplied Ex cmdidx is for a location list command
+// instead of a quickfix command.
+bool is_loclist_cmd(int cmdidx)
+  FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
+{
+  if (cmdidx < 0 || cmdidx > CMD_SIZE) {
+    return false;
+  }
+  return cmdnames[cmdidx].cmd_name[0] == 'l';
 }
 
 bool get_pressedreturn(void)

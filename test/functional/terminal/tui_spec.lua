@@ -45,10 +45,6 @@ describe('TUI', function()
     child_session = helpers.connect(child_server)
   end)
 
-  after_each(function()
-    screen:detach()
-  end)
-
   -- Wait for mode in the child Nvim (avoid "typeahead race" #10826).
   local function wait_for_mode(mode)
     retry(nil, nil, function()
@@ -928,7 +924,15 @@ describe('TUI FocusGained/FocusLost', function()
 
     feed_data(':terminal\n')
     -- Wait for terminal to be ready.
-    screen:expect{any='-- TERMINAL --'}
+    screen:expect{grid=[[
+      {1:r}eady $                                           |
+      [Process exited 0]                                |
+                                                        |
+                                                        |
+                                                        |
+      :terminal                                         |
+      {3:-- TERMINAL --}                                    |
+    ]]}
 
     feed_data('\027[I')
     screen:expect{grid=[[
@@ -1283,7 +1287,7 @@ describe("TUI 'term' option", function()
     elseif is_macos then
       local status, _ = pcall(assert_term, "xterm", "xterm")
       if not status then
-        pending("macOS: unibilium could not find terminfo", function() end)
+        pending("macOS: unibilium could not find terminfo")
       end
     else
       assert_term("xterm", "xterm")

@@ -97,10 +97,11 @@ typedef struct sn_prl_S {
 struct source_cookie {
   FILE *fp;                     ///< opened file for sourcing
   char_u *nextline;             ///< if not NULL: line that was read ahead
+  linenr_T sourcing_lnum;       ///< line number of the source file
   int finished;                 ///< ":finish" used
 #if defined(USE_CRNL)
   int fileformat;               ///< EOL_UNKNOWN, EOL_UNIX or EOL_DOS
-  bool error;                    ///< true if LF found after CR-LF
+  bool error;                   ///< true if LF found after CR-LF
 #endif
   linenr_T breakpoint;          ///< next line with breakpoint or zero
   char_u *fname;                ///< name of sourced file
@@ -1743,7 +1744,7 @@ static bool editing_arg_idx(win_T *win)
                && (win->w_buffer->b_ffname == NULL
                    || !(path_full_compare(
                        alist_name(&WARGLIST(win)[win->w_arg_idx]),
-                       win->w_buffer->b_ffname, true) & kEqualFiles))));
+                       win->w_buffer->b_ffname, true, true) & kEqualFiles))));
 }
 
 /// Check if window "win" is editing the w_arg_idx file in its argument list.
@@ -1761,7 +1762,7 @@ void check_arg_idx(win_T *win)
         && (win->w_buffer->b_fnum == GARGLIST[GARGCOUNT - 1].ae_fnum
             || (win->w_buffer->b_ffname != NULL
                 && (path_full_compare(alist_name(&GARGLIST[GARGCOUNT - 1]),
-                                      win->w_buffer->b_ffname, true)
+                                      win->w_buffer->b_ffname, true, true)
                     & kEqualFiles)))) {
       arg_had_last = true;
     }
@@ -3124,6 +3125,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
 #endif
 
   cookie.nextline = NULL;
+  cookie.sourcing_lnum = 0;
   cookie.finished = false;
 
   // Check if this script has a breakpoint.
@@ -3218,7 +3220,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   cookie.conv.vc_type = CONV_NONE;              // no conversion
 
   // Read the first line so we can check for a UTF-8 BOM.
-  firstline = getsourceline(0, (void *)&cookie, 0);
+  firstline = getsourceline(0, (void *)&cookie, 0, true);
   if (firstline != NULL && STRLEN(firstline) >= 3 && firstline[0] == 0xef
       && firstline[1] == 0xbb && firstline[2] == 0xbf) {
     // Found BOM; setup conversion, skip over BOM and recode the line.
@@ -3375,13 +3377,20 @@ void free_scriptnames(void)
 }
 # endif
 
+linenr_T get_sourced_lnum(LineGetter fgetline, void *cookie)
+{
+    return fgetline == getsourceline
+        ? ((struct source_cookie *)cookie)->sourcing_lnum
+        : sourcing_lnum;
+}
+
 
 /// Get one full line from a sourced file.
 /// Called by do_cmdline() when it's called from do_source().
 ///
 /// @return pointer to the line in allocated memory, or NULL for end-of-file or
 ///         some error.
-char_u *getsourceline(int c, void *cookie, int indent)
+char_u *getsourceline(int c, void *cookie, int indent, bool do_concat)
 {
   struct source_cookie *sp = (struct source_cookie *)cookie;
   char_u *line;
@@ -3395,6 +3404,8 @@ char_u *getsourceline(int c, void *cookie, int indent)
   if (do_profiling == PROF_YES) {
     script_line_end();
   }
+  // Set the current sourcing line number.
+  sourcing_lnum = sp->sourcing_lnum + 1;
   // Get current line.  If there is a read-ahead line, use it, otherwise get
   // one now.
   if (sp->finished) {
@@ -3404,7 +3415,7 @@ char_u *getsourceline(int c, void *cookie, int indent)
   } else {
     line = sp->nextline;
     sp->nextline = NULL;
-    sourcing_lnum++;
+    sp->sourcing_lnum++;
   }
   if (line != NULL && do_profiling == PROF_YES) {
     script_line_start();
@@ -3412,9 +3423,9 @@ char_u *getsourceline(int c, void *cookie, int indent)
 
   // Only concatenate lines starting with a \ when 'cpoptions' doesn't
   // contain the 'C' flag.
-  if (line != NULL && (vim_strchr(p_cpo, CPO_CONCAT) == NULL)) {
+  if (line != NULL && do_concat && (vim_strchr(p_cpo, CPO_CONCAT) == NULL)) {
     // compensate for the one line read-ahead
-    sourcing_lnum--;
+    sp->sourcing_lnum--;
 
     // Get the next line and concatenate it when it starts with a
     // backslash. We always need to read the next line, keep it in
@@ -3492,7 +3503,7 @@ static char_u *get_one_sourceline(struct source_cookie *sp)
   ga_init(&ga, 1, 250);
 
   // Loop until there is a finished line (or end-of-file).
-  sourcing_lnum++;
+  sp->sourcing_lnum++;
   for (;; ) {
     // make room to read at least 120 (more) characters
     ga_grow(&ga, 120);
@@ -3559,7 +3570,7 @@ retry:
       // len&c parities (is faster than ((len-c)%2 == 0)) -- Acevedo
       for (c = len - 2; c >= 0 && buf[c] == Ctrl_V; c--) {}
       if ((len & 1) != (c & 1)) {       // escaped NL, read more
-        sourcing_lnum++;
+        sp->sourcing_lnum++;
         continue;
       }
 

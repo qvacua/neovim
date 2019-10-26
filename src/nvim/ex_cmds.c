@@ -2767,7 +2767,7 @@ void ex_append(exarg_T *eap)
       State = CMDLINE;
       theline = eap->getline(
           eap->cstack->cs_looplevel > 0 ? -1 :
-          NUL, eap->cookie, indent);
+          NUL, eap->cookie, indent, true);
       State = save_State;
     }
     lines_left = Rows - 1;
@@ -3630,7 +3630,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               for (; i <= (long)ec; ++i)
                 msg_putchar('^');
 
-              resp = getexmodeline('?', NULL, 0);
+              resp = getexmodeline('?', NULL, 0, true);
               if (resp != NULL) {
                 typed = *resp;
                 xfree(resp);
@@ -4739,11 +4739,19 @@ int find_help_tags(const char_u *arg, int *num_matches, char_u ***matches,
 
   if (STRNICMP(arg, "expr-", 5) == 0) {
     // When the string starting with "expr-" and containing '?' and matches
-    // the table, it is taken literally.  Otherwise '?' is recognized as a
-    // wildcard.
+    // the table, it is taken literally (but ~ is escaped).  Otherwise '?'
+    // is recognized as a wildcard.
     for (i = (int)ARRAY_SIZE(expr_table); --i >= 0; ) {
       if (STRCMP(arg + 5, expr_table[i]) == 0) {
-        STRCPY(d, arg);
+        for (int si = 0, di = 0; ; si++) {
+          if (arg[si] == '~') {
+            d[di++] = '\\';
+          }
+          d[di++] = arg[si];
+          if (arg[si] == NUL) {
+            break;
+          }
+        }
         break;
       }
     }
@@ -4897,7 +4905,7 @@ int find_help_tags(const char_u *arg, int *num_matches, char_u ***matches,
 
   *matches = NULL;
   *num_matches = 0;
-  int flags = TAG_HELP | TAG_REGEXP | TAG_NAMES | TAG_VERBOSE;
+  int flags = TAG_HELP | TAG_REGEXP | TAG_NAMES | TAG_VERBOSE | TAG_NO_TAGFUNC;
   if (keep_lang) {
     flags |= TAG_KEEP_LANG;
   }
@@ -5023,7 +5031,7 @@ void fix_help_buffer(void)
         copy_option_part(&p, NameBuff, MAXPATHL, ",");
         char_u *const rt = (char_u *)vim_getenv("VIMRUNTIME");
         if (rt != NULL
-            && path_full_compare(rt, NameBuff, false) != kEqualFiles) {
+            && path_full_compare(rt, NameBuff, false, true) != kEqualFiles) {
           int fcount;
           char_u      **fnames;
           char_u      *s;
@@ -5233,7 +5241,7 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
   ga_init(&ga, (int)sizeof(char_u *), 100);
   if (add_help_tags
       || path_full_compare((char_u *)"$VIMRUNTIME/doc",
-                           dir, false) == kEqualFiles) {
+                           dir, false, true) == kEqualFiles) {
     s = xmalloc(18 + STRLEN(tagfname));
     sprintf((char *)s, "help-tags\t%s\t1\n", tagfname);
     GA_APPEND(char_u *, &ga, s);
