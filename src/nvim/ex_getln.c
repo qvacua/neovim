@@ -1075,7 +1075,7 @@ static void command_line_next_incsearch(CommandLineState *s, bool next_match)
   int found = searchit(curwin, curbuf, &t, NULL,
                        next_match ? FORWARD : BACKWARD,
                        pat, s->count, search_flags,
-                       RE_SEARCH, 0, NULL, NULL);
+                       RE_SEARCH, NULL);
   emsg_off--;
   ui_busy_stop();
   if (found) {
@@ -1818,6 +1818,7 @@ static int command_line_changed(CommandLineState *s)
   if (p_is && !cmd_silent && (s->firstc == '/' || s->firstc == '?')) {
     pos_T end_pos;
     proftime_T tm;
+    searchit_arg_T sia;
 
     // if there is a character waiting, search and redraw later
     if (char_avail()) {
@@ -1844,8 +1845,10 @@ static int command_line_changed(CommandLineState *s)
       if (!p_hls) {
         search_flags += SEARCH_KEEP;
       }
+      memset(&sia, 0, sizeof(sia));
+      sia.sa_tm = &tm;
       i = do_search(NULL, s->firstc, ccline.cmdbuff, s->count,
-                    search_flags, &tm, NULL);
+                    search_flags, &sia);
       emsg_off--;
       // if interrupted while searching, behave like it failed
       if (got_int) {
@@ -1924,7 +1927,9 @@ static int command_line_changed(CommandLineState *s)
     //       - Immediately undo the effects.
     State |= CMDPREVIEW;
     emsg_silent++;  // Block error reporting as the command may be incomplete
+    msg_silent++;   // Block messages, namely ones that prompt
     do_cmdline(ccline.cmdbuff, NULL, NULL, DOCMD_KEEPLINE|DOCMD_NOWAIT);
+    msg_silent--;   // Unblock messages
     emsg_silent--;  // Unblock error reporting
 
     // Restore the window "view".

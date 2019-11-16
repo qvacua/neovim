@@ -1201,6 +1201,23 @@ static void get_wincmd_addr_type(char_u *arg, exarg_T *eap)
   }
 }
 
+/// Skip colons and trailing whitespace, returning a pointer to the first
+/// non-colon, non-whitespace character.
+//
+/// @param skipleadingwhite Skip leading whitespace too
+static char_u *skip_colon_white(const char_u *p, bool skipleadingwhite)
+{
+  if (skipleadingwhite) {
+    p = skipwhite(p);
+  }
+
+  while (*p == ':') {
+    p = skipwhite(p + 1);
+  }
+
+  return (char_u *)p;
+}
+
 /*
  * Execute one Ex command.
  *
@@ -1705,9 +1722,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
   /*
    * Skip ':' and any white space
    */
-  ea.cmd = skipwhite(ea.cmd);
-  while (*ea.cmd == ':')
-    ea.cmd = skipwhite(ea.cmd + 1);
+  ea.cmd = skip_colon_white(ea.cmd, true);
 
   /*
    * If we got a line, but no command, then go to the line.
@@ -3580,9 +3595,8 @@ char_u *skip_range(
       ++cmd;
   }
 
-  /* Skip ":" and white space. */
-  while (*cmd == ':')
-    cmd = skipwhite(cmd + 1);
+  // Skip ":" and white space.
+  cmd = skip_colon_white(cmd, false);
 
   return (char_u *)cmd;
 }
@@ -3750,8 +3764,7 @@ static linenr_T get_address(exarg_T *eap,
           curwin->w_cursor.col = 0;
         }
         searchcmdlen = 0;
-        if (!do_search(NULL, c, cmd, 1L,
-                       SEARCH_HIS | SEARCH_MSG, NULL, NULL)) {
+        if (!do_search(NULL, c, cmd, 1L, SEARCH_HIS | SEARCH_MSG, NULL)) {
           curwin->w_cursor = pos;
           cmd = NULL;
           goto error;
@@ -3788,8 +3801,7 @@ static linenr_T get_address(exarg_T *eap,
         pos.coladd = 0;
         if (searchit(curwin, curbuf, &pos, NULL,
                      *cmd == '?' ? BACKWARD : FORWARD,
-                     (char_u *)"", 1L, SEARCH_MSG,
-                     i, (linenr_T)0, NULL, NULL) != FAIL) {
+                     (char_u *)"", 1L, SEARCH_MSG, i, NULL) != FAIL) {
           lnum = pos.lnum;
         } else {
           cmd = NULL;
@@ -10150,7 +10162,7 @@ static void ex_folddo(exarg_T *eap)
 bool is_loclist_cmd(int cmdidx)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
-  if (cmdidx < 0 || cmdidx > CMD_SIZE) {
+  if (cmdidx < 0 || cmdidx >= CMD_SIZE) {
     return false;
   }
   return cmdnames[cmdidx].cmd_name[0] == 'l';
@@ -10214,10 +10226,13 @@ bool cmd_can_preview(char_u *cmd)
     return false;
   }
 
+  // Ignore additional colons at the start...
+  cmd = skip_colon_white(cmd, true);
+
   // Ignore any leading modifiers (:keeppatterns, :verbose, etc.)
   for (int len = modifier_len(cmd); len != 0; len = modifier_len(cmd)) {
     cmd += len;
-    cmd = skipwhite(cmd);
+    cmd = skip_colon_white(cmd, true);
   }
 
   exarg_T ea;

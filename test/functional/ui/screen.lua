@@ -269,7 +269,7 @@ local ext_keys = {
 -- grid:        Expected screen state (string). Each line represents a screen
 --              row. Last character of each row (typically "|") is stripped.
 --              Common indentation is stripped.
---              Lines containing only "{IGNORE}|" are skipped.
+--              "{MATCH:x}|" lines are matched against Lua pattern `x`.
 -- attr_ids:    Expected text attributes. Screen rows are transformed according
 --              to this table, as follows: each substring S composed of
 --              characters having the same attributes will be substituted by
@@ -390,9 +390,10 @@ function Screen:expect(expected, attr_ids, ...)
         err_msg = "Expected screen height " .. #expected_rows
         .. ' differs from actual height ' .. #actual_rows .. '.'
       end
-      for i = 1, #expected_rows do
-         msg_expected_rows[i] = expected_rows[i]
-        if expected_rows[i] ~= actual_rows[i] and expected_rows[i] ~= "{IGNORE}|" then
+      for i, row in ipairs(expected_rows) do
+        msg_expected_rows[i] = row
+        local m = (row ~= actual_rows[i] and row:match('{MATCH:(.*)}') or nil)
+        if row ~= actual_rows[i] and (not m or not actual_rows[i]:match(m)) then
           msg_expected_rows[i] = '*' .. msg_expected_rows[i]
           if i <= #actual_rows then
             actual_rows[i] = '*' .. actual_rows[i]
@@ -1362,6 +1363,7 @@ function Screen:linegrid_check_attrs(attrs)
       if self._rgb_cterm then
         attr_rgb, attr_cterm, info = unpack(v)
         attr = {attr_rgb, attr_cterm}
+        info = info or {}
       elseif self._options.ext_hlstate then
         attr, info = unpack(v)
       else
@@ -1400,11 +1402,12 @@ end
 function Screen:_pprint_hlitem(item)
     -- print(inspect(item))
     local multi = self._rgb_cterm or self._options.ext_hlstate
-    local attrdict = "{"..self:_pprint_attrs(multi and item[1] or item).."}"
+    local cterm = (not self._rgb_cterm and not self._options.rgb)
+    local attrdict = "{"..self:_pprint_attrs(multi and item[1] or item, cterm).."}"
     local attrdict2, hlinfo
     local descdict = ""
     if self._rgb_cterm then
-      attrdict2 = ", {"..self:_pprint_attrs(item[2]).."}"
+      attrdict2 = ", {"..self:_pprint_attrs(item[2], true).."}"
       hlinfo = item[3]
     else
       attrdict2 = ""
@@ -1433,13 +1436,15 @@ function Screen:_pprint_hlinfo(states)
 end
 
 
-function Screen:_pprint_attrs(attrs)
+function Screen:_pprint_attrs(attrs, cterm)
     local items = {}
     for f, v in pairs(attrs) do
       local desc = tostring(v)
       if f == "foreground" or f == "background" or f == "special" then
         if Screen.colornames[v] ~= nil then
           desc = "Screen.colors."..Screen.colornames[v]
+        elseif cterm then
+          desc = tostring(v)
         else
           desc = string.format("tonumber('0x%06x')",v)
         end
@@ -1511,7 +1516,8 @@ function Screen:_equal_attrs(a, b)
        a.italic == b.italic and a.reverse == b.reverse and
        a.foreground == b.foreground and a.background == b.background and
        a.special == b.special and a.blend == b.blend and
-       a.strikethrough == b.strikethrough
+       a.strikethrough == b.strikethrough and
+       a.fg_indexed == b.fg_indexed and a.bg_indexed == b.bg_indexed
 end
 
 function Screen:_equal_info(a, b)

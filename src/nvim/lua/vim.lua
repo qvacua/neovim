@@ -165,6 +165,20 @@ end
 --- Paste handler, invoked by |nvim_paste()| when a conforming UI
 --- (such as the |TUI|) pastes text into the editor.
 ---
+--- Example: To remove ANSI color codes when pasting:
+--- <pre>
+--- vim.paste = (function()
+---   local overridden = vim.paste
+---   return function(lines, phase)
+---     for i,line in ipairs(lines) do
+---       -- Scrub ANSI color codes from paste input.
+---       lines[i] = line:gsub('\27%[[0-9;mK]+', '')
+---     end
+---     overridden(lines, phase)
+---   end
+--- end)()
+--- </pre>
+---
 --@see |paste|
 ---
 --@param lines  |readfile()|-style list of lines to paste. |channel-lines|
@@ -192,8 +206,11 @@ paste = (function()
       local line1 = lines[1]:gsub('<', '<lt>'):gsub('[\r\n\012\027]', ' ')  -- Scrub.
       vim.api.nvim_input(line1)
       vim.api.nvim_set_option('paste', false)
-    elseif mode ~= 'c' then  -- Else: discard remaining cmdline-mode chunks.
-      if phase < 2 and mode ~= 'i' and mode ~= 'R' and mode ~= 't' then
+    elseif mode ~= 'c' then
+      if phase < 2 and mode:find('^[vV\22sS\19]') then
+        vim.api.nvim_command([[exe "normal! \<Del>"]])
+        vim.api.nvim_put(lines, 'c', false, true)
+      elseif phase < 2 and not mode:find('^[iRt]') then
         vim.api.nvim_put(lines, 'c', true, true)
         -- XXX: Normal-mode: workaround bad cursor-placement after first chunk.
         vim.api.nvim_command('normal! a')
@@ -239,8 +256,26 @@ local function __index(t, key)
     -- Expose all `vim.shared` functions on the `vim` module.
     t[key] = require('vim.shared')[key]
     return t[key]
+  elseif require('vim.uri')[key] ~= nil then
+    -- Expose all `vim.uri` functions on the `vim` module.
+    t[key] = require('vim.uri')[key]
+    return t[key]
+  elseif key == 'lsp' then
+    t.lsp = require('vim.lsp')
+    return t.lsp
   end
 end
+
+
+-- vim.fn.{func}(...)
+local function _fn_index(t, key)
+  local function _fn(...)
+    return vim.call(key, ...)
+  end
+  t[key] = _fn
+  return _fn
+end
+local fn = setmetatable({}, {__index=_fn_index})
 
 local module = {
   _update_package_paths = _update_package_paths,
@@ -249,6 +284,7 @@ local module = {
   _system = _system,
   paste = paste,
   schedule_wrap = schedule_wrap,
+  fn=fn,
 }
 
 setmetatable(module, {

@@ -8712,7 +8712,7 @@ static void f_getenv(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   if (p == NULL) {
     rettv->v_type = VAR_SPECIAL;
-    rettv->vval.v_number = kSpecialVarNull;
+    rettv->vval.v_special = kSpecialVarNull;
     return;
   }
   rettv->vval.v_string = p;
@@ -14621,6 +14621,7 @@ static int search_cmn(typval_T *argvars, pos_T *match_pos, int *flagsp)
   long time_limit = 0;
   int options = SEARCH_KEEP;
   int subpatnum;
+  searchit_arg_T sia;
 
   const char *const pat = tv_get_string(&argvars[0]);
   dir = get_search_arg(&argvars[1], flagsp);  // May set p_ws.
@@ -14668,8 +14669,11 @@ static int search_cmn(typval_T *argvars, pos_T *match_pos, int *flagsp)
   }
 
   pos = save_cursor = curwin->w_cursor;
+  memset(&sia, 0, sizeof(sia));
+  sia.sa_stop_lnum = (linenr_T)lnum_stop;
+  sia.sa_tm = &tm;
   subpatnum = searchit(curwin, curbuf, &pos, NULL, dir, (char_u *)pat, 1,
-                       options, RE_SEARCH, (linenr_T)lnum_stop, &tm, NULL);
+                       options, RE_SEARCH, &sia);
   if (subpatnum != FAIL) {
     if (flags & SP_SUBPAT)
       retval = subpatnum;
@@ -15241,8 +15245,13 @@ do_searchpair(
   clearpos(&foundpos);
   pat = pat3;
   for (;; ) {
+    searchit_arg_T sia;
+    memset(&sia, 0, sizeof(sia));
+    sia.sa_stop_lnum = lnum_stop;
+    sia.sa_tm = &tm;
+
     n = searchit(curwin, curbuf, &pos, NULL, dir, pat, 1L,
-                 options, RE_SEARCH, lnum_stop, &tm, NULL);
+                 options, RE_SEARCH, &sia);
     if (n == FAIL || (firstpos.lnum != 0 && equalpos(pos, firstpos))) {
       // didn't find it or found the first match again: FAIL
       break;
@@ -15664,7 +15673,7 @@ static void f_setenv(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   const char *name = tv_get_string_buf(&argvars[0], namebuf);
 
   if (argvars[1].v_type == VAR_SPECIAL
-      && argvars[1].vval.v_number == kSpecialVarNull) {
+      && argvars[1].vval.v_special == kSpecialVarNull) {
     os_unsetenv(name);
   } else {
     os_setenv(name, tv_get_string_buf(&argvars[1], valbuf), 1);
@@ -21737,22 +21746,31 @@ void ex_function(exarg_T *eap)
       }
 
       // Check for ":let v =<< [trim] EOF"
+      //       and ":let [a, b] =<< [trim] EOF"
       arg = skipwhite(skiptowhite(p));
-      arg = skipwhite(skiptowhite(arg));
-      if (arg[0] == '=' && arg[1] == '<' && arg[2] =='<'
-          && ((p[0] == 'l' && p[1] == 'e'
-               && (!ASCII_ISALNUM(p[2])
-                   || (p[2] == 't' && !ASCII_ISALNUM(p[3])))))) {
-        p = skipwhite(arg + 3);
-        if (STRNCMP(p, "trim", 4) == 0) {
-          // Ignore leading white space.
-          p = skipwhite(p + 4);
-          heredoc_trimmed = vim_strnsave(theline,
-                                         (int)(skipwhite(theline) - theline));
+      if (*arg == '[') {
+        arg = vim_strchr(arg, ']');
+      }
+      if (arg != NULL) {
+        arg = skipwhite(skiptowhite(arg));
+        if (arg[0] == '='
+            && arg[1] == '<'
+            && arg[2] =='<'
+            && (p[0] == 'l'
+                && p[1] == 'e'
+                && (!ASCII_ISALNUM(p[2])
+                    || (p[2] == 't' && !ASCII_ISALNUM(p[3]))))) {
+          p = skipwhite(arg + 3);
+          if (STRNCMP(p, "trim", 4) == 0) {
+            // Ignore leading white space.
+            p = skipwhite(p + 4);
+            heredoc_trimmed =
+              vim_strnsave(theline, (int)(skipwhite(theline) - theline));
+          }
+          skip_until = vim_strnsave(p, (int)(skiptowhite(p) - p));
+          do_concat = false;
+          is_heredoc = true;
         }
-        skip_until = vim_strnsave(p, (int)(skiptowhite(p) - p));
-        do_concat = false;
-        is_heredoc = true;
       }
     }
 

@@ -12,6 +12,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/vim.h"
+#include "nvim/msgpack_rpc/channel.h"
 #include "nvim/vim.h"
 #include "nvim/ex_getln.h"
 #include "nvim/ex_cmds2.h"
@@ -295,6 +296,17 @@ static int nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   // in_fast_event
   lua_pushcfunction(lstate, &nlua_in_fast_event);
   lua_setfield(lstate, -2, "in_fast_event");
+  // call
+  lua_pushcfunction(lstate, &nlua_call);
+  lua_setfield(lstate, -2, "call");
+
+  // rpcrequest
+  lua_pushcfunction(lstate, &nlua_rpcrequest);
+  lua_setfield(lstate, -2, "rpcrequest");
+
+  // rpcnotify
+  lua_pushcfunction(lstate, &nlua_rpcnotify);
+  lua_setfield(lstate, -2, "rpcnotify");
 
   // vim.loop
   luv_set_loop(lstate, &main_loop.uv);
@@ -310,6 +322,15 @@ static int nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   lua_pushvalue(lstate, -3);
   lua_setfield(lstate, -2, "luv");
   lua_pop(lstate, 3);
+
+  // vim.NIL
+  lua_newuserdata(lstate, 0);
+  lua_createtable(lstate, 0, 0);
+  lua_pushcfunction(lstate, &nlua_nil_tostring);
+  lua_setfield(lstate, -2, "__tostring");
+  lua_setmetatable(lstate, -2);
+  nlua_nil_ref = nlua_ref(lstate, -1);
+  lua_setfield(lstate, -2, "NIL");
 
   // internal vim._treesitter... API
   nlua_add_treesitter(lstate);
@@ -539,6 +560,125 @@ int nlua_in_fast_event(lua_State *lstate)
   return 1;
 }
 
+int nlua_call(lua_State *lstate)
+{
+  Error err = ERROR_INIT;
+  size_t name_len;
+  const char_u *name = (const char_u *)luaL_checklstring(lstate, 1, &name_len);
+  if (!nlua_is_deferred_safe(lstate)) {
+    return luaL_error(lstate, e_luv_api_disabled, "vimL function");
+  }
+
+  int nargs = lua_gettop(lstate)-1;
+  if (nargs > MAX_FUNC_ARGS) {
+    return luaL_error(lstate, "Function called with too many arguments");
+  }
+
+  typval_T vim_args[MAX_FUNC_ARGS + 1];
+  int i = 0;  // also used for freeing the variables
+  for (; i < nargs; i++) {
+    lua_pushvalue(lstate, (int)i+2);
+    if (!nlua_pop_typval(lstate, &vim_args[i])) {
+      api_set_error(&err, kErrorTypeException,
+                    "error converting argument %d", i+1);
+      goto free_vim_args;
+    }
+  }
+
+  TRY_WRAP({
+  // TODO(bfredl): this should be simplified in error handling refactor
+  force_abort = false;
+  suppress_errthrow = false;
+  current_exception = NULL;
+  did_emsg = false;
+
+  try_start();
+  typval_T rettv;
+  int dummy;
+  // call_func() retval is deceptive, ignore it.  Instead we set `msg_list`
+  // (TRY_WRAP) to capture abort-causing non-exception errors.
+  (void)call_func(name, (int)name_len, &rettv, nargs,
+                  vim_args, NULL, curwin->w_cursor.lnum, curwin->w_cursor.lnum,
+                  &dummy, true, NULL, NULL);
+  if (!try_end(&err)) {
+    nlua_push_typval(lstate, &rettv, false);
+  }
+  tv_clear(&rettv);
+  });
+
+free_vim_args:
+  while (i > 0) {
+    tv_clear(&vim_args[--i]);
+  }
+  if (ERROR_SET(&err)) {
+    lua_pushstring(lstate, err.msg);
+    api_clear_error(&err);
+    return lua_error(lstate);
+  }
+  return 1;
+}
+
+static int nlua_rpcrequest(lua_State *lstate)
+{
+  if (!nlua_is_deferred_safe(lstate)) {
+    return luaL_error(lstate, e_luv_api_disabled, "rpcrequest");
+  }
+  return nlua_rpc(lstate, true);
+}
+
+static int nlua_rpcnotify(lua_State *lstate)
+{
+  return nlua_rpc(lstate, false);
+}
+
+static int nlua_rpc(lua_State *lstate, bool request)
+{
+  size_t name_len;
+  uint64_t chan_id = (uint64_t)luaL_checkinteger(lstate, 1);
+  const char *name = luaL_checklstring(lstate, 2, &name_len);
+  int nargs = lua_gettop(lstate)-2;
+  Error err = ERROR_INIT;
+  Array args = ARRAY_DICT_INIT;
+
+  for (int i = 0; i < nargs; i++) {
+    lua_pushvalue(lstate, (int)i+3);
+    ADD(args, nlua_pop_Object(lstate, false, &err));
+    if (ERROR_SET(&err)) {
+      api_free_array(args);
+      goto check_err;
+    }
+  }
+
+  if (request) {
+    Object result = rpc_send_call(chan_id, name, args, &err);
+    if (!ERROR_SET(&err)) {
+      nlua_push_Object(lstate, result, false);
+      api_free_object(result);
+    }
+  } else {
+    if (!rpc_send_event(chan_id, name, args)) {
+      api_set_error(&err, kErrorTypeValidation,
+                    "Invalid channel: %"PRIu64, chan_id);
+    }
+  }
+
+check_err:
+  if (ERROR_SET(&err)) {
+    lua_pushstring(lstate, err.msg);
+    api_clear_error(&err);
+    return lua_error(lstate);
+  }
+
+  return request ? 1 : 0;
+}
+
+static int nlua_nil_tostring(lua_State *lstate)
+{
+  lua_pushstring(lstate, "vim.NIL");
+  return 1;
+}
+
+
 #ifdef WIN32
 /// os.getenv: override os.getenv to maintain coherency. #9681
 ///
@@ -623,7 +763,7 @@ void executor_eval_lua(const String str, typval_T *const arg,
   if (arg->v_type == VAR_UNKNOWN) {
     lua_pushnil(lstate);
   } else {
-    nlua_push_typval(lstate, arg);
+    nlua_push_typval(lstate, arg, true);
   }
   if (lua_pcall(lstate, 1, 1, 0)) {
     nlua_error(lstate,
