@@ -12,6 +12,7 @@ compile_commands.json
 /dist/
 /.deps/
 /tmp/
+/.clangd/
 
 *.mo
 .*.sw?
