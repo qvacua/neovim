@@ -296,25 +296,23 @@ int do_cmdline_cmd(const char *cmd)
                     DOCMD_NOWAIT|DOCMD_KEYTYPED);
 }
 
-/*
- * do_cmdline(): execute one Ex command line
- *
- * 1. Execute "cmdline" when it is not NULL.
- *    If "cmdline" is NULL, or more lines are needed, fgetline() is used.
- * 2. Split up in parts separated with '|'.
- *
- * This function can be called recursively!
- *
- * flags:
- * DOCMD_VERBOSE  - The command will be included in the error message.
- * DOCMD_NOWAIT   - Don't call wait_return() and friends.
- * DOCMD_REPEAT   - Repeat execution until fgetline() returns NULL.
- * DOCMD_KEYTYPED - Don't reset KeyTyped.
- * DOCMD_EXCRESET - Reset the exception environment (used for debugging).
- * DOCMD_KEEPLINE - Store first typed line (for repeating with ".").
- *
- * return FAIL if cmdline could not be executed, OK otherwise
- */
+/// do_cmdline(): execute one Ex command line
+///
+/// 1. Execute "cmdline" when it is not NULL.
+///    If "cmdline" is NULL, or more lines are needed, fgetline() is used.
+/// 2. Split up in parts separated with '|'.
+///
+/// This function can be called recursively!
+///
+/// flags:
+///   DOCMD_VERBOSE  - The command will be included in the error message.
+///   DOCMD_NOWAIT   - Don't call wait_return() and friends.
+///   DOCMD_REPEAT   - Repeat execution until fgetline() returns NULL.
+///   DOCMD_KEYTYPED - Don't reset KeyTyped.
+///   DOCMD_EXCRESET - Reset the exception environment (used for debugging).
+///   DOCMD_KEEPLINE - Store first typed line (for repeating with ".").
+///
+/// @return FAIL if cmdline could not be executed, OK otherwise
 int do_cmdline(char_u *cmdline, LineGetter fgetline,
                void *cookie, /* argument for fgetline() */
                int flags)
@@ -421,13 +419,12 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
   // If force_abort is set, we cancel everything.
   did_emsg = false;
 
-  /*
-   * KeyTyped is only set when calling vgetc().  Reset it here when not
-   * calling vgetc() (sourced command lines).
-   */
+  // KeyTyped is only set when calling vgetc().  Reset it here when not
+  // calling vgetc() (sourced command lines).
   if (!(flags & DOCMD_KEYTYPED)
-      && !getline_equal(fgetline, cookie, getexline))
+      && !getline_equal(fgetline, cookie, getexline)) {
     KeyTyped = false;
+  }
 
   /*
    * Continue executing command lines:
@@ -2126,6 +2123,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     case CMD_browse:
     case CMD_call:
     case CMD_confirm:
+    case CMD_const:
     case CMD_delfunction:
     case CMD_djump:
     case CMD_dlist:
@@ -2150,6 +2148,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     case CMD_leftabove:
     case CMD_let:
     case CMD_lockmarks:
+    case CMD_lockvar:
     case CMD_lua:
     case CMD_match:
     case CMD_mzscheme:
@@ -2178,6 +2177,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     case CMD_tilde:
     case CMD_topleft:
     case CMD_unlet:
+    case CMD_unlockvar:
     case CMD_verbose:
     case CMD_vertical:
     case CMD_wincmd:
@@ -3437,6 +3437,7 @@ const char * set_one_cmd_context(
   case CMD_syntax:
     set_context_in_syntax_cmd(xp, arg);
     break;
+  case CMD_const:
   case CMD_let:
   case CMD_if:
   case CMD_elseif:

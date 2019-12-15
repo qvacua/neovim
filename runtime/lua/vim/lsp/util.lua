@@ -2,6 +2,7 @@ local protocol = require 'vim.lsp.protocol'
 local vim = vim
 local validate = vim.validate
 local api = vim.api
+local list_extend = vim.list_extend
 
 local M = {}
 
@@ -10,7 +11,13 @@ local function split_lines(value)
   return split(value, '\n', true)
 end
 
-local list_extend = vim.list_extend
+local function ok_or_nil(status, ...)
+  if not status then return end
+  return ...
+end
+local function npcall(fn, ...)
+  return ok_or_nil(pcall(fn, ...))
+end
 
 --- Find the longest shared prefix between prefix and word.
 -- e.g. remove_prefix("123tes", "testing") == "ting"
@@ -303,6 +310,52 @@ function M.make_floating_popup_options(width, height, opts)
   }
 end
 
+function M.jump_to_location(location)
+  if location.uri == nil then return end
+  local bufnr = vim.uri_to_bufnr(location.uri)
+  -- Save position in jumplist
+  vim.cmd "normal! m'"
+  -- TODO(ashkan) use tagfunc here to update tagstack.
+  api.nvim_set_current_buf(bufnr)
+  local row = location.range.start.line
+  local col = location.range.start.character
+  local line = api.nvim_buf_get_lines(0, row, row+1, true)[1]
+  col = vim.str_byteindex(line, col)
+  api.nvim_win_set_cursor(0, {row + 1, col})
+  return true
+end
+
+local function find_window_by_var(name, value)
+  for _, win in ipairs(api.nvim_list_wins()) do
+    if npcall(api.nvim_win_get_var, win, name) == value then
+      return win
+    end
+  end
+end
+
+-- Check if a window with `unique_name` tagged is associated with the current
+-- buffer. If not, make a new preview.
+--
+-- fn()'s return values will be passed directly to open_floating_preview in the
+-- case that a new floating window should be created.
+function M.focusable_preview(unique_name, fn)
+  if npcall(api.nvim_win_get_var, 0, unique_name) then
+    return api.nvim_command("wincmd p")
+  end
+  local bufnr = api.nvim_get_current_buf()
+  do
+    local win = find_window_by_var(unique_name, bufnr)
+    if win then
+      api.nvim_set_current_win(win)
+      api.nvim_command("stopinsert")
+      return
+    end
+  end
+  local pbufnr, pwinnr = M.open_floating_preview(fn())
+  api.nvim_win_set_var(pwinnr, unique_name, bufnr)
+  return pbufnr, pwinnr
+end
+
 function M.open_floating_preview(contents, filetype, opts)
   validate {
     contents = { contents, 't' };
@@ -389,6 +442,11 @@ do
 
   local diagnostic_ns = api.nvim_create_namespace("vim_lsp_diagnostics")
 
+  local underline_highlight_name = "LspDiagnosticsUnderline"
+  api.nvim_command(string.format("highlight default %s gui=underline cterm=underline", underline_highlight_name))
+
+  local severity_highlights = {}
+
   local default_severity_highlight = {
     [protocol.DiagnosticSeverity.Error] = { guifg = "Red" };
     [protocol.DiagnosticSeverity.Warning] = { guifg = "Orange" };
@@ -396,60 +454,17 @@ do
     [protocol.DiagnosticSeverity.Hint] = { guifg = "LightGrey" };
   }
 
-  local underline_highlight_name = "LspDiagnosticsUnderline"
-  api.nvim_command(string.format("highlight %s gui=underline cterm=underline", underline_highlight_name))
-
-  local function find_color_rgb(color)
-    local rgb_hex = api.nvim_get_color_by_name(color)
-    validate { color = {color, function() return rgb_hex ~= -1 end, "valid color name"} }
-    return rgb_hex
-  end
-
-  --- Determine whether to use black or white text
-  -- Ref: https://stackoverflow.com/a/1855903/837964
-  -- https://stackoverflow.com/questions/596216/formula-to-determine-brightness-of-rgb-color
-  local function color_is_bright(r, g, b)
-    -- Counting the perceptive luminance - human eye favors green color
-    local luminance = (0.299*r + 0.587*g + 0.114*b)/255
-    if luminance > 0.5 then
-      return true -- Bright colors, black font
-    else
-      return false -- Dark colors, white font
+  -- Initialize default severity highlights
+  for severity, hi_info in pairs(default_severity_highlight) do
+    local severity_name = protocol.DiagnosticSeverity[severity]
+    local highlight_name = "LspDiagnostics"..severity_name
+    -- Try to fill in the foreground color with a sane default.
+    local cmd_parts = {"highlight", "default", highlight_name}
+    for k, v in pairs(hi_info) do
+      table.insert(cmd_parts, k.."="..v)
     end
-  end
-
-  local severity_highlights = {}
-
-  function M.set_severity_highlights(highlights)
-    validate {highlights = {highlights, 't'}}
-    for severity, default_color in pairs(default_severity_highlight) do
-      local severity_name = protocol.DiagnosticSeverity[severity]
-      local highlight_name = "LspDiagnostics"..severity_name
-      local hi_info = highlights[severity] or default_color
-      -- Try to fill in the foreground color with a sane default.
-      if not hi_info.guifg and hi_info.guibg then
-        -- TODO(ashkan) move this out when bitop is guaranteed to be included.
-        local bit = require 'bit'
-        local band, rshift = bit.band, bit.rshift
-        local rgb = find_color_rgb(hi_info.guibg)
-        local is_bright = color_is_bright(rshift(rgb, 16), band(rshift(rgb, 8), 0xFF), band(rgb, 0xFF))
-        hi_info.guifg = is_bright and "Black" or "White"
-      end
-      if not hi_info.ctermfg and hi_info.ctermbg then
-        -- TODO(ashkan) move this out when bitop is guaranteed to be included.
-        local bit = require 'bit'
-        local band, rshift = bit.band, bit.rshift
-        local rgb = find_color_rgb(hi_info.ctermbg)
-        local is_bright = color_is_bright(rshift(rgb, 16), band(rshift(rgb, 8), 0xFF), band(rgb, 0xFF))
-        hi_info.ctermfg = is_bright and "Black" or "White"
-      end
-      local cmd_parts = {"highlight", highlight_name}
-      for k, v in pairs(hi_info) do
-        table.insert(cmd_parts, k.."="..v)
-      end
-      api.nvim_command(table.concat(cmd_parts, ' '))
-      severity_highlights[severity] = highlight_name
-    end
+    api.nvim_command(table.concat(cmd_parts, ' '))
+    severity_highlights[severity] = highlight_name
   end
 
   function M.buf_clear_diagnostics(bufnr)
@@ -457,9 +472,6 @@ do
     bufnr = bufnr == 0 and api.nvim_get_current_buf() or bufnr
     api.nvim_buf_clear_namespace(bufnr, diagnostic_ns, 0, -1)
   end
-
-  -- Initialize with the defaults.
-  M.set_severity_highlights(default_severity_highlight)
 
   function M.get_severity_highlight_name(severity)
     return severity_highlights[severity]
@@ -609,12 +621,13 @@ function M.locations_to_items(locations)
           if pos.character > #line then
             col = #line
           else
-            col =  vim.str_byteindex(line, pos.character)
+            col = vim.str_byteindex(line, pos.character)
           end
           table.insert(items, {
             filename = fname,
             lnum = row + 1,
             col = col + 1;
+            text = line;
           })
         end
       end
