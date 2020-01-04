@@ -85,10 +85,7 @@ do_window(
   size_t len;
   char cbuf[40];
 
-  if (Prenum == 0)
-    Prenum1 = 1;
-  else
-    Prenum1 = Prenum;
+  Prenum1 = Prenum == 0 ? 1 : Prenum;
 
 # define CHECK_CMDWIN \
   do { \
@@ -519,11 +516,22 @@ wingotofile:
       do_nv_ident('g', xchar);
       break;
 
+    case TAB:
+      goto_tabpage_lastused();
+      break;
+
     case 'f':                       /* CTRL-W gf: "gf" in a new tab page */
     case 'F':                       /* CTRL-W gF: "gF" in a new tab page */
       cmdmod.tab = tabpage_index(curtab) + 1;
       nchar = xchar;
       goto wingotofile;
+    case 't':                       // CTRL-W gt: go to next tab page
+      goto_tabpage((int)Prenum);
+      break;
+
+    case 'T':                       // CTRL-W gT: go to previous tab page
+      goto_tabpage(-(int)Prenum1);
+      break;
 
     case 'e':
       if (curwin->w_floating || !ui_has(kUIMultigrid)) {
@@ -3691,6 +3699,10 @@ void free_tabpage(tabpage_T *tp)
   hash_init(&tp->tp_vars->dv_hashtab);
   unref_var_dict(tp->tp_vars);
 
+  if (tp == lastused_tabpage) {
+    lastused_tabpage = NULL;
+  }
+
   xfree(tp->tp_localdir);
   xfree(tp);
 }
@@ -3749,6 +3761,8 @@ int win_new_tabpage(int after, char_u *filename)
     redraw_all_later(NOT_VALID);
 
     tabpage_check_windows(tp);
+
+    lastused_tabpage = tp;
 
     apply_autocmds(EVENT_WINNEW, NULL, NULL, false, curbuf);
     apply_autocmds(EVENT_WINENTER, NULL, NULL, false, curbuf);
@@ -3976,6 +3990,7 @@ static void enter_tabpage(tabpage_T *tp, buf_T *old_curbuf, int trigger_enter_au
   if (curtab->tp_old_Columns != Columns && starting == 0)
     shell_new_columns();        /* update window widths */
 
+  lastused_tabpage = old_curtab;
 
   /* Apply autocommands after updating the display, when 'rows' and
    * 'columns' have been set correctly. */
@@ -4092,6 +4107,14 @@ void goto_tabpage_tp(tabpage_T *tp, int trigger_enter_autocmds, int trigger_leav
     else
       enter_tabpage(curtab, curbuf, trigger_enter_autocmds,
           trigger_leave_autocmds);
+  }
+}
+
+// Go to the last accessed tab page, if there is one.
+void goto_tabpage_lastused(void)
+{
+  if (valid_tabpage(lastused_tabpage)) {
+    goto_tabpage_tp(lastused_tabpage, true, true);
   }
 }
 
@@ -6622,7 +6645,7 @@ int match_add(win_T *wp, const char *const grp, const char *const pat,
     prev->next = m;
   m->next = cur;
 
-  redraw_later(rtype);
+  redraw_win_later(wp, rtype);
   return id;
 
 fail:
@@ -6680,7 +6703,7 @@ int match_delete(win_T *wp, int id, int perr)
     rtype = VALID;
   }
   xfree(cur);
-  redraw_later(rtype);
+  redraw_win_later(wp, rtype);
   return 0;
 }
 
@@ -6698,7 +6721,7 @@ void clear_matches(win_T *wp)
     xfree(wp->w_match_head);
     wp->w_match_head = m;
   }
-  redraw_later(SOME_VALID);
+  redraw_win_later(wp, SOME_VALID);
 }
 
 /*

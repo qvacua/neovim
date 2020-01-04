@@ -335,7 +335,7 @@ void nvim_input_mouse(String button, String action, String modifier,
     if (strequal(action.data, "down")) {
       code = KE_MOUSEUP;
     } else if (strequal(action.data, "up")) {
-      code = KE_MOUSEDOWN;
+      // code = KE_MOUSEDOWN
     } else if (strequal(action.data, "left")) {
       code = KE_MOUSERIGHT;
     } else if (strequal(action.data, "right")) {
@@ -457,6 +457,7 @@ Object nvim_eval(String expr, Error *err)
 }
 
 /// @deprecated Use nvim_exec_lua() instead.
+/// @see nvim_exec_lua
 Object nvim_execute_lua(String code, Array args, Error *err)
   FUNC_API_SINCE(3)
   FUNC_API_DEPRECATED_SINCE(7)

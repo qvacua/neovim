@@ -1672,17 +1672,6 @@ setmarks:
       extmark_col_adjust_delete(curbuf, lnum, mincol, endcol,
                                 kExtmarkUndo, 0);
     }
-
-  // Delete characters within one line,
-  // The case with multiple lines is handled by do_join
-  } else if (oap->motion_type == kMTCharWise && oap->line_count == 1) {
-    // + 1 to change to buf mode, then plus 1 to fit function requirements
-    endcol = oap->end.col + 1 + 1;
-
-    lnum = curwin->w_cursor.lnum;
-    if (oap->is_VIsual == false) {
-      endcol = MAX(endcol - 1, mincol);
-    }
   }
   return OK;
 }
@@ -5665,7 +5654,8 @@ void cursor_pos_info(dict_T *dict)
 
     bom_count = bomb_size();
     if (dict == NULL && bom_count > 0) {
-      vim_snprintf((char *)IObuff + STRLEN(IObuff), IOSIZE - STRLEN(IObuff),
+      const size_t len = STRLEN(IObuff);
+      vim_snprintf((char *)IObuff + len, IOSIZE - len,
                    _("(+%" PRId64 " for BOM)"), (int64_t)bom_count);
     }
     if (dict == NULL) {

@@ -3121,8 +3121,9 @@ complete_info([{what}])
 		the items listed in {what} are returned.  Unsupported items in
 		{what} are silently ignored.
 
-		To get the position of the popup menu, see |pum_getpos()|. It's
- 		also available in |v:event| during the |CompleteChanged| event.
+		To get the position and size of the popup menu, see
+		|pum_getpos()|. It's also available in |v:event| during the
+		|CompleteChanged| event.
 
 		Examples: >
 			" Get all items
@@ -3770,6 +3771,8 @@ feedkeys({string} [, {mode}])				*feedkeys()*
 		and "\..." notation |expr-quote|. For example,
 		feedkeys("\<CR>") simulates pressing of the <Enter> key. But
 		feedkeys('\<CR>') pushes 5 characters.
+		The |<Ignore>| keycode may be used to exit the
+		wait-for-character without doing anything.
 
 		{mode} is a String, which can contain these character flags:
 		'm'	Remap keys. This is default.  If {mode} is absent,
@@ -8588,8 +8591,12 @@ tabpagebuflist([{arg}])					*tabpagebuflist()*
 tabpagenr([{arg}])					*tabpagenr()*
 		The result is a Number, which is the number of the current
 		tab page.  The first tab page has number 1.
-		When the optional argument is "$", the number of the last tab
-		page is returned (the tab page count).
+		The optional argument {arg} supports the following values:
+			$	the number of the last tab page (the tab page
+				count).
+			#	the number of the last accessed tab page (where
+				|g<Tab>| goes to).  If there is no previous
+				tab page, 0 is returned.
 		The number can be used with the |:tab| command.
 
 

@@ -324,6 +324,13 @@ static int nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   nlua_nil_ref = nlua_ref(lstate, -1);
   lua_setfield(lstate, -2, "NIL");
 
+  // vim._empty_dict_mt
+  lua_createtable(lstate, 0, 0);
+  lua_pushcfunction(lstate, &nlua_empty_dict_tostring);
+  lua_setfield(lstate, -2, "__tostring");
+  nlua_empty_dict_ref = nlua_ref(lstate, -1);
+  lua_setfield(lstate, -2, "_empty_dict_mt");
+
   // internal vim._treesitter... API
   nlua_add_treesitter(lstate);
 
@@ -665,6 +672,12 @@ static int nlua_nil_tostring(lua_State *lstate)
   return 1;
 }
 
+static int nlua_empty_dict_tostring(lua_State *lstate)
+{
+  lua_pushstring(lstate, "vim.empty_dict()");
+  return 1;
+}
+
 
 #ifdef WIN32
 /// os.getenv: override os.getenv to maintain coherency. #9681
@@ -770,8 +783,10 @@ static void typval_exec_lua(const char *lcmd, size_t lcmd_len, const char *name,
                             typval_T *ret_tv)
 {
   if (check_restricted() || check_secure()) {
-    ret_tv->v_type = VAR_NUMBER;
-    ret_tv->vval.v_number = 0;
+    if (ret_tv) {
+      ret_tv->v_type = VAR_NUMBER;
+      ret_tv->vval.v_number = 0;
+    }
     return;
   }
 

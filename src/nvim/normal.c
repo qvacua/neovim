@@ -874,8 +874,10 @@ static void normal_finish_command(NormalState *s)
     s->old_mapped_len = typebuf_maplen();
   }
 
-  // If an operation is pending, handle it...
-  do_pending_operator(&s->ca, s->old_col, false);
+  // If an operation is pending, handle it.  But not for K_IGNORE.
+  if (s->ca.cmdchar != K_IGNORE) {
+    do_pending_operator(&s->ca, s->old_col, false);
+  }
 
   // Wait for a moment when a message is displayed that will be overwritten
   // by the mode message.
@@ -6310,9 +6312,7 @@ static void nv_gomark(cmdarg_T *cap)
   }
 }
 
-/*
- * Handle CTRL-O, CTRL-I, "g;" and "g," commands.
- */
+// Handle CTRL-O, CTRL-I, "g;", "g,", and "CTRL-Tab" commands.
 static void nv_pcmark(cmdarg_T *cap)
 {
   pos_T       *pos;
@@ -6320,11 +6320,16 @@ static void nv_pcmark(cmdarg_T *cap)
   const bool old_KeyTyped = KeyTyped;       // getting file may reset it
 
   if (!checkclearopq(cap->oap)) {
-    if (cap->cmdchar == 'g')
+    if (cap->cmdchar == TAB && mod_mask == MOD_MASK_CTRL) {
+      goto_tabpage_lastused();
+      return;
+    }
+    if (cap->cmdchar == 'g') {
       pos = movechangelist((int)cap->count1);
-    else
+    } else {
       pos = movemark((int)cap->count1);
-    if (pos == (pos_T *)-1) {           /* jump to other file */
+    }
+    if (pos == (pos_T *)-1) {           // jump to other file
       curwin->w_set_curswant = true;
       check_cursor();
     } else if (pos != NULL)                 /* can jump */
@@ -7060,6 +7065,11 @@ static void nv_g_cmd(cmdarg_T *cap)
   case 'T':
     if (!checkclearop(oap))
       goto_tabpage(-(int)cap->count1);
+    break;
+  case TAB:
+    if (!checkclearop(oap)) {
+      goto_tabpage_lastused();
+    }
     break;
 
   case '+':
