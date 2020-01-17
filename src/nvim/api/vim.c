@@ -241,15 +241,15 @@ void nvim_feedkeys(String keys, String mode, Boolean escape_csi)
       keys_esc = keys.data;
   }
   ins_typebuf((char_u *)keys_esc, (remap ? REMAP_YES : REMAP_NONE),
-      insert ? 0 : typebuf.tb_len, !typed, false);
+              insert ? 0 : typebuf.tb_len, !typed, false);
+  if (vgetc_busy) {
+    typebuf_was_filled = true;
+  }
 
   if (escape_csi) {
       xfree(keys_esc);
   }
 
-  if (vgetc_busy) {
-    typebuf_was_filled = true;
-  }
   if (execute) {
     int save_msg_scroll = msg_scroll;
 
@@ -443,7 +443,8 @@ Object nvim_eval(String expr, Error *err)
   if (!try_end(err)) {
     if (ok == FAIL) {
       // Should never happen, try_end() should get the error. #8371
-      api_set_error(err, kErrorTypeException, "Failed to evaluate expression");
+      api_set_error(err, kErrorTypeException,
+                    "Failed to evaluate expression: '%.*s'", 256, expr.data);
     } else {
       rv = vim_to_object(&rettv);
     }

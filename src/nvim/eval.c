@@ -5921,7 +5921,7 @@ static int dict_get_tv(char_u **arg, typval_T *rettv, int evaluate)
   if (**arg != '}') {
     EMSG2(_("E723: Missing end of Dictionary '}': %s"), *arg);
 failret:
-    if (evaluate) {
+    if (d != NULL) {
       tv_dict_free(d);
     }
     return FAIL;
@@ -21246,6 +21246,7 @@ void ex_echo(exarg_T *eap)
   char_u      *arg = eap->arg;
   typval_T rettv;
   bool atstart = true;
+  bool need_clear = true;
   const int did_emsg_before = did_emsg;
 
   if (eap->skip)
@@ -21288,7 +21289,7 @@ void ex_echo(exarg_T *eap)
       char *tofree = encode_tv2echo(&rettv, NULL);
       if (*tofree != NUL) {
         msg_ext_set_kind("echo");
-        msg_multiline_attr(tofree, echo_attr, true);
+        msg_multiline_attr(tofree, echo_attr, true, &need_clear);
       }
       xfree(tofree);
     }
@@ -21301,7 +21302,9 @@ void ex_echo(exarg_T *eap)
     emsg_skip--;
   } else {
     // remove text that may still be there from the command
-    msg_clr_eos();
+    if (need_clear) {
+      msg_clr_eos();
+    }
     if (eap->cmdidx == CMD_echo) {
       msg_end();
     }

@@ -76,6 +76,9 @@
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/os/os.h"
+#ifdef WIN32
+# include "nvim/os/pty_conpty_win.h"
+#endif
 #include "nvim/api/private/helpers.h"
 #include "nvim/os/input.h"
 #include "nvim/os/lang.h"
@@ -3544,7 +3547,7 @@ static char_u *set_chars_option(win_T *wp, char_u **varp, bool set)
     { &wp->w_p_fcs_chars.fold,    "fold",     183  },  // ·
     { &wp->w_p_fcs_chars.foldopen,   "foldopen",  '-'  },
     { &wp->w_p_fcs_chars.foldclosed, "foldclose", '+'  },
-    { &wp->w_p_fcs_chars.foldsep,    "foldsep",   '|' },
+    { &wp->w_p_fcs_chars.foldsep,    "foldsep",   9474 },  // │
     { &wp->w_p_fcs_chars.diff,    "diff",     '-'  },
     { &wp->w_p_fcs_chars.msgsep,  "msgsep",   ' '  },
     { &wp->w_p_fcs_chars.eob,     "eob",      '~'  },
@@ -3576,9 +3579,11 @@ static char_u *set_chars_option(win_T *wp, char_u **varp, bool set)
       // XXX: If ambiwidth=double then "|" and "·" take 2 columns, which is
       // forbidden (TUI limitation?). Set old defaults.
       fcs_tab[2].def = '|';
+      fcs_tab[6].def = '|';
       fcs_tab[3].def = '-';
     } else {
       fcs_tab[2].def = 9474;  // │
+      fcs_tab[6].def = 9474;  // │
       fcs_tab[3].def = 183;   // ·
     }
   }
