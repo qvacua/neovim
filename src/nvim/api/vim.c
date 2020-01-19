@@ -48,6 +48,7 @@
 #include "nvim/viml/parser/expressions.h"
 #include "nvim/viml/parser/parser.h"
 #include "nvim/ui.h"
+#include "nvim/undo.h"
 
 #define LINE_BUFFER_SIZE 4096
 
@@ -2586,4 +2587,18 @@ void nvim__put_attr(Integer id, Integer c0, Integer c1)
     lua_attr_buf[c] = (sattr_T)hl_combine_attr(lua_attr_buf[c], (int)attr);
   }
   return;
+}
+
+// CUSTOM_UI
+// Dirty status
+Boolean nvim_get_dirty_status(void)
+  FUNC_API_SINCE(4)
+{
+  FOR_ALL_BUFFERS(buffer) {
+    if (bufIsChanged(buffer)) {
+      return true;
+    }
+  }
+
+  return false;
 }
