@@ -12710,7 +12710,7 @@ static void f_jobstop(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     return;
   }
 
-  Channel *data = find_job(argvars[0].vval.v_number, true);
+  Channel *data = find_job(argvars[0].vval.v_number, false);
   if (!data) {
     return;
   }
@@ -24615,6 +24615,7 @@ bool eval_has_provider(const char *feat)
       && !strequal(feat, "python_dynamic")
       && !strequal(feat, "python3_compiled")
       && !strequal(feat, "python3_dynamic")
+      && !strequal(feat, "perl")
       && !strequal(feat, "ruby")
       && !strequal(feat, "node")) {
     // Avoid autoload for non-provider has() features.
