@@ -18,7 +18,6 @@
 
 #include "nvim/assert.h"
 #include "nvim/vim.h"
-
 #include "nvim/ascii.h"
 #ifdef HAVE_LOCALE_H
 # include <locale.h>
