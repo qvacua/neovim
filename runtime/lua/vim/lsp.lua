@@ -154,7 +154,7 @@ local function validate_client_config(config)
     callbacks       = { config.callbacks, "t", true };
     capabilities    = { config.capabilities, "t", true };
     cmd_cwd         = { config.cmd_cwd, optional_validator(is_dir), "directory" };
-    cmd_env         = { config.cmd_env, "f", true };
+    cmd_env         = { config.cmd_env, "t", true };
     name            = { config.name, 's', true };
     on_error        = { config.on_error, "f", true };
     on_exit         = { config.on_exit, "f", true };
@@ -945,12 +945,14 @@ function lsp.omnifunc(findstart, base)
 
   -- Get the start position of the current keyword
   local textMatch = vim.fn.match(line_to_cursor, '\\k*$')
+  local prefix = line_to_cursor:sub(textMatch+1)
+
   local params = util.make_position_params()
 
   local items = {}
   lsp.buf_request(bufnr, 'textDocument/completion', params, function(err, _, result)
     if err or not result then return end
-    local matches = util.text_document_completion_list_to_complete_items(result)
+    local matches = util.text_document_completion_list_to_complete_items(result, prefix)
     -- TODO(ashkan): is this the best way to do this?
     vim.list_extend(items, matches)
     vim.fn.complete(textMatch+1, items)
