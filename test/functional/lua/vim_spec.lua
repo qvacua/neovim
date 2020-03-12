@@ -315,10 +315,7 @@ describe('lua stdlib', function()
       local a = { x = { 1, 2 }, y = 5}
       local b = vim.deepcopy(a)
 
-      local count = 0
-      for _ in pairs(b) do count = count + 1 end
-
-      return b.x[1] == 1 and b.x[2] == 2 and b.y == 5 and count == 2
+      return b.x[1] == 1 and b.x[2] == 2 and b.y == 5 and vim.tbl_count(b) == 2
              and tostring(a) ~= tostring(b)
     ]]))
 
@@ -326,31 +323,22 @@ describe('lua stdlib', function()
       local a = {}
       local b = vim.deepcopy(a)
 
-      local count = 0
-      for _ in pairs(b) do count = count + 1 end
-
-      return vim.tbl_islist(b) and count == 0 and tostring(a) ~= tostring(b)
+      return vim.tbl_islist(b) and vim.tbl_count(b) == 0 and tostring(a) ~= tostring(b)
     ]]))
 
     ok(exec_lua([[
       local a = vim.empty_dict()
       local b = vim.deepcopy(a)
 
-      local count = 0
-      for _ in pairs(b) do count = count + 1 end
-
-      return not vim.tbl_islist(b) and count == 0
+      return not vim.tbl_islist(b) and vim.tbl_count(b) == 0
     ]]))
 
     ok(exec_lua([[
       local a = {x = vim.empty_dict(), y = {}}
       local b = vim.deepcopy(a)
 
-      local count = 0
-      for _ in pairs(b) do count = count + 1 end
-
       return not vim.tbl_islist(b.x) and vim.tbl_islist(b.y)
-        and count == 2
+        and vim.tbl_count(b) == 2
         and tostring(a) ~= tostring(b)
     ]]))
   end)
@@ -430,10 +418,7 @@ describe('lua stdlib', function()
       local b = {y = 2}
       local c = vim.tbl_extend("keep", a, b)
 
-      local count = 0
-      for _ in pairs(c) do count = count + 1 end
-
-      return c.x == 1 and b.y == 2 and count == 2
+      return c.x == 1 and b.y == 2 and vim.tbl_count(c) == 2
     ]]))
 
     ok(exec_lua([[
@@ -442,10 +427,7 @@ describe('lua stdlib', function()
       local c = {z = 3}
       local d = vim.tbl_extend("keep", a, b, c)
 
-      local count = 0
-      for _ in pairs(d) do count = count + 1 end
-
-      return d.x == 1 and d.y == 2 and d.z == 3 and count == 3
+      return d.x == 1 and d.y == 2 and d.z == 3 and vim.tbl_count(d) == 3
     ]]))
 
     ok(exec_lua([[
@@ -453,10 +435,7 @@ describe('lua stdlib', function()
       local b = {x = 3}
       local c = vim.tbl_extend("keep", a, b)
 
-      local count = 0
-      for _ in pairs(c) do count = count + 1 end
-
-      return c.x == 1 and count == 1
+      return c.x == 1 and vim.tbl_count(c) == 1
     ]]))
 
     ok(exec_lua([[
@@ -464,10 +443,7 @@ describe('lua stdlib', function()
       local b = {x = 3}
       local c = vim.tbl_extend("force", a, b)
 
-      local count = 0
-      for _ in pairs(c) do count = count + 1 end
-
-      return c.x == 3 and count == 1
+      return c.x == 3 and vim.tbl_count(c) == 1
     ]]))
 
     ok(exec_lua([[
@@ -475,10 +451,7 @@ describe('lua stdlib', function()
       local b = {}
       local c = vim.tbl_extend("keep", a, b)
 
-      local count = 0
-      for _ in pairs(c) do count = count + 1 end
-
-      return not vim.tbl_islist(c) and count == 0
+      return not vim.tbl_islist(c) and vim.tbl_count(c) == 0
     ]]))
 
     ok(exec_lua([[
@@ -486,10 +459,7 @@ describe('lua stdlib', function()
       local b = vim.empty_dict()
       local c = vim.tbl_extend("keep", a, b)
 
-      local count = 0
-      for _ in pairs(c) do count = count + 1 end
-
-      return vim.tbl_islist(c) and count == 0
+      return vim.tbl_islist(c) and vim.tbl_count(c) == 0
     ]]))
 
     eq('Error executing lua: .../shared.lua: invalid "behavior": nil',
@@ -509,6 +479,19 @@ describe('lua stdlib', function()
         return vim.tbl_extend("keep", {})
       ]])
     )
+  end)
+
+  it('vim.tbl_count', function()
+    eq(0, exec_lua [[ return vim.tbl_count({}) ]])
+    eq(0, exec_lua [[ return vim.tbl_count(vim.empty_dict()) ]])
+    eq(0, exec_lua [[ return vim.tbl_count({nil}) ]])
+    eq(0, exec_lua [[ return vim.tbl_count({a=nil}) ]])
+    eq(1, exec_lua [[ return vim.tbl_count({1}) ]])
+    eq(2, exec_lua [[ return vim.tbl_count({1, 2}) ]])
+    eq(2, exec_lua [[ return vim.tbl_count({1, nil, 3}) ]])
+    eq(1, exec_lua [[ return vim.tbl_count({a=1}) ]])
+    eq(2, exec_lua [[ return vim.tbl_count({a=1, b=2}) ]])
+    eq(2, exec_lua [[ return vim.tbl_count({a=1, b=nil, c=3}) ]])
   end)
 
   it('vim.deep_equal', function()
@@ -843,5 +826,23 @@ describe('lua stdlib', function()
     ]]
     eq('2', funcs.luaeval "BUF")
     eq(2, funcs.luaeval "#vim.api.nvim_list_bufs()")
+  end)
+
+  it('vim.regex', function()
+    exec_lua [[
+      re1 = vim.regex"ab\\+c"
+      vim.cmd "set nomagic ignorecase"
+      re2 = vim.regex"xYz"
+    ]]
+    eq({}, exec_lua[[return {re1:match_str("x ac")}]])
+    eq({3,7}, exec_lua[[return {re1:match_str("ac abbc")}]])
+
+    meths.buf_set_lines(0, 0, -1, true, {"yy", "abc abbc"})
+    eq({}, exec_lua[[return {re1:match_line(0, 0)}]])
+    eq({0,3}, exec_lua[[return {re1:match_line(0, 1)}]])
+    eq({3,7}, exec_lua[[return {re1:match_line(0, 1, 1)}]])
+    eq({3,7}, exec_lua[[return {re1:match_line(0, 1, 1, 8)}]])
+    eq({}, exec_lua[[return {re1:match_line(0, 1, 1, 7)}]])
+    eq({0,3}, exec_lua[[return {re1:match_line(0, 1, 0, 7)}]])
   end)
 end)

@@ -849,7 +849,8 @@ bool marktree_splice(MarkTree *b,
   bool same_line = old_extent.row == 0 && new_extent.row == 0;
   unrelative(start, &old_extent);
   unrelative(start, &new_extent);
-  MarkTreeIter itr[1], enditr[1];
+  MarkTreeIter itr[1] = { 0 };
+  MarkTreeIter enditr[1] = { 0 };
 
   mtpos_t oldbase[MT_MAX_DEPTH];
 
@@ -905,6 +906,7 @@ continue_same_node:
           refkey(b, itr->node, itr->i);
           refkey(b, enditr->node, enditr->i);
         } else {
+          past_right = true; // NOLINT
           break;
         }
       }
@@ -1002,7 +1004,7 @@ void marktree_move_region(MarkTree *b,
   mtpos_t start = { start_row, start_col }, size = { extent_row, extent_col };
   mtpos_t end = size;
   unrelative(start, &end);
-  MarkTreeIter itr[1];
+  MarkTreeIter itr[1] = { 0 };
   marktree_itr_get_ext(b, start, itr, false, true, NULL);
   kvec_t(mtkey_t) saved = KV_INITIAL_VALUE;
   while (itr->node) {
