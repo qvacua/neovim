@@ -1992,7 +1992,7 @@ return {
     },
     {
       full_name='scrolloff', abbreviation='so',
-      type='number', scope={'global'},
+      type='number', scope={'global', 'window'},
       vi_def=true,
       vim=true,
       redraw={'all_windows'},
@@ -2231,10 +2231,10 @@ return {
     },
     {
       full_name='sidescrolloff', abbreviation='siso',
-      type='number', scope={'global'},
+      type='number', scope={'global', 'window'},
       vi_def=true,
       vim=true,
-      redraw={'current_buffer'},
+      redraw={'all_windows'},
       varname='p_siso',
       defaults={if_true={vi=0}}
     },
@@ -2589,6 +2589,7 @@ return {
       type='bool', scope={'global'},
       vi_def=true,
       vim=true,
+      redraw={'ui_option'},
       varname='p_ttimeout',
       defaults={if_true={vi=true}}
     },
@@ -2596,6 +2597,7 @@ return {
       full_name='ttimeoutlen', abbreviation='ttm',
       type='number', scope={'global'},
       vi_def=true,
+      redraw={'ui_option'},
       varname='p_ttm',
       defaults={if_true={vi=50}}
     },
