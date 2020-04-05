@@ -8,11 +8,12 @@
 # undef Boolean
 #endif
 
+#include "nvim/os/lang.h"
+#include "nvim/os/os.h"
+
 #ifdef HAVE_LOCALE_H
 # include <locale.h>
 #endif
-#include "nvim/os/lang.h"
-#include "nvim/os/os.h"
 
 void lang_init(void)
 {
