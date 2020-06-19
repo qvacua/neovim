@@ -212,6 +212,18 @@ do
         vim.api.nvim_put(lines, 'c', true, true)
         -- XXX: Normal-mode: workaround bad cursor-placement after first chunk.
         vim.api.nvim_command('normal! a')
+      elseif phase < 2 and mode == 'R' then
+        local nchars = 0
+        for _, line in ipairs(lines) do
+            nchars = nchars + line:len()
+        end
+        local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+        local bufline = vim.api.nvim_buf_get_lines(0, row-1, row, true)[1]
+        local firstline = lines[1]
+        firstline = bufline:sub(1, col)..firstline
+        lines[1] = firstline
+        lines[#lines] = lines[#lines]..bufline:sub(col + nchars + 1, bufline:len())
+        vim.api.nvim_buf_set_lines(0, row-1, row, false, lines)
       else
         vim.api.nvim_put(lines, 'c', false, true)
       end
@@ -320,9 +332,26 @@ do
       return pcall_ret(pcall(fn, ...))
     end
   end
+
+  vim.b = make_meta_accessor(
+    nil_wrap(function(v) return a.nvim_buf_get_var(0, v) end),
+    function(v, k) return a.nvim_buf_set_var(0, v, k) end,
+    function(v) return a.nvim_buf_del_var(0, v) end
+  )
+  vim.w = make_meta_accessor(
+    nil_wrap(function(v) return a.nvim_win_get_var(0, v) end),
+    function(v, k) return a.nvim_win_set_var(0, v, k) end,
+    function(v) return a.nvim_win_del_var(0, v) end
+  )
+  vim.t = make_meta_accessor(
+    nil_wrap(function(v) return a.nvim_tabpage_get_var(0, v) end),
+    function(v, k) return a.nvim_tabpage_set_var(0, v, k) end,
+    function(v) return a.nvim_tabpage_del_var(0, v) end
+  )
   vim.g = make_meta_accessor(nil_wrap(a.nvim_get_var), a.nvim_set_var, a.nvim_del_var)
   vim.v = make_meta_accessor(nil_wrap(a.nvim_get_vvar), a.nvim_set_vvar)
   vim.o = make_meta_accessor(a.nvim_get_option, a.nvim_set_option)
+
   local function getenv(k)
     local v = vim.fn.getenv(k)
     if v == vim.NIL then
@@ -384,6 +413,69 @@ do
     return make_meta_accessor(get, set)
   end
   vim.wo = new_win_opt_accessor(nil)
+end
+
+--- Get a table of lines with start, end columns for a region marked by two points
+---
+--@param bufnr number of buffer
+--@param pos1 (line, column) tuple marking beginning of region
+--@param pos2 (line, column) tuple marking end of region
+--@param regtype type of selection (:help setreg)
+--@param inclusive boolean indicating whether the selection is end-inclusive
+--@return region lua table of the form {linenr = {startcol,endcol}}
+function vim.region(bufnr, pos1, pos2, regtype, inclusive)
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
+    vim.fn.bufload(bufnr)
+  end
+
+  -- in case of block selection, columns need to be adjusted for non-ASCII characters
+  -- TODO: handle double-width characters
+  local bufline
+  if regtype:byte() == 22 then
+    bufline = vim.api.nvim_buf_get_lines(bufnr, pos1[1], pos1[1] + 1, true)[1]
+    pos1[2] = vim.str_utfindex(bufline, pos1[2])
+  end
+
+  local region = {}
+  for l = pos1[1], pos2[1] do
+    local c1, c2
+    if regtype:byte() == 22 then  -- block selection: take width from regtype
+      c1 = pos1[2]
+      c2 = c1 + regtype:sub(2)
+      -- and adjust for non-ASCII characters
+      bufline = vim.api.nvim_buf_get_lines(bufnr, l, l + 1, true)[1]
+      if c1 < #bufline then
+        c1 = vim.str_byteindex(bufline, c1)
+      end
+      if c2 < #bufline then
+        c2 = vim.str_byteindex(bufline, c2)
+      end
+    else
+      c1 = (l == pos1[1]) and (pos1[2]) or 0
+      c2 = (l == pos2[1]) and (pos2[2] + (inclusive and 1 or 0)) or -1
+    end
+    table.insert(region, l, {c1, c2})
+  end
+  return region
+end
+
+--- Defers calling `fn` until `timeout` ms passes.
+---
+--- Use to do a one-shot timer that calls `fn`
+--@param fn Callback to call once `timeout` expires
+--@param timeout Number of milliseconds to wait before calling `fn`
+--@return timer luv timer object
+function vim.defer_fn(fn, timeout)
+  vim.validate { fn = { fn, 'c', true}; }
+  local timer = vim.loop.new_timer()
+  timer:start(timeout, 0, vim.schedule_wrap(function()
+    timer:stop()
+    timer:close()
+
+    fn()
+  end))
+
+  return timer
 end
 
 return module

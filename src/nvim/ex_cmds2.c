@@ -20,7 +20,7 @@
 #include "nvim/buffer.h"
 #include "nvim/change.h"
 #include "nvim/charset.h"
-#include "nvim/eval.h"
+#include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
@@ -1038,16 +1038,17 @@ static void profile_reset(void)
     if (!HASHITEM_EMPTY(hi)) {
       n--;
       ufunc_T *uf = HI2UF(hi);
-      if (uf->uf_profiling) {
+      if (uf->uf_prof_initialized) {
         uf->uf_profiling    = 0;
         uf->uf_tm_count     = 0;
         uf->uf_tm_total     = profile_zero();
         uf->uf_tm_self      = profile_zero();
         uf->uf_tm_children  = profile_zero();
 
-        XFREE_CLEAR(uf->uf_tml_count);
-        XFREE_CLEAR(uf->uf_tml_total);
-        XFREE_CLEAR(uf->uf_tml_self);
+        for (int i = 0; i < uf->uf_lines.ga_len; i++) {
+          uf->uf_tml_count[i] = 0;
+          uf->uf_tml_total[i] = uf->uf_tml_self[i] = 0;
+        }
 
         uf->uf_tml_start    = profile_zero();
         uf->uf_tml_children = profile_zero();
@@ -2394,7 +2395,7 @@ int do_in_path(char_u *path, char_u *name, int flags,
   char_u *rtp_copy = vim_strsave(path);
   char_u *buf = xmallocz(MAXPATHL);
   {
-    if (p_verbose > 1 && name != NULL) {
+    if (p_verbose > 10 && name != NULL) {
       verbose_enter();
       smsg(_("Searching for \"%s\" in \"%s\""),
            (char *)name, (char *)path);
@@ -2436,7 +2437,7 @@ int do_in_path(char_u *path, char_u *name, int flags,
           copy_option_part(&np, tail, (size_t)(MAXPATHL - (tail - buf)),
                            "\t ");
 
-          if (p_verbose > 2) {
+          if (p_verbose > 10) {
             verbose_enter();
             smsg(_("Searching for \"%s\""), buf);
             verbose_leave();
@@ -3106,7 +3107,6 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   int retval = FAIL;
   static scid_T last_current_SID = 0;
   static int last_current_SID_seq = 0;
-  void                    *save_funccalp;
   int save_debug_break_level = debug_break_level;
   scriptitem_T            *si = NULL;
   proftime_T wait_start;
@@ -3227,7 +3227,8 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
 
   // Don't use local function variables, if called from a function.
   // Also starts profiling timer for nested script.
-  save_funccalp = save_funccal();
+  funccal_entry_T funccalp_entry;
+  save_funccal(&funccalp_entry);
 
   // Check if this script was sourced before to finds its SID.
   // If it's new, generate a new SID.
@@ -3352,7 +3353,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   }
 
   current_sctx = save_current_sctx;
-  restore_funccal(save_funccalp);
+  restore_funccal();
   if (l_do_profiling == PROF_YES) {
     prof_child_exit(&wait_start);    // leaving a child now
   }

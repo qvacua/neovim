@@ -277,6 +277,32 @@ describe('startup', function()
         [4] = {bold = true, foreground = Screen.colors.Blue1},
     }})
   end)
+
+  it('fixed hang issue with --headless (#11386)', function()
+    local expected = ''
+    local period = 100
+    for i = 1, period - 1 do
+      expected = expected .. i .. '\r\n'
+    end
+    expected = expected .. period
+    eq(
+      expected,
+      -- FIXME(codehex): We should really set a timeout for the system function.
+      -- If this test fails, there will be a waiting input state.
+      funcs.system({nvim_prog, '-u', 'NONE', '-c',
+        'for i in range(1, 100) | echo i | endfor | quit',
+        '--headless'
+      })
+    )
+  end)
+
+  it("get command line arguments from v:argv", function()
+    local out = funcs.system({ nvim_prog, '-u', 'NONE', '-i', 'NONE', '--headless',
+                               '--cmd', nvim_set,
+                               '-c', [[echo v:argv[-1:] len(v:argv) > 1]],
+                               '+q' })
+    eq('[\'+q\'] 1', out)
+  end)
 end)
 
 describe('sysinit', function()

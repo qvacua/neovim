@@ -1423,6 +1423,10 @@ PREDEFINED VIM VARIABLES			*vim-variable* *v:var* *v:*
 								*E963*
 Some variables can be set by the user, but the type cannot be changed.
 
+					*v:argv* *argv-variable*
+v:argv		The command line arguments Vim was invoked with.  This is a
+		list of strings.  The first item is the Vim command.
+
 					*v:beval_col* *beval_col-variable*
 v:beval_col	The number of the column, over which the mouse pointer is.
 		This is the byte index in the |v:beval_lnum| line.
@@ -1587,6 +1591,8 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 					operation.
 			regtype		Type of register as returned by
 					|getregtype()|.
+			visual		Selection is visual (as opposed to,
+					e.g., via motion).	
 			completed_item    Current selected complete item on
 					|CompleteChanged|, Is `{}` when no complete
 					item selected.
@@ -2059,7 +2065,7 @@ chanclose({id}[, {stream}])	Number	Closes a channel or one of its streams
 chansend({id}, {data})		Number	Writes {data} to channel
 char2nr({expr}[, {utf8}])	Number	ASCII/UTF8 value of first char in {expr}
 cindent({lnum})		Number	C indent for line {lnum}
-clearmatches()			none	clear all matches
+clearmatches([{win}])		none	clear all matches
 col({expr})			Number	column nr of cursor or mark
 complete({startcol}, {matches}) none	set Insert mode completion
 complete_add({expr})		Number	add completion match
@@ -2167,7 +2173,7 @@ getjumplist([{winnr} [, {tabnr}]])
 getline({lnum})			String	line {lnum} of current buffer
 getline({lnum}, {end})		List	lines {lnum} to {end} of current buffer
 getloclist({nr} [, {what}])	List	list of location list items
-getmatches()			List	list of current matches
+getmatches([{win}])		List	list of current matches
 getpid()			Number	process ID of Vim
 getpos({expr})			List	position of cursor, mark, etc.
 getqflist([{what}])		List	list of quickfix items
@@ -2259,7 +2265,7 @@ matchadd({group}, {pattern}[, {priority}[, {id}]])
 matchaddpos({group}, {list}[, {priority}[, {id}]])
 				Number	highlight positions with {group}
 matcharg({nr})			List	arguments of |:match|
-matchdelete({id})		Number	delete match identified by {id}
+matchdelete({id} [, {win}])	Number	delete match identified by {id}
 matchend({expr}, {pat}[, {start}[, {count}]])
 				Number	position where {pat} ends in {expr}
 matchlist({expr}, {pat}[, {start}[, {count}]])
@@ -2352,7 +2358,7 @@ setfperm({fname}, {mode}	Number	set {fname} file permissions to {mode}
 setline({lnum}, {line})		Number	set line {lnum} to {line}
 setloclist({nr}, {list}[, {action}[, {what}]])
 				Number	modify location list using {list}
-setmatches({list})		Number	restore a list of matches
+setmatches({list} [, {win}])	Number	restore a list of matches
 setpos({expr}, {list})		Number	set the {expr} position to {list}
 setqflist({list}[, {action}[, {what}]]
 				Number	modify quickfix list using {list}
@@ -2600,6 +2606,7 @@ argv([{nr} [, {winid}])
 		the whole |arglist| is returned.
 
 		The {winid} argument specifies the window ID, see |argc()|.
+		For the Vim command line arguments see |v:argv|.
 
 assert_beeps({cmd})					*assert_beeps()*
 		Run {cmd} and add an error message to |v:errors| if it does
@@ -3005,9 +3012,11 @@ cindent({lnum})						*cindent()*
 		When {lnum} is invalid -1 is returned.
 		See |C-indenting|.
 
-clearmatches()						*clearmatches()*
-		Clears all matches previously defined for the current window
-		by |matchadd()| and the |:match| commands.
+clearmatches([{win}])					*clearmatches()*
+ 		Clears all matches previously defined for the current window
+ 		by |matchadd()| and the |:match| commands.
+		If {win} is specified, use the window with this number or
+		window ID instead of the current window.
 
 							*col()*
 col({expr})	The result is a Number, which is the byte index of the column
@@ -4164,6 +4173,9 @@ getbufinfo([{dict}])
 			changed		TRUE if the buffer is modified.
 			changedtick	number of changes made to the buffer.
 			hidden		TRUE if the buffer is hidden.
+			lastused	timestamp in seconds, like
+					|localtime()|, when the buffer was
+					last used.
 			listed		TRUE if the buffer is listed.
 			lnum		current line number in buffer.
 			linecount	number of lines in the buffer (only
@@ -4599,7 +4611,7 @@ getloclist({nr},[, {what}])				*getloclist()*
 		field is applicable only when called from a location list
 		window.
 
-getmatches()						*getmatches()*
+getmatches([{win}])					*getmatches()*
 		Returns a |List| with all matches previously defined for the
 		current window by |matchadd()| and the |:match| commands.
 		|getmatches()| is useful in combination with |setmatches()|,
@@ -5494,6 +5506,11 @@ jobstart({cmd}[, {opts}])				*jobstart()*
 			      stdout data.
 		  |on_stderr|:  (function) Callback invoked when the job emits
 			      stderr data.
+		  overlapped: (boolean) Set FILE_FLAG_OVERLAPPED for the
+			      standard input/output passed to the child process.
+			      Normally you do not need to set this.
+			      (Only available on MS-Windows, On other
+			      platforms, this option is silently ignored.)
 		  pty:	      (boolean) Connect the job to a new pseudo
 			      terminal, and its streams to the master file
 			      descriptor. Then  `on_stderr` is ignored,
@@ -5823,6 +5840,7 @@ maparg({name} [, {mode} [, {abbr} [, {dict}]]])			*maparg()*
 		  "rhs"	     The {rhs} of the mapping as typed.
 		  "silent"   1 for a |:map-silent| mapping, else 0.
 		  "noremap"  1 if the {rhs} of the mapping is not remappable.
+		  "script"   1 if mapping was defined with <script>.
 		  "expr"     1 for an expression mapping (|:map-<expr>|).
 		  "buffer"   1 for a buffer local mapping (|:map-local|).
 		  "mode"     Modes for which the mapping is defined. In
@@ -5940,7 +5958,7 @@ matchadd({group}, {pattern}[, {priority}[, {id} [, {dict}]]])
 		Defines a pattern to be highlighted in the current window (a
 		"match").  It will be highlighted with {group}.  Returns an
 		identification number (ID), which can be used to delete the
-		match using |matchdelete()|.
+		match using |matchdelete()|.  The ID is bound to the window.
 		Matching is case sensitive and magic, unless case sensitivity
 		or magicness are explicitly overridden in {pattern}.  The
 		'magic', 'smartcase' and 'ignorecase' options are not used.
@@ -6040,11 +6058,13 @@ matcharg({nr})							*matcharg()*
 		Highlighting matches using the |:match| commands are limited
 		to three matches. |matchadd()| does not have this limitation.
 
-matchdelete({id})			       *matchdelete()* *E802* *E803*
+matchdelete({id} [, {win})		       *matchdelete()* *E802* *E803*
 		Deletes a match with ID {id} previously defined by |matchadd()|
 		or one of the |:match| commands.  Returns 0 if successful,
 		otherwise -1.  See example for |matchadd()|.  All matches can
 		be deleted in one operation by |clearmatches()|.
+		If {win} is specified, use the window with this number or
+		window ID instead of the current window.
 
 matchend({expr}, {pat} [, {start} [, {count}]])			*matchend()*
 		Same as |match()|, but return the index of first character
@@ -6686,6 +6706,33 @@ range({expr} [, {max} [, {stride}]])				*range()*
 			range(0)		" []
 			range(2, 0)		" error!
 <
+							*readdir()*
+readdir({directory} [, {expr}])
+		Return a list with file and directory names in {directory}.
+
+		When {expr} is omitted all entries are included.
+		When {expr} is given, it is evaluated to check what to do:
+			If {expr} results in -1 then no further entries will
+			be handled.
+			If {expr} results in 0 then this entry will not be
+			added to the list.
+			If {expr} results in 1 then this entry will be added
+			to the list.
+		Each time {expr} is evaluated |v:val| is set to the entry name.
+		When {expr} is a function the name is passed as the argument.
+		For example, to get a list of files ending in ".txt": >
+		  readdir(dirname, {n -> n =~ '.txt$'})
+<		To skip hidden and backup files: >
+		  readdir(dirname, {n -> n !~ '^\.\|\~$'})
+
+<		If you want to get a directory tree: >
+                  function! s:tree(dir)
+                      return {a:dir : map(readdir(a:dir),
+		      \ {_, x -> isdirectory(x) ?
+		      \          {x : s:tree(a:dir . '/' . x)} : x})}
+                  endfunction
+                  echo s:tree(".")
+<
 							*readfile()*
 readfile({fname} [, {binary} [, {max}]])
 		Read file {fname} and return a |List|, each line of the file
@@ -6716,17 +6763,6 @@ readfile({fname} [, {binary} [, {max}]])
 		When the file can't be opened an error message is given and
 		the result is an empty list.
 		Also see |writefile()|.
-
-							*readdir()*
-readdir({directory} [, {expr}])
-		Return a list with file and directory names in {directory}.
-		You can also use |glob()| if you don't need to do complicated
-		things, such as limiting the number of matches.
-
-		When {expr} is omitted all entries are included.
-		When {expr} is given, it is evaluated to check what to do:
-			If {expr} results in -1 then no further entries will
-			be handled.
 
 reg_executing()						*reg_executing()*
 		Returns the single letter name of the register being executed.
@@ -7401,11 +7437,13 @@ setloclist({nr}, {list}[, {action}[, {what}]])		*setloclist()*
 		only the items listed in {what} are set. Refer to |setqflist()|
 		for the list of supported keys in {what}.
 
-setmatches({list})					*setmatches()*
+setmatches({list} [, {win}])				*setmatches()*
 		Restores a list of matches saved by |getmatches() for the
 		current window|.  Returns 0 if successful, otherwise -1.  All
 		current matches are cleared before the list is restored.  See
 		example for |getmatches()|.
+		If {win} is specified, use the window with this number or
+		window ID instead of the current window.
 
 							*setpos()*
 setpos({expr}, {list})

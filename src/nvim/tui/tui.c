@@ -31,7 +31,11 @@
 #include "nvim/event/signal.h"
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
+#include "nvim/os/signal.h"
 #include "nvim/os/tty.h"
+#ifdef WIN32
+# include "nvim/os/os_win_console.h"
+#endif
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/ui_bridge.h"
@@ -48,10 +52,15 @@
 #define OUTBUF_SIZE 0xffff
 
 #define TOO_MANY_EVENTS 1000000
-#define STARTS_WITH(str, prefix) (strlen(str) >= (sizeof(prefix) - 1) \
-    && 0 == memcmp((str), (prefix), sizeof(prefix) - 1))
-#define TMUX_WRAP(is_tmux, seq) ((is_tmux) \
-    ? "\x1bPtmux;\x1b" seq "\x1b\\" : seq)
+#define STARTS_WITH(str, prefix) \
+  (strlen(str) >= (sizeof(prefix) - 1) && 0 == memcmp((str), (prefix), \
+                                                      sizeof(prefix) - 1))
+#define SCREEN_WRAP(is_screen, seq) ((is_screen) \
+                                     ? DCS_STR seq STERM_STR : seq)
+#define SCREEN_TMUX_WRAP(is_screen, is_tmux, seq) \
+    ((is_screen) \
+     ? DCS_STR seq STERM_STR : (is_tmux) \
+     ? DCS_STR "tmux;\x1b" seq STERM_STR : seq)
 #define LINUXSET0C "\x1b[?0c"
 #define LINUXSET1C "\x1b[?1c"
 
@@ -1009,8 +1018,22 @@ static void tui_mouse_on(UI *ui)
 {
   TUIData *data = ui->data;
   if (!data->mouse_enabled) {
+#ifdef WIN32
+    // Windows versions with vtp(ENABLE_VIRTUAL_TERMINAL_PROCESSING) and
+    // no vti(ENABLE_VIRTUAL_TERMINAL_INPUT) will need to use mouse traking of
+    // libuv. For this reason, vtp (vterm) state of libuv is temporarily
+    // disabled because the control sequence needs to be processed by libuv
+    // instead of Windows vtp.
+    // ref. https://docs.microsoft.com/en-us/windows/console/setconsolemode
+    flush_buf(ui);
+    os_set_vtp(false);
+#endif
     unibi_out_ext(ui, data->unibi_ext.enable_mouse);
     data->mouse_enabled = true;
+#ifdef WIN32
+    flush_buf(ui);
+    os_set_vtp(true);
+#endif
   }
 }
 
@@ -1018,8 +1041,22 @@ static void tui_mouse_off(UI *ui)
 {
   TUIData *data = ui->data;
   if (data->mouse_enabled) {
+#ifdef WIN32
+    // Windows versions with vtp(ENABLE_VIRTUAL_TERMINAL_PROCESSING) and
+    // no vti(ENABLE_VIRTUAL_TERMINAL_INPUT) will need to use mouse traking of
+    // libuv. For this reason, vtp (vterm) state of libuv is temporarily
+    // disabled because the control sequence needs to be processed by libuv
+    // instead of Windows vtp.
+    // ref. https://docs.microsoft.com/en-us/windows/console/setconsolemode
+    flush_buf(ui);
+    os_set_vtp(false);
+#endif
     unibi_out_ext(ui, data->unibi_ext.disable_mouse);
     data->mouse_enabled = false;
+#ifdef WIN32
+    flush_buf(ui);
+    os_set_vtp(true);
+#endif
   }
 }
 
@@ -1239,7 +1276,9 @@ static void suspend_event(void **argv)
   tui_terminal_stop(ui);
   data->cont_received = false;
   stream_set_blocking(input_global_fd(), true);   // normalize stream (#2598)
+  signal_stop();
   kill(0, SIGTSTP);
+  signal_start();
   while (!data->cont_received) {
     // poll the event loop until SIGCONT is received
     loop_poll_events(data->loop, -1);
@@ -1552,6 +1591,10 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
   bool mate_pretending_xterm = xterm && colorterm
     && strstr(colorterm, "mate-terminal");
   bool true_xterm = xterm && !!xterm_version && !bsdvt;
+  bool true_screen = screen && !os_getenv("TMUX");
+  bool screen_host_linuxvt =
+    terminfo_is_term_family(true_screen && term[6] == '.'
+                            ? term + 7 : NULL, "linux");
   bool cygwin = terminfo_is_term_family(term, "cygwin");
 
   char *fix_normal = (char *)unibi_get_str(ut, unibi_cursor_normal);
@@ -1637,6 +1680,11 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
     // per the screen manual; 2017-04 terminfo.src lacks these.
     unibi_set_if_empty(ut, unibi_to_status_line, "\x1b_");
     unibi_set_if_empty(ut, unibi_from_status_line, "\x1b\\");
+    // Fix an issue where smglr is inherited by TERM=screen.xterm.
+    if (unibi_get_str(ut, unibi_set_lr_margin)) {
+      ILOG("Disabling smglr with TERM=screen.xterm for screen.");
+      unibi_set_str(ut, unibi_set_lr_margin, NULL);
+    }
   } else if (tmux) {
     unibi_set_if_empty(ut, unibi_to_status_line, "\x1b_");
     unibi_set_if_empty(ut, unibi_from_status_line, "\x1b\\");
@@ -1689,8 +1737,10 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
 #define XTERM_SETAB_16 \
   "\x1b[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e39%;m"
 
-  data->unibi_ext.get_bg = (int)unibi_add_ext_str(ut, "ext.get_bg",
-                                                  "\x1b]11;?\x07");
+  data->unibi_ext.get_bg =
+    (int)unibi_add_ext_str(ut, "ext.get_bg",
+                           SCREEN_TMUX_WRAP(true_screen,
+                                            tmux, "\x1b]11;?\x07"));
 
   // Terminals with 256-colour SGR support despite what terminfo says.
   if (unibi_get_num(ut, unibi_max_colors) < 256) {
@@ -1725,6 +1775,32 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
     data->unibi_ext.set_cursor_style = unibi_find_ext_str(ut, "Ss");
   }
 
+  // GNU Screen does not have Ss/Se. When terminfo has Ss/Se, it is wrapped with
+  // DCS because it is inherited from the host terminal.
+  if (true_screen) {
+    size_t len;
+    size_t dcs_st_len = strlen(DCS_STR) + strlen(STERM_STR);
+    if (-1 != data->unibi_ext.set_cursor_style) {
+      const char *orig_ss =
+        unibi_get_ext_str(data->ut, (size_t)data->unibi_ext.reset_cursor_style);
+      len = STRLEN(orig_ss) + dcs_st_len + 1;
+      char *ss = xmalloc(len);
+      snprintf(ss, len, "%s%s%s", DCS_STR, orig_ss, STERM_STR);
+      unibi_set_ext_str(data->ut, (size_t)data->unibi_ext.set_cursor_style, ss);
+      xfree(ss);
+    }
+    if (-1 != data->unibi_ext.reset_cursor_style) {
+      const char *orig_se =
+        unibi_get_ext_str(data->ut, (size_t)data->unibi_ext.reset_cursor_style);
+      len = strlen(orig_se) + dcs_st_len + 1;
+      char *se = xmalloc(len);
+      snprintf(se, len, "%s%s%s", DCS_STR, orig_se, STERM_STR);
+      unibi_set_ext_str(data->ut,
+                        (size_t)data->unibi_ext.reset_cursor_style, se);
+      xfree(se);
+    }
+  }
+
   // Dickey ncurses terminfo includes Ss/Se capabilities since 2011-07-14. So
   // adding them to terminal types, that have such control sequences but lack
   // the correct terminfo entries, is a fixup, not an augmentation.
@@ -1740,7 +1816,12 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
             || (konsolev >= 180770)  // #9364
             || tmux       // per tmux manual page
             // https://lists.gnu.org/archive/html/screen-devel/2013-03/msg00000.html
-            || screen
+            || (true_screen
+                && (!screen_host_linuxvt
+                    || (screen_host_linuxvt
+                        && (xterm_version || (vte_version > 0) || colorterm))))
+            // Since GNU Screen does not support DECSCUSR, DECSCUSR is wrapped
+            // in DCS and output to the host terminal.
             || st         // #7641
             || rxvt       // per command.C
             // per analysis of VT100Terminal.m
@@ -1753,58 +1834,72 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
             || (linuxvt
                 && (xterm_version || (vte_version > 0) || colorterm)))) {
       data->unibi_ext.set_cursor_style =
-        (int)unibi_add_ext_str(ut, "Ss", "\x1b[%p1%d q");
+        (int)unibi_add_ext_str(ut, "Ss",
+                               SCREEN_WRAP(true_screen, "\x1b[%p1%d q"));
       if (-1 == data->unibi_ext.reset_cursor_style) {
           data->unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, "Se",
                                                                       "");
       }
       unibi_set_ext_str(ut, (size_t)data->unibi_ext.reset_cursor_style,
-                        "\x1b[ q");
-    } else if (linuxvt) {
+                        SCREEN_WRAP(true_screen, "\x1b[ q"));
+    } else if (linuxvt || screen_host_linuxvt) {
       // Linux uses an idiosyncratic escape code to set the cursor shape and
       // does not support DECSCUSR.
       // See http://linuxgazette.net/137/anonymous.html for more info
-      data->unibi_ext.set_cursor_style = (int)unibi_add_ext_str(ut, "Ss",
-          "\x1b[?"
-          "%?"
-          // The parameter passed to Ss is the DECSCUSR parameter, so the
-          // terminal capability has to translate into the Linux idiosyncratic
-          // parameter.
-          //
-          // linuxvt only supports block and underline. It is also only
-          // possible to have a steady block (no steady underline)
-          "%p1%{2}%<" "%t%{8}"       // blink block
-          "%e%p1%{2}%=" "%t%{112}"   // steady block
-          "%e%p1%{3}%=" "%t%{4}"     // blink underline (set to half block)
-          "%e%p1%{4}%=" "%t%{4}"     // steady underline
-          "%e%p1%{5}%=" "%t%{2}"     // blink bar (set to underline)
-          "%e%p1%{6}%=" "%t%{2}"     // steady bar
-          "%e%{0}"                   // anything else
-          "%;" "%dc");
+      //
+      // Since gnu Screen does not have Ss/Se, if the host terminal is a linux
+      // console that does not support xterm extensions, it will wraps the
+      // linux-specific sequence in DCS and outputs it.
+      data->unibi_ext.set_cursor_style = (int)unibi_add_ext_str(
+          ut, "Ss",
+          SCREEN_WRAP(true_screen,
+                      "\x1b[?"
+                      "%?"
+                      // The parameter passed to Ss is the DECSCUSR parameter,
+                      // so the
+                      // terminal capability has to translate into the Linux
+                      // idiosyncratic parameter.
+                      //
+                      // linuxvt only supports block and underline. It is also
+                      // only possible to have a steady block (no steady
+                      // underline)
+                      "%p1%{2}%<" "%t%{8}"       // blink block
+                      "%e%p1%{2}%=" "%t%{112}"   // steady block
+                      "%e%p1%{3}%=" "%t%{4}"     // blink underline (set to half
+                                                 // block)
+                      "%e%p1%{4}%=" "%t%{4}"     // steady underline
+                      "%e%p1%{5}%=" "%t%{2}"     // blink bar (set to underline)
+                      "%e%p1%{6}%=" "%t%{2}"     // steady bar
+                      "%e%{0}"                   // anything else
+                      "%;" "%dc"));
       if (-1 == data->unibi_ext.reset_cursor_style) {
           data->unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, "Se",
                                                                       "");
       }
       unibi_set_ext_str(ut, (size_t)data->unibi_ext.reset_cursor_style,
-                        "\x1b[?c");
+                        SCREEN_WRAP(true_screen, "\x1b[?c"));
     } else if (konsolev > 0 && konsolev < 180770) {
       // Konsole before version 18.07.70: set up a nonce profile. This has
       // side-effects on temporary font resizing. #6798
-      data->unibi_ext.set_cursor_style = (int)unibi_add_ext_str(ut, "Ss",
-          TMUX_WRAP(tmux, "\x1b]50;CursorShape=%?"
-          "%p1%{3}%<" "%t%{0}"    // block
-          "%e%p1%{5}%<" "%t%{2}"  // underline
-          "%e%{1}"                // everything else is bar
-          "%;%d;BlinkingCursorEnabled=%?"
-          "%p1%{1}%<" "%t%{1}"  // Fortunately if we exclude zero as special,
-          "%e%p1%{1}%&"  // in all other cases we can treat bit #0 as a flag.
-          "%;%d\x07"));
+      data->unibi_ext.set_cursor_style = (int)unibi_add_ext_str(
+          ut, "Ss",
+          SCREEN_TMUX_WRAP(true_screen, tmux,
+                           "\x1b]50;CursorShape=%?"
+                           "%p1%{3}%<" "%t%{0}"    // block
+                           "%e%p1%{5}%<" "%t%{2}"  // underline
+                           "%e%{1}"                // everything else is bar
+                           "%;%d;BlinkingCursorEnabled=%?"
+                           "%p1%{1}%<" "%t%{1}"  // Fortunately if we exclude
+                                                 // zero as special,
+                           "%e%p1%{1}%&"  // in all other c2ses we can treat bit
+                                          // #0 as a flag.
+                           "%;%d\x07"));
       if (-1 == data->unibi_ext.reset_cursor_style) {
           data->unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, "Se",
                                                                       "");
       }
       unibi_set_ext_str(ut, (size_t)data->unibi_ext.reset_cursor_style,
-          "\x1b]50;\x07");
+                        SCREEN_TMUX_WRAP(true_screen, tmux, "\x1b]50;\x07"));
     }
   }
 }
@@ -1836,6 +1931,10 @@ static void augment_terminfo(TUIData *data, const char *term,
 
   const char *xterm_version = os_getenv("XTERM_VERSION");
   bool true_xterm = xterm && !!xterm_version && !bsdvt;
+  bool true_screen = screen && !os_getenv("TMUX");
+  bool screen_host_rxvt =
+    terminfo_is_term_family(true_screen
+                            && term[6] == '.' ? term + 7 : NULL, "rxvt");
 
   // Only define this capability for terminal types that we know understand it.
   if (dtterm         // originated this extension
@@ -1902,8 +2001,8 @@ static void augment_terminfo(TUIData *data, const char *term,
     // all panes, which is not particularly desirable.  A better approach
     // would use a tmux control sequence and an extra if(screen) test.
     data->unibi_ext.set_cursor_color = (int)unibi_add_ext_str(
-        ut, NULL, TMUX_WRAP(tmux, "\033]Pl%p1%06x\033\\"));
-  } else if ((xterm || rxvt || alacritty)
+        ut, NULL, SCREEN_TMUX_WRAP(true_screen, tmux, "\033]Pl%p1%06x\033\\"));
+  } else if ((xterm || rxvt || tmux || alacritty)
              && (vte_version == 0 || vte_version >= 3900)) {
     // Supported in urxvt, newer VTE.
     data->unibi_ext.set_cursor_color = (int)unibi_add_ext_str(
@@ -1922,21 +2021,27 @@ static void augment_terminfo(TUIData *data, const char *term,
 
   /// Terminals usually ignore unrecognized private modes, and there is no
   /// known ambiguity with these. So we just set them unconditionally.
+  /// If the DECSET is not supported by GNU Screen, it is wrapped with DCS and
+  /// sent to the host terminal.
   data->unibi_ext.enable_lr_margin = (int)unibi_add_ext_str(
       ut, "ext.enable_lr_margin", "\x1b[?69h");
   data->unibi_ext.disable_lr_margin = (int)unibi_add_ext_str(
       ut, "ext.disable_lr_margin", "\x1b[?69l");
   data->unibi_ext.enable_bracketed_paste = (int)unibi_add_ext_str(
-      ut, "ext.enable_bpaste", "\x1b[?2004h");
+      ut, "ext.enable_bpaste", SCREEN_WRAP(true_screen, "\x1b[?2004h"));
   data->unibi_ext.disable_bracketed_paste = (int)unibi_add_ext_str(
-      ut, "ext.disable_bpaste", "\x1b[?2004l");
+      ut, "ext.disable_bpaste", SCREEN_WRAP(true_screen, "\x1b[?2004l"));
   // For urxvt send BOTH xterm and old urxvt sequences. #8695
   data->unibi_ext.enable_focus_reporting = (int)unibi_add_ext_str(
       ut, "ext.enable_focus",
-      rxvt ? "\x1b[?1004h\x1b]777;focus;on\x7" : "\x1b[?1004h");
+      (rxvt || screen_host_rxvt)
+      ? SCREEN_WRAP(true_screen, "\x1b[?1004h\x1b]777;focus;on\x7")
+      : SCREEN_WRAP(true_screen, "\x1b[?1004h"));
   data->unibi_ext.disable_focus_reporting = (int)unibi_add_ext_str(
       ut, "ext.disable_focus",
-      rxvt ? "\x1b[?1004l\x1b]777;focus;off\x7" : "\x1b[?1004l");
+      (rxvt || screen_host_rxvt)
+      ? SCREEN_WRAP(true_screen, "\x1b[?1004l\x1b]777;focus;off\x7")
+      : SCREEN_WRAP(true_screen, "\x1b[?1004l"));
   data->unibi_ext.enable_mouse = (int)unibi_add_ext_str(
       ut, "ext.enable_mouse", "\x1b[?1002h\x1b[?1006h");
   data->unibi_ext.disable_mouse = (int)unibi_add_ext_str(
@@ -1968,7 +2073,23 @@ static void flush_buf(UI *ui)
   uv_buf_t *bufp = &bufs[0];
   TUIData *data = ui->data;
 
-  if (data->bufpos <= 0 && data->busy == data->is_invisible) {
+  // The content of the output for each condition is shown in the following
+  // table. Therefore, if data->bufpos == 0 and N/A or invis + norm, there is
+  // no need to output it.
+  //
+  //                         | is_invisible | !is_invisible
+  // ------+-----------------+--------------+---------------
+  // busy  | want_invisible  |     N/A      |    invis
+  //       | !want_invisible |     N/A      |    invis
+  // ------+-----------------+--------------+---------------
+  // !busy | want_invisible  |     N/A      |    invis
+  //       | !want_invisible |     norm     | invis + norm
+  // ------+-----------------+--------------+---------------
+  //
+  if (data->bufpos <= 0
+      && ((data->is_invisible && data->busy)
+          || (data->is_invisible && !data->busy && data->want_invisible)
+          || (!data->is_invisible && !data->busy && !data->want_invisible))) {
     return;
   }
 
@@ -1995,8 +2116,8 @@ static void flush_buf(UI *ui)
       bufp->base = data->norm;
       bufp->len = UV_BUF_LEN(data->normlen);
       bufp++;
+      data->is_invisible = false;
     }
-    data->is_invisible = false;
   }
 
   uv_write(&req, STRUCT_CAST(uv_stream_t, &data->output_handle),

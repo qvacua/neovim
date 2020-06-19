@@ -16,7 +16,7 @@
 #include "nvim/ex_eval.h"
 #include "nvim/charset.h"
 #include "nvim/eval.h"
-#include "nvim/eval/typval.h"
+#include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/message.h"
@@ -508,7 +508,7 @@ static int throw_exception(void *value, except_type_T type, char_u *cmdname)
 
 nomem:
   xfree(excp);
-  suppress_errthrow = TRUE;
+  suppress_errthrow = true;
   EMSG(_(e_outofmem));
 fail:
   current_exception = NULL;

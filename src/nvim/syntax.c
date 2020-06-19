@@ -6400,7 +6400,7 @@ static int color_numbers_88[28] = { 0, 4, 2, 6,
   75, 11, 78, 15, -1 };
 // for xterm with 256 colors...
 static int color_numbers_256[28] = { 0, 4, 2, 6,
-  1, 5, 130, 130,
+  1, 5, 130, 3,
   248, 248, 7, 7,
   242, 242,
   12, 81, 10, 121,
@@ -7444,6 +7444,8 @@ static int syn_add_group(char_u *name)
     return 0;
   }
 
+  char_u *const name_up = vim_strsave_up(name);
+
   // Append another syntax_highlight entry.
   struct hl_group* hlgp = GA_APPEND_VIA_PTR(struct hl_group, &highlight_ga);
   memset(hlgp, 0, sizeof(*hlgp));
@@ -7452,7 +7454,7 @@ static int syn_add_group(char_u *name)
   hlgp->sg_rgb_fg = -1;
   hlgp->sg_rgb_sp = -1;
   hlgp->sg_blend = -1;
-  hlgp->sg_name_u = vim_strsave_up(name);
+  hlgp->sg_name_u = name_up;
 
   return highlight_ga.ga_len;               /* ID is index plus one */
 }

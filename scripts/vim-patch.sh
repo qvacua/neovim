@@ -5,6 +5,12 @@ set -u
 # Use privileged mode, which e.g. skips using CDPATH.
 set -p
 
+# Ensure that the user has a bash that supports -A
+if [[ "${BASH_VERSINFO[0]}" -lt 4  ]]; then
+  >&2 echo "error: script requires bash 4+ (you have ${BASH_VERSION})."
+  exit 1
+fi
+
 readonly NVIM_SOURCE_DIR="${NVIM_SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 readonly VIM_SOURCE_DIR_DEFAULT="${NVIM_SOURCE_DIR}/.vim-src"
 readonly VIM_SOURCE_DIR="${VIM_SOURCE_DIR:-${VIM_SOURCE_DIR_DEFAULT}}"
@@ -23,6 +29,7 @@ usage() {
   echo "    -h                 Show this message and exit."
   echo "    -l [git-log opts]  List missing Vim patches."
   echo "    -L [git-log opts]  List missing Vim patches (for scripts)."
+  echo "    -m {vim-revision}  List previous (older) missing Vim patches."
   echo "    -M                 List all merged patch-numbers (at current v:version)."
   echo "    -p {vim-revision}  Download and generate a Vim patch. vim-revision"
   echo "                       can be a Vim version (8.0.xxx) or a Git hash."
@@ -427,7 +434,7 @@ _set_tokens_and_tags() {
 }
 
 # Prints a newline-delimited list of Vim commits, for use by scripts.
-# "$1": use extended format?
+# "$1": use extended format? (with subject)
 # "$@" is passed to list_vim_commits, as extra arguments to git-log.
 list_missing_vimpatches() {
   local -a missing_vim_patches=()
@@ -441,6 +448,8 @@ list_missing_vimpatches() {
 
 # Sets / appends to missing_vim_patches (useful to avoid a subshell when
 # used multiple times to cache tokens/vim_commit_tags).
+# "$1": use extended format? (with subject)
+# "$@": extra arguments to git-log.
 _set_missing_vimpatches() {
   local token vim_commit vim_tag patch_number
   declare -a git_log_args
@@ -581,6 +590,7 @@ list_missing_previous_vimpatches_for_patch() {
   set +u  # Avoid "unbound variable" with bash < 4.4 below.
   if [[ -z "${missing_list[*]}" ]]; then
     msg_ok 'no missing previous Vim patches'
+    set -u
     return 0
   fi
   set -u
@@ -670,9 +680,11 @@ review_pr() {
   echo
   echo "Downloading data for pull request #${pr}."
 
-  local pr_commit_urls=(
-    "$(curl -Ssf "https://api.github.com/repos/neovim/neovim/pulls/${pr}/commits" \
-      | jq -r '.[].html_url')")
+  local -a pr_commit_urls
+  while IFS= read -r pr_commit_url; do
+    pr_commit_urls+=("$pr_commit_url")
+  done < <(curl -Ssf "https://api.github.com/repos/neovim/neovim/pulls/${pr}/commits" \
+    | jq -r '.[].html_url')
 
   echo "Found ${#pr_commit_urls[@]} commit(s)."
 

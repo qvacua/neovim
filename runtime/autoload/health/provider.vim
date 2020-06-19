@@ -581,7 +581,7 @@ function! s:check_ruby() abort
   endif
   call health#report_info('Host: '. host)
 
-  let latest_gem_cmd = has('win32') ? 'cmd /c gem list -ra ^^neovim$' : 'gem list -ra ^neovim$'
+  let latest_gem_cmd = has('win32') ? 'cmd /c gem list -ra "^^neovim$"' : 'gem list -ra ^neovim$'
   let latest_gem = s:system(split(latest_gem_cmd))
   if s:shell_error || empty(latest_gem)
     call health#report_error('Failed to run: '. latest_gem_cmd,
@@ -589,7 +589,7 @@ function! s:check_ruby() abort
           \  'Are you behind a firewall or proxy?'])
     return
   endif
-  let latest_gem = get(split(latest_gem, 'neovim (\|, \|)$' ), 1, 'not found')
+  let latest_gem = get(split(latest_gem, 'neovim (\|, \|)$' ), 0, 'not found')
 
   let current_gem_cmd = host .' --version'
   let current_gem = s:system(current_gem_cmd)

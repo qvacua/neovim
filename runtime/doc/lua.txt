@@ -693,6 +693,41 @@ identical identifiers, highlighting both as |hl-WarningMsg|: >
      (eq? @WarningMsg.left @WarningMsg.right))
 
 ------------------------------------------------------------------------------
+VIM.HIGHLIGHT                  				*lua-highlight*
+
+Nvim includes a function for highlighting a selection on yank (see for example
+https://github.com/machakann/vim-highlightedyank). To enable it, add
+>
+ au TextYankPost * silent! lua require'vim.highlight'.on_yank()
+<
+to your `init.vim`. You can customize the highlight group and the duration of
+the highlight via
+>
+ au TextYankPost * silent! lua require'vim.highlight'.on_yank("IncSearch", 500)
+<
+If you want to exclude visual selections from highlighting on yank, use
+>
+au TextYankPost * silent! lua return (not vim.v.event.visual) and require'vim.highlight'.on_yank()
+<
+
+vim.highlight.on_yank([{higroup}, {timeout}, {event}]) 
+                                                    *vim.highlight.on_yank()*
+        Highlights the yanked text. Optional arguments are the highlight group
+        to use ({higroup}, default `"IncSearch"`), the duration of highlighting
+        in milliseconds ({timeout}, default `500`), and the event structure 
+        that is fired ({event}, default `vim.v.event`).
+
+
+vim.highlight.range({bufnr}, {ns}, {higroup}, {start}, {finish}, {rtype}, {inclusive})
+                                                       *vim.highlight.range()*
+        Highlights the range between {start} and {finish} (tuples of {line,col})
+        in buffer {bufnr} with the highlight group {higroup} using the namespace
+        {ns}. Optional arguments are the type of range (characterwise, linewise,
+        or blockwise, see |setreg|; default to characterwise) and whether the
+        range is inclusive (default false).
+
+
+------------------------------------------------------------------------------
 VIM.REGEX							*lua-regex*
 
 Vim regexes can be used directly from lua. Currently they only allow
@@ -758,6 +793,14 @@ vim.empty_dict()					    *vim.empty_dict()*
 	Note: if numeric keys are added to the table, the metatable will be
 	ignored and the dict converted to a list/array anyway.
 
+vim.region({bufnr}, {pos1}, {pos2}, {type}, {inclusive})       *vim.region()*
+        Converts a selection specified by the buffer ({bufnr}), starting
+        position ({pos1}, a zero-indexed pair `{line1,column1}`), ending
+        position ({pos2}, same format as {pos1}), the type of the register
+        for the selection ({type}, see |regtype|), and a boolean indicating
+        whether the selection is inclusive or not, into a zero-indexed table 
+        of linewise selections of the form `{linenr = {startcol, endcol}}` .
+
 vim.rpcnotify({channel}, {method}[, {args}...])		    *vim.rpcnotify()*
 	Sends {event} to {channel} via |RPC| and returns immediately.
 	If {channel} is 0, the event is broadcast to all channels.
@@ -797,6 +840,62 @@ vim.str_byteindex({str}, {index}[, {use_utf16}])	*vim.str_byteindex()*
 vim.schedule({callback})				*vim.schedule()*
         Schedules {callback} to be invoked soon by the main event-loop. Useful
         to avoid |textlock| or other temporary restrictions.
+
+
+vim.defer_fn({fn}, {timeout})                                    *vim.defer_fn*
+    Defers calling {fn} until {timeout} ms passes.  Use to do a one-shot timer
+    that calls {fn}.
+
+    Parameters: ~
+        {fn}        Callback to call once {timeout} expires
+        {timeout}   Time in ms to wait before calling {fn}
+
+    Returns: ~
+        |vim.loop|.new_timer() object
+
+vim.wait({time}, {callback} [, {interval}])                         *vim.wait()*
+        Wait for {time} in milliseconds until {callback} returns `true`.
+
+        Executes {callback} immediately and at approximately {interval}
+        milliseconds (default 200). Nvim still processes other events during
+        this time.
+
+
+    Returns: ~
+        If {callback} returns `true` during the {time}:
+            `true, nil`
+
+        If {callback} never returns `true` during the {time}:
+            `false, -1`
+
+        If {callback} is interrupted during the {time}:
+            `false, -2`
+
+        If {callback} errors, the error is raised.
+
+        Examples: >
+
+    ---
+    -- Wait for 100 ms, allowing other events to process
+    vim.wait(100, function() end)
+
+    ---
+    -- Wait for 100 ms or until global variable set.
+    vim.wait(100, function() return vim.g.waiting_for_var end)
+
+    ---
+    -- Wait for 1 second or until global variable set, checking every ~500 ms
+    vim.wait(1000, function() return vim.g.waiting_for_var end, 500)
+
+    ---
+    -- Schedule a function to set a value in 100ms
+    vim.defer_fn(function() vim.g.timer_result = true end, 100)
+
+    -- Would wait ten seconds if results blocked. Actually only waits  100 ms
+    if vim.wait(10000, function() return vim.g.timer_result end) then
+      print('Only waiting a little bit of time!')
+    end
+<
 
 vim.fn.{func}({...})					*vim.fn*
         Invokes |vim-function| or |user-function| {func} with arguments {...}.
@@ -848,6 +947,66 @@ vim.types						*vim.types*
 	values corresponding to `vim.types.float`, `vim.types.array` and 
 	`vim.types.dictionary` will not change or that `vim.types` table will 
 	only contain values for these three types.
+
+==============================================================================
+Vim Internal Variables                              *lua-vim-internal-variables*
+
+Built-in Vim dictionaries can be accessed and set idiomatically in Lua by each
+of the following tables.
+
+To set a value: >
+
+  vim.g.my_global_variable = 5
+<
+
+To read a value: >
+
+  print(vim.g.my_global_variable)
+<
+
+To delete a value: >
+
+  vim.g.my_global_variable = nil
+<
+
+vim.g                                                                 *vim.g*
+        Table with values from |g:|
+        Keys with no values set will result in `nil`.
+
+vim.b                                                                 *vim.b*
+        Gets a buffer-scoped (b:) variable for the current buffer.
+        Keys with no values set will result in `nil`.
+
+vim.w                                                                 *vim.w*
+        Gets a window-scoped (w:) variable for the current window.
+        Keys with no values set will result in `nil`.
+
+vim.t                                                                 *vim.t*
+        Gets a tabpage-scoped (t:) variable for the current table.
+        Keys with no values set will result in `nil`.
+
+vim.v                                                                 *vim.v*
+        Gets a v: variable.
+        Keys with no values set will result in `nil`.
+
+
+Vim Internal Options                                *lua-vim-internal-options*
+
+Read, set and clear vim |options| in Lua by each of the following tables.
+
+
+vim.o                                                                 *vim.o*
+        Table with values from |options|
+        Invalid keys will result in an error.
+
+vim.bo                                                                *vim.bo*
+        Gets a buffer-scoped option for the current buffer.
+        Invalid keys will result in an error.
+
+vim.wo                                                                *vim.wo*
+        Gets a window-scoped option for the current window.
+        Invalid keys will result in an error.
+
 
 ==============================================================================
 Lua module: vim                                                      *lua-vim*
@@ -908,7 +1067,10 @@ deep_equal({a}, {b})                                        *vim.deep_equal()*
 deepcopy({orig})                                              *vim.deepcopy()*
                 Returns a deep copy of the given object. Non-table objects are
                 copied as in a typical Lua assignment, whereas table objects
-                are copied recursively.
+                are copied recursively. Functions are naively copied, so
+                functions in the copied table point to the same functions as
+                those in the input table. Userdata and threads are not copied
+                and will throw an error.
 
                 Parameters: ~
                     {orig}  Table to copy

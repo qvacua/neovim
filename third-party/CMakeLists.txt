@@ -35,7 +35,6 @@ option(USE_BUNDLED_LIBTERMKEY "Use the bundled libtermkey." ${USE_BUNDLED})
 option(USE_BUNDLED_LIBVTERM "Use the bundled libvterm." ${USE_BUNDLED})
 option(USE_BUNDLED_LIBUV "Use the bundled libuv." ${USE_BUNDLED})
 option(USE_BUNDLED_MSGPACK "Use the bundled msgpack." ${USE_BUNDLED})
-option(USE_BUNDLED_UTF8PROC "Use the bundled utf8proc." ${USE_BUNDLED})
 option(USE_BUNDLED_LUAJIT "Use the bundled version of luajit." ${USE_BUNDLED})
 option(USE_BUNDLED_LUAROCKS "Use the bundled version of luarocks." ${USE_BUNDLED})
 option(USE_BUNDLED_LUV "Use the bundled version of luv." ${USE_BUNDLED})
@@ -136,12 +135,11 @@ include(ExternalProject)
 
 if(WIN32)
   # "nvim" branch of https://github.com/neovim/libuv
-  set(LIBUV_URL https://github.com/neovim/libuv/archive/d5ff3004d26b9bb863b76247399a9c72a0ff184c.tar.gz)
-  set(LIBUV_SHA256 0f5dfd92269713ed275273966ed73578fc68db669c509b01210cd58c1cf6361d)
+  set(LIBUV_URL https://github.com/neovim/libuv/archive/b899d12b0d56d217f31222da83f8c398355b69ef.tar.gz)
+  set(LIBUV_SHA256 eb7e37b824887e1b31a4e31d1d9bad4c03d8b98532d9cce5f67a3b70495a4b2a)
 else()
-  # blueyed/nvim-fixes (for *BSD build fixes).
-  set(LIBUV_URL https://github.com/blueyed/libuv/archive/2af4cf2.tar.gz)
-  set(LIBUV_SHA256 SKIP)
+  set(LIBUV_URL https://github.com/libuv/libuv/archive/v1.34.2.tar.gz)
+  set(LIBUV_SHA256 0d9d38558b45c006c1ea4e8529bae64caf8becda570295ea74e3696362aeb7f2)
 endif()
 
 set(MSGPACK_URL https://github.com/msgpack/msgpack-c/releases/download/cpp-3.0.0/msgpack-3.0.0.tar.gz)
@@ -197,9 +195,6 @@ set(GETTEXT_SHA256 66415634c6e8c3fa8b71362879ec7575e27da43da562c798a8a2f223e6e47
 set(LIBICONV_URL https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.15.tar.gz)
 set(LIBICONV_SHA256 ccf536620a45458d26ba83887a983b96827001e92a13847b45e4925cc8913178)
 
-set(UTF8PROC_URL https://github.com/JuliaStrings/utf8proc/archive/v2.2.0.tar.gz)
-set(UTF8PROC_SHA256 3f8fd1dbdb057ee5ba584a539d5cd1b3952141c0338557cb0bdf8cb9cfed5dbf)
-
 set(TREESITTER_C_URL https://github.com/tree-sitter/tree-sitter-c/archive/6002fcd.tar.gz)
 set(TREESITTER_C_SHA256 46f8d44fa886d9ddb92571bb6fa8b175992c8758eca749cb1217464e512b6e97)
 
@@ -252,10 +247,6 @@ endif()
 
 if(USE_BUNDLED_LIBICONV)
   include(BuildLibiconv)
-endif()
-
-if(USE_BUNDLED_UTF8PROC)
-  include(BuildUtf8proc)
 endif()
 
 if(USE_BUNDLED_TS_PARSERS)

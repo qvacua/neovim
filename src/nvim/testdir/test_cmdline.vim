@@ -692,6 +692,22 @@ func Test_getcmdwin_autocmd()
   augroup END
 endfunc
 
+" Test error: "E135: *Filter* Autocommands must not change current buffer"
+func Test_cmd_bang_E135()
+  new
+  call setline(1, ['a', 'b', 'c', 'd'])
+  augroup test_cmd_filter_E135
+    au!
+    autocmd FilterReadPost * help
+  augroup END
+  call assert_fails('2,3!echo "x"', 'E135:')
+
+  augroup test_cmd_filter_E135
+    au!
+  augroup END
+  %bwipe!
+endfunc
+
 func Test_verbosefile()
   set verbosefile=Xlog
   echomsg 'foo'
@@ -755,3 +771,62 @@ func Test_cmdwin_feedkeys()
   " This should not generate E488
   call feedkeys("q:\<CR>", 'x')
 endfunc
+
+func Test_buffers_lastused()
+  " check that buffers are sorted by time when wildmode has lastused
+  edit bufc " oldest
+
+  sleep 1200m
+  enew
+  edit bufa " middle
+
+  sleep 1200m
+  enew
+  edit bufb " newest
+
+  enew
+
+  call assert_equal(['bufc', 'bufa', 'bufb'],
+	\ getcompletion('', 'buffer'))
+
+  let save_wildmode = &wildmode
+  set wildmode=full:lastused
+
+  let cap = "\<c-r>=execute('let X=getcmdline()')\<cr>"
+  call feedkeys(":b \<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufb', X)
+  call feedkeys(":b \<tab>\<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufa', X)
+  call feedkeys(":b \<tab>\<tab>\<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufc', X)
+  enew
+
+  sleep 1200m
+  edit other
+  call feedkeys(":b \<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufb', X)
+  call feedkeys(":b \<tab>\<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufa', X)
+  call feedkeys(":b \<tab>\<tab>\<tab>" .. cap .. "\<esc>", 'xt')
+  call assert_equal('b bufc', X)
+  enew
+
+  let &wildmode = save_wildmode
+
+  bwipeout bufa
+  bwipeout bufb
+  bwipeout bufc
+endfunc
+
+" test that ";" works to find a match at the start of the first line
+func Test_zero_line_search()
+  new
+  call setline(1, ["1, pattern", "2, ", "3, pattern"])
+  call cursor(1,1)
+  0;/pattern/d
+  call assert_equal(["2, ", "3, pattern"], getline(1,'$'))
+  q!
+endfunc
+
+
+" vim: shiftwidth=2 sts=2 expandtab	" vim: shiftwidth=2 sts=2 expandtab

@@ -46,31 +46,6 @@ local function is_dir(filename)
   return stat and stat.type == 'directory' or false
 end
 
--- TODO Use vim.wait when that is available, but provide an alternative for now.
-local wait = vim.wait or function(timeout_ms, condition, interval)
-  validate {
-    timeout_ms = { timeout_ms, 'n' };
-    condition = { condition, 'f' };
-    interval = { interval, 'n', true };
-  }
-  assert(timeout_ms > 0, "timeout_ms must be > 0")
-  local _ = log.debug() and log.debug("wait.fallback", timeout_ms)
-  interval = interval or 200
-  local interval_cmd = "sleep "..interval.."m"
-  local timeout = timeout_ms + uv.now()
-  -- TODO is there a better way to sync this?
-  while true do
-    uv.update_time()
-    if condition() then
-      return 0
-    end
-    if uv.now() >= timeout then
-      return -1
-    end
-    nvim_command(interval_cmd)
-    -- vim.loop.sleep(10)
-  end
-end
 local wait_result_reason = { [-1] = "timeout"; [-2] = "interrupted"; [-3] = "error" }
 
 local valid_encodings = {
@@ -122,19 +97,19 @@ local function validate_encoding(encoding)
 end
 
 function lsp._cmd_parts(input)
-  local cmd, cmd_args
-  if vim.tbl_islist(input) then
-    cmd = input[1]
-    cmd_args = {}
-    -- Don't mutate our input.
-    for i, v in ipairs(input) do
-      assert(type(v) == 'string', "input arguments must be strings")
-      if i > 1 then
-        table.insert(cmd_args, v)
-      end
+  vim.validate{cmd={
+    input,
+    function() return vim.tbl_islist(input) end,
+    "list"}}
+
+  local cmd = input[1]
+  local cmd_args = {}
+  -- Don't mutate our input.
+  for i, v in ipairs(input) do
+    vim.validate{["cmd argument"]={v, "s"}}
+    if i > 1 then
+      table.insert(cmd_args, v)
     end
-  else
-    error("cmd type must be list.")
   end
   return cmd, cmd_args
 end
@@ -198,6 +173,7 @@ local function text_document_did_open_handler(bufnr, client)
     }
   }
   client.notify('textDocument/didOpen', params)
+  util.buf_versions[bufnr] = params.textDocument.version
 end
 
 --- LSP client object.
@@ -523,7 +499,7 @@ function lsp.start_client(config)
   function client.request(method, params, callback, bufnr)
     if not callback then
       callback = resolve_callback(method)
-        or error("not found: request callback for client "..client.name)
+        or error(string.format("not found: %q request callback for client %q.", method, client.name))
     end
     local _ = log.debug() and log.debug(log_prefix, "client.request", client_id, method, params, callback, bufnr)
     -- TODO keep these checks or just let it go anyway?
@@ -531,7 +507,10 @@ function lsp.start_client(config)
       or (not client.resolved_capabilities.signature_help and method == 'textDocument/signatureHelp')
       or (not client.resolved_capabilities.goto_definition and method == 'textDocument/definition')
       or (not client.resolved_capabilities.implementation and method == 'textDocument/implementation')
+      or (not client.resolved_capabilities.declaration and method == 'textDocument/declaration')
+      or (not client.resolved_capabilities.type_definition and method == 'textDocument/typeDefinition')
       or (not client.resolved_capabilities.document_symbol and method == 'textDocument/documentSymbol')
+      or (not client.resolved_capabilities.workspace_symbol and method == 'textDocument/workspaceSymbol')
     then
       callback(unsupported_method(method), method, nil, client_id, bufnr)
       return
@@ -607,9 +586,7 @@ do
       old_utf16_size)
     local _ = log.debug() and log.debug("on_lines", bufnr, changedtick, firstline,
     lastline, new_lastline, old_byte_size, old_utf32_size, old_utf16_size, nvim_buf_get_lines(bufnr, firstline, new_lastline, true))
-    if old_byte_size == 0 then
-      return
-    end
+
     -- Don't do anything if there are no clients attached.
     if tbl_isempty(all_buffer_active_clients[bufnr] or {}) then
       return
@@ -722,6 +699,7 @@ function lsp.buf_attach_client(bufnr, client_id)
             client.notify('textDocument/didClose', params)
           end
         end)
+        util.buf_versions[bufnr] = nil
         all_buffer_active_clients[bufnr] = nil
       end;
       -- TODO if we know all of the potential clients ahead of time, then we
@@ -807,8 +785,8 @@ function lsp._vim_exit_handler()
   for _, client in pairs(active_clients) do
     client.stop()
   end
-  local wait_result = wait(500, function() return tbl_isempty(active_clients) end, 50)
-  if wait_result ~= 0 then
+
+  if not vim.wait(500, function() return tbl_isempty(active_clients) end, 50) then
     for _, client in pairs(active_clients) do
       client.stop(true)
     end
@@ -886,12 +864,14 @@ function lsp.buf_request_sync(bufnr, method, params, timeout_ms)
   for _ in pairs(client_request_ids) do
     expected_result_count = expected_result_count + 1
   end
-  local wait_result = wait(timeout_ms or 100, function()
+
+  local wait_result, reason = vim.wait(timeout_ms or 100, function()
     return result_count >= expected_result_count
   end, 10)
-  if wait_result ~= 0 then
+
+  if not wait_result then
     cancel()
-    return nil, wait_result_reason[wait_result]
+    return nil, wait_result_reason[reason]
   end
   return request_results
 end
@@ -1013,6 +993,19 @@ end
 --- Gets the path of the logfile used by the LSP client.
 function lsp.get_log_path()
   return log.get_filename()
+end
+
+-- Define the LspDiagnostics signs if they're not defined already.
+do
+  local function define_default_sign(name, properties)
+    if vim.tbl_isempty(vim.fn.sign_getdefined(name)) then
+      vim.fn.sign_define(name, properties)
+    end
+  end
+  define_default_sign('LspDiagnosticsErrorSign', {text='E', texthl='LspDiagnosticsErrorSign', linehl='', numhl=''})
+  define_default_sign('LspDiagnosticsWarningSign', {text='W', texthl='LspDiagnosticsWarningSign', linehl='', numhl=''})
+  define_default_sign('LspDiagnosticsInformationSign', {text='I', texthl='LspDiagnosticsInformationSign', linehl='', numhl=''})
+  define_default_sign('LspDiagnosticsHintSign', {text='H', texthl='LspDiagnosticsHintSign', linehl='', numhl=''})
 end
 
 return lsp

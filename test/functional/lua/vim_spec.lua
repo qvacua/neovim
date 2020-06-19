@@ -243,6 +243,8 @@ describe('lua stdlib', function()
       { "here be dragons", " ", false, { "here", "be", "dragons"} },
       { "axaby", "ab?", false, { '', 'x', 'y' } },
       { "f v2v v3v w2w ", "([vw])2%1", false, { 'f ', ' v3v ', ' ' } },
+      { "", "", false, {} },
+      { "", "a", false, { '' } },
       { "x*yz*oo*l", "*", true, { 'x', 'yz', 'oo', 'l' } },
     }
 
@@ -341,6 +343,22 @@ describe('lua stdlib', function()
         and vim.tbl_count(b) == 2
         and tostring(a) ~= tostring(b)
     ]]))
+
+    ok(exec_lua([[
+      local f1 = function() return 1 end
+      local f2 = function() return 2 end
+      local t1 = {f = f1}
+      local t2 = vim.deepcopy(t1)
+      t1.f = f2
+      return t1.f() ~= t2.f()
+    ]]))
+
+    eq('Error executing lua: .../shared.lua: Cannot deepcopy object of type thread',
+      pcall_err(exec_lua, [[
+        local thread = coroutine.create(function () return 0 end)
+        local t = {thr = thread}
+        vim.deepcopy(t)
+      ]]))
   end)
 
   it('vim.pesc', function()
@@ -462,6 +480,17 @@ describe('lua stdlib', function()
       return vim.tbl_islist(c) and vim.tbl_count(c) == 0
     ]]))
 
+    ok(exec_lua([[
+      local a = {x = {a = 1, b = 2}}
+      local b = {x = {a = 2, c = {y = 3}}}
+      local c = vim.tbl_extend("keep", a, b)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return c.x.a == 1 and c.x.b == 2 and c.x.c == nil and count == 1
+    ]]))
+
     eq('Error executing lua: .../shared.lua: invalid "behavior": nil',
       pcall_err(exec_lua, [[
         return vim.tbl_extend()
@@ -477,6 +506,94 @@ describe('lua stdlib', function()
     eq('Error executing lua: .../shared.lua: wrong number of arguments (given 2, expected at least 3)',
       pcall_err(exec_lua, [[
         return vim.tbl_extend("keep", {})
+      ]])
+    )
+  end)
+
+  it('vim.tbl_deep_extend', function()
+    ok(exec_lua([[
+      local a = {x = {a = 1, b = 2}}
+      local b = {x = {a = 2, c = {y = 3}}}
+      local c = vim.tbl_deep_extend("keep", a, b)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return c.x.a == 1 and c.x.b == 2 and c.x.c.y == 3 and count == 1
+    ]]))
+
+    ok(exec_lua([[
+      local a = {x = {a = 1, b = 2}}
+      local b = {x = {a = 2, c = {y = 3}}}
+      local c = vim.tbl_deep_extend("force", a, b)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return c.x.a == 2 and c.x.b == 2 and c.x.c.y == 3 and count == 1
+    ]]))
+
+    ok(exec_lua([[
+      local a = {x = {a = 1, b = 2}}
+      local b = {x = {a = 2, c = {y = 3}}}
+      local c = {x = {c = 4, d = {y = 4}}}
+      local d = vim.tbl_deep_extend("keep", a, b, c)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return d.x.a == 1 and d.x.b == 2 and d.x.c.y == 3 and d.x.d.y == 4 and count == 1
+    ]]))
+
+    ok(exec_lua([[
+      local a = {x = {a = 1, b = 2}}
+      local b = {x = {a = 2, c = {y = 3}}}
+      local c = {x = {c = 4, d = {y = 4}}}
+      local d = vim.tbl_deep_extend("force", a, b, c)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return d.x.a == 2 and d.x.b == 2 and d.x.c == 4 and d.x.d.y == 4 and count == 1
+    ]]))
+
+    ok(exec_lua([[
+      local a = vim.empty_dict()
+      local b = {}
+      local c = vim.tbl_deep_extend("keep", a, b)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return not vim.tbl_islist(c) and count == 0
+    ]]))
+
+    ok(exec_lua([[
+      local a = {}
+      local b = vim.empty_dict()
+      local c = vim.tbl_deep_extend("keep", a, b)
+
+      local count = 0
+      for _ in pairs(c) do count = count + 1 end
+
+      return vim.tbl_islist(c) and count == 0
+    ]]))
+
+    eq('Error executing lua: .../shared.lua: invalid "behavior": nil',
+      pcall_err(exec_lua, [[
+        return vim.tbl_deep_extend()
+      ]])
+    )
+
+    eq('Error executing lua: .../shared.lua: wrong number of arguments (given 1, expected at least 3)',
+      pcall_err(exec_lua, [[
+        return vim.tbl_deep_extend("keep")
+      ]])
+    )
+
+    eq('Error executing lua: .../shared.lua: wrong number of arguments (given 2, expected at least 3)',
+      pcall_err(exec_lua, [[
+        return vim.tbl_deep_extend("keep", {})
       ]])
     )
   end)
@@ -753,10 +870,96 @@ describe('lua stdlib', function()
     exec_lua [[
     vim.api.nvim_set_var("testing", "hi")
     vim.api.nvim_set_var("other", 123)
+    vim.api.nvim_set_var("to_delete", {hello="world"})
     ]]
+
     eq('hi', funcs.luaeval "vim.g.testing")
     eq(123, funcs.luaeval "vim.g.other")
     eq(NIL, funcs.luaeval "vim.g.nonexistant")
+
+    eq({hello="world"}, funcs.luaeval "vim.g.to_delete")
+    exec_lua [[
+    vim.g.to_delete = nil
+    ]]
+    eq(NIL, funcs.luaeval "vim.g.to_delete")
+  end)
+
+  it('vim.b', function()
+    exec_lua [[
+    vim.api.nvim_buf_set_var(0, "testing", "hi")
+    vim.api.nvim_buf_set_var(0, "other", 123)
+    vim.api.nvim_buf_set_var(0, "to_delete", {hello="world"})
+    ]]
+
+    eq('hi', funcs.luaeval "vim.b.testing")
+    eq(123, funcs.luaeval "vim.b.other")
+    eq(NIL, funcs.luaeval "vim.b.nonexistant")
+
+    eq({hello="world"}, funcs.luaeval "vim.b.to_delete")
+    exec_lua [[
+    vim.b.to_delete = nil
+    ]]
+    eq(NIL, funcs.luaeval "vim.b.to_delete")
+
+    exec_lua [[
+    vim.cmd "vnew"
+    ]]
+
+    eq(NIL, funcs.luaeval "vim.b.testing")
+    eq(NIL, funcs.luaeval "vim.b.other")
+    eq(NIL, funcs.luaeval "vim.b.nonexistant")
+  end)
+
+  it('vim.w', function()
+    exec_lua [[
+    vim.api.nvim_win_set_var(0, "testing", "hi")
+    vim.api.nvim_win_set_var(0, "other", 123)
+    vim.api.nvim_win_set_var(0, "to_delete", {hello="world"})
+    ]]
+
+    eq('hi', funcs.luaeval "vim.w.testing")
+    eq(123, funcs.luaeval "vim.w.other")
+    eq(NIL, funcs.luaeval "vim.w.nonexistant")
+
+    eq({hello="world"}, funcs.luaeval "vim.w.to_delete")
+    exec_lua [[
+    vim.w.to_delete = nil
+    ]]
+    eq(NIL, funcs.luaeval "vim.w.to_delete")
+
+    exec_lua [[
+    vim.cmd "vnew"
+    ]]
+
+    eq(NIL, funcs.luaeval "vim.w.testing")
+    eq(NIL, funcs.luaeval "vim.w.other")
+    eq(NIL, funcs.luaeval "vim.w.nonexistant")
+  end)
+
+  it('vim.t', function()
+    exec_lua [[
+    vim.api.nvim_tabpage_set_var(0, "testing", "hi")
+    vim.api.nvim_tabpage_set_var(0, "other", 123)
+    vim.api.nvim_tabpage_set_var(0, "to_delete", {hello="world"})
+    ]]
+
+    eq('hi', funcs.luaeval "vim.t.testing")
+    eq(123, funcs.luaeval "vim.t.other")
+    eq(NIL, funcs.luaeval "vim.t.nonexistant")
+
+    eq({hello="world"}, funcs.luaeval "vim.t.to_delete")
+    exec_lua [[
+    vim.t.to_delete = nil
+    ]]
+    eq(NIL, funcs.luaeval "vim.t.to_delete")
+
+    exec_lua [[
+    vim.cmd "tabnew"
+    ]]
+
+    eq(NIL, funcs.luaeval "vim.t.testing")
+    eq(NIL, funcs.luaeval "vim.t.other")
+    eq(NIL, funcs.luaeval "vim.t.nonexistant")
   end)
 
   it('vim.env', function()
@@ -844,5 +1047,189 @@ describe('lua stdlib', function()
     eq({3,7}, exec_lua[[return {re1:match_line(0, 1, 1, 8)}]])
     eq({}, exec_lua[[return {re1:match_line(0, 1, 1, 7)}]])
     eq({0,3}, exec_lua[[return {re1:match_line(0, 1, 0, 7)}]])
+  end)
+
+  it('vim.defer_fn', function()
+    eq(false, exec_lua [[
+      vim.g.test = false
+      vim.defer_fn(function() vim.g.test = true end, 150)
+      return vim.g.test
+    ]])
+    exec_lua [[vim.wait(1000, function() return vim.g.test end)]]
+    eq(true, exec_lua[[return vim.g.test]])
+  end)
+
+  it('vim.region', function()
+    helpers.insert(helpers.dedent( [[
+    text tααt tααt text
+    text tαxt txtα tex
+    text tαxt tαxt
+    ]]))
+    eq({5,15}, exec_lua[[ return vim.region(0,{1,5},{1,14},'v',true)[1] ]])
+  end)
+
+  describe('vim.wait', function()
+    before_each(function()
+      exec_lua[[
+        -- high precision timer
+        get_time = function()
+          return vim.fn.reltimefloat(vim.fn.reltime())
+        end
+      ]]
+    end)
+
+    it('should run from lua', function()
+      exec_lua[[vim.wait(100, function() return true end)]]
+    end)
+
+    it('should wait the expected time if false', function()
+      eq({time = true, wait_result = {false, -1}}, exec_lua[[
+        start_time = get_time()
+        wait_succeed, wait_fail_val = vim.wait(200, function() return false end)
+
+        return {
+          -- 150ms waiting or more results in true. Flaky tests are bad.
+          time = (start_time + 0.15) < get_time(),
+          wait_result = {wait_succeed, wait_fail_val}
+        }
+      ]])
+    end)
+
+
+    it('should not block other events', function()
+      eq({time = true, wait_result = true}, exec_lua[[
+        start_time = get_time()
+
+        vim.g.timer_result = false
+        timer = vim.loop.new_timer()
+        timer:start(100, 0, vim.schedule_wrap(function()
+          vim.g.timer_result = true
+        end))
+
+        -- Would wait ten seconds if results blocked.
+        wait_result = vim.wait(10000, function() return vim.g.timer_result end)
+
+        return {
+          time = (start_time + 5) > get_time(),
+          wait_result = wait_result,
+        }
+      ]])
+    end)
+
+    it('should work with vim.defer_fn', function()
+      eq({time = true, wait_result = true}, exec_lua[[
+        start_time = get_time()
+
+        vim.defer_fn(function() vim.g.timer_result = true end, 100)
+        wait_result = vim.wait(10000, function() return vim.g.timer_result end)
+
+        return {
+          time = (start_time + 5) > get_time(),
+          wait_result = wait_result,
+        }
+      ]])
+    end)
+
+    it('should require functions to be passed', function()
+      local pcall_result = exec_lua [[
+        return {pcall(function() vim.wait(1000, 13) end)}
+      ]]
+
+      eq(pcall_result[1], false)
+      matches('condition must be a function', pcall_result[2])
+    end)
+
+    it('should not crash when callback errors', function()
+      local pcall_result = exec_lua [[
+        return {pcall(function() vim.wait(1000, function() error("As Expected") end) end)}
+      ]]
+
+      eq(pcall_result[1], false)
+      matches('As Expected', pcall_result[2])
+    end)
+
+    it('should call callbacks exactly once if they return true immediately', function()
+      eq(true, exec_lua [[
+        vim.g.wait_count = 0
+        vim.wait(1000, function()
+          vim.g.wait_count = vim.g.wait_count + 1
+          return true
+        end, 20)
+        return vim.g.wait_count == 1
+      ]])
+    end)
+
+    it('should call callbacks few times with large `interval`', function()
+      eq(true, exec_lua [[
+        vim.g.wait_count = 0
+        vim.wait(50, function() vim.g.wait_count = vim.g.wait_count + 1 end, 200)
+        return vim.g.wait_count < 5
+      ]])
+    end)
+
+    it('should play nice with `not` when fails', function()
+      eq(true, exec_lua [[
+        if not vim.wait(50, function() end) then
+          return true
+        end
+
+        return false
+      ]])
+    end)
+
+    it('should play nice with `if` when success', function()
+      eq(true, exec_lua [[
+        if vim.wait(50, function() return true end) then
+          return true
+        end
+
+        return false
+      ]])
+    end)
+
+    it('should return immediately with false if timeout is 0', function()
+      eq({false, -1}, exec_lua [[
+        return {
+          vim.wait(0, function() return false end)
+        }
+      ]])
+    end)
+
+    it('should work with tables with __call', function()
+      eq(true, exec_lua [[
+        local t = setmetatable({}, {__call = function(...) return true end})
+        return vim.wait(100, t, 10)
+      ]])
+    end)
+
+    it('should work with tables with __call that change', function()
+      eq(true, exec_lua [[
+        local t = {count = 0}
+        setmetatable(t, {
+          __call = function()
+            t.count = t.count + 1
+            return t.count > 3
+          end
+        })
+
+        return vim.wait(1000, t, 10)
+      ]])
+    end)
+
+    it('should not work with negative intervals', function()
+      local pcall_result = exec_lua [[
+        return pcall(function() vim.wait(1000, function() return false end, -1) end)
+      ]]
+
+      eq(false, pcall_result)
+    end)
+
+    it('should not work with weird intervals', function()
+      local pcall_result = exec_lua [[
+        return pcall(function() vim.wait(1000, function() return false end, 'a string value') end)
+      ]]
+
+      eq(false, pcall_result)
+    end)
   end)
 end)

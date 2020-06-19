@@ -24,7 +24,7 @@
 #include "nvim/diff.h"
 #include "nvim/digraph.h"
 #include "nvim/edit.h"
-#include "nvim/eval.h"
+#include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_docmd.h"
@@ -615,14 +615,19 @@ static void normal_redraw_mode_message(NormalState *s)
 
     kmsg = keep_msg;
     keep_msg = NULL;
-    // showmode() will clear keep_msg, but we want to use it anyway
+    // Showmode() will clear keep_msg, but we want to use it anyway.
+    // First update w_topline.
+    setcursor();
     update_screen(0);
     // now reset it, otherwise it's put in the history again
     keep_msg = kmsg;
+
+    kmsg = vim_strsave(keep_msg);
     msg_attr((const char *)kmsg, keep_msg_attr);
     xfree(kmsg);
   }
   setcursor();
+  ui_cursor_shape();                  // show different cursor shape
   ui_flush();
   if (msg_scroll || emsg_on_display) {
     os_delay(1000L, true);            // wait at least one second
@@ -1257,13 +1262,20 @@ static void normal_redraw(NormalState *s)
     maketitle();
   }
 
+  curbuf->b_last_used = time(NULL);
+
   // Display message after redraw. If an external message is still visible,
   // it contains the kept message already.
   if (keep_msg != NULL && !msg_ext_is_visible()) {
-    // msg_attr_keep() will set keep_msg to NULL, must free the string here.
-    // Don't reset keep_msg, msg_attr_keep() uses it to check for duplicates.
-    char *p = (char *)keep_msg;
-    msg_attr(p, keep_msg_attr);
+    char_u *const p = vim_strsave(keep_msg);
+
+    // msg_start() will set keep_msg to NULL, make a copy
+    // first.  Don't reset keep_msg, msg_attr_keep() uses it to
+    // check for duplicates.  Never put this message in
+    // history.
+    msg_hist_off = true;
+    msg_attr((const char *)p, keep_msg_attr);
+    msg_hist_off = false;
     xfree(p);
   }
 
@@ -1964,8 +1976,8 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
       break;
 
     case OP_FOLD:
-      VIsual_reselect = false;          /* don't reselect now */
-      foldCreate(oap->start.lnum, oap->end.lnum);
+      VIsual_reselect = false;          // don't reselect now
+      foldCreate(curwin, oap->start.lnum, oap->end.lnum);
       break;
 
     case OP_FOLDOPEN:
@@ -1983,9 +1995,9 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
 
     case OP_FOLDDEL:
     case OP_FOLDDELREC:
-      VIsual_reselect = false;          /* don't reselect now */
-      deleteFold(oap->start.lnum, oap->end.lnum,
-          oap->op_type == OP_FOLDDELREC, oap->is_VIsual);
+      VIsual_reselect = false;          // don't reselect now
+      deleteFold(curwin, oap->start.lnum, oap->end.lnum,
+                 oap->op_type == OP_FOLDDELREC, oap->is_VIsual);
       break;
 
     case OP_NR_ADD:
@@ -2556,7 +2568,14 @@ do_mouse (
    * JUMP!
    */
   jump_flags = jump_to_mouse(jump_flags,
-      oap == NULL ? NULL : &(oap->inclusive), which_button);
+                             oap == NULL ? NULL : &(oap->inclusive),
+                             which_button);
+
+  // A click in the window toolbar has no side effects.
+  if (jump_flags & MOUSE_WINBAR) {
+    return false;
+  }
+
   moved = (jump_flags & CURSOR_MOVED);
   in_status_line = (jump_flags & IN_STATUS_LINE);
   in_sep_line = (jump_flags & IN_SEP_LINE);
@@ -4342,11 +4361,12 @@ dozet:
   /* "zD": delete fold at cursor recursively */
   case 'd':
   case 'D':   if (foldManualAllowed(false)) {
-      if (VIsual_active)
+      if (VIsual_active) {
         nv_operator(cap);
-      else
-        deleteFold(curwin->w_cursor.lnum,
-            curwin->w_cursor.lnum, nchar == 'D', false);
+      } else {
+        deleteFold(curwin, curwin->w_cursor.lnum,
+                   curwin->w_cursor.lnum, nchar == 'D', false);
+      }
   }
     break;
 
@@ -4354,11 +4374,11 @@ dozet:
   case 'E':   if (foldmethodIsManual(curwin)) {
       clearFolding(curwin);
       changed_window_setting();
-  } else if (foldmethodIsMarker(curwin))
-      deleteFold((linenr_T)1, curbuf->b_ml.ml_line_count,
-          true, false);
-    else
+    } else if (foldmethodIsMarker(curwin)) {
+      deleteFold(curwin, (linenr_T)1, curbuf->b_ml.ml_line_count, true, false);
+    } else {
       EMSG(_("E352: Cannot erase folds with current 'foldmethod'"));
+    }
     break;
 
   /* "zn": fold none: reset 'foldenable' */

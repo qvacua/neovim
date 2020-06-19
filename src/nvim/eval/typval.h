@@ -91,10 +91,14 @@ typedef struct dict_watcher {
   bool busy;  // prevent recursion if the dict is changed in the callback
 } DictWatcher;
 
+/// Bool variable values
+typedef enum {
+  kBoolVarFalse,         ///< v:false
+  kBoolVarTrue,          ///< v:true
+} BoolVarValue;
+
 /// Special variable values
 typedef enum {
-  kSpecialVarFalse,  ///< v:false
-  kSpecialVarTrue,   ///< v:true
   kSpecialVarNull,   ///< v:null
 } SpecialVarValue;
 
@@ -114,6 +118,7 @@ typedef enum {
   VAR_LIST,         ///< List, .v_list is used.
   VAR_DICT,         ///< Dictionary, .v_dict is used.
   VAR_FLOAT,        ///< Floating-point value, .v_float is used.
+  VAR_BOOL,         ///< true, false
   VAR_SPECIAL,      ///< Special value (true, false, null), .v_special
                     ///< is used.
   VAR_PARTIAL,      ///< Partial, .v_partial is used.
@@ -125,6 +130,7 @@ typedef struct {
   VarLockStatus v_lock;  ///< Variable lock status.
   union typval_vval_union {
     varnumber_T v_number;  ///< Number, for VAR_NUMBER.
+    BoolVarValue v_bool;        ///< Bool value, for VAR_BOOL
     SpecialVarValue v_special;  ///< Special value, for VAR_SPECIAL.
     float_T v_float;  ///< Floating-point number, for VAR_FLOAT.
     char_u *v_string;  ///< String, for VAR_STRING and VAR_FUNC, can be NULL.
@@ -258,8 +264,38 @@ typedef struct {
   linenr_T sc_lnum;  // line number
 } sctx_T;
 
+/// Maximum number of function arguments
+#define MAX_FUNC_ARGS   20
+/// Short variable name length
+#define VAR_SHORT_LEN 20
+/// Number of fixed variables used for arguments
+#define FIXVAR_CNT 12
+
 // Structure to hold info for a function that is currently being executed.
 typedef struct funccall_S funccall_T;
+
+struct funccall_S {
+  ufunc_T *func;  ///< Function being called.
+  int linenr;  ///< Next line to be executed.
+  int returned;  ///< ":return" used.
+  /// Fixed variables for arguments.
+  TV_DICTITEM_STRUCT(VAR_SHORT_LEN + 1) fixvar[FIXVAR_CNT];
+  dict_T l_vars;  ///< l: local function variables.
+  ScopeDictDictItem l_vars_var;  ///< Variable for l: scope.
+  dict_T l_avars;  ///< a: argument variables.
+  ScopeDictDictItem l_avars_var;  ///< Variable for a: scope.
+  list_T l_varlist;  ///< List for a:000.
+  listitem_T l_listitems[MAX_FUNC_ARGS];  ///< List items for a:000.
+  typval_T *rettv;  ///< Return value.
+  linenr_T breakpoint;  ///< Next line with breakpoint or zero.
+  int dbg_tick;  ///< Debug_tick when breakpoint was set.
+  int level;  ///< Top nesting level of executed function.
+  proftime_T prof_child;  ///< Time spent in a child.
+  funccall_T *caller;  ///< Calling function or NULL.
+  int fc_refcount;  ///< Number of user functions that reference this funccall.
+  int fc_copyID;  ///< CopyID used for garbage collection.
+  garray_T fc_funcs;  ///< List of ufunc_T* which keep a reference to "func".
+};
 
 /// Structure to hold info for a user function.
 struct ufunc {
@@ -292,9 +328,6 @@ struct ufunc {
   char_u       uf_name[];        ///< Name of function; can start with <SNR>123_
                                  ///< (<SNR> is K_SPECIAL KS_EXTRA KE_SNR)
 };
-
-/// Maximum number of function arguments
-#define MAX_FUNC_ARGS   20
 
 struct partial_S {
   int pt_refcount;  ///< Reference count.

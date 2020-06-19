@@ -203,7 +203,7 @@ EXTERN int msg_nowait INIT(= false);        // don't wait for this msg
 EXTERN int emsg_off INIT(= 0);              // don't display errors for now,
                                             // unless 'debug' is set.
 EXTERN int info_message INIT(= false);      // printing informative message
-EXTERN int msg_hist_off INIT(= false);      // don't add messages to history
+EXTERN bool msg_hist_off INIT(= false);     // don't add messages to history
 EXTERN int need_clr_eos INIT(= false);      // need to clear text before
                                             // displaying a message.
 EXTERN int emsg_skip INIT(= 0);             // don't display errors for
@@ -220,7 +220,7 @@ EXTERN int did_emsg_syntax;                 // did_emsg set because of a
                                             // syntax error
 EXTERN int called_emsg;                     // always set by emsg()
 EXTERN int ex_exitval INIT(= 0);            // exit value for ex mode
-EXTERN int emsg_on_display INIT(= false);   // there is an error message
+EXTERN bool emsg_on_display INIT(= false);  // there is an error message
 EXTERN int rc_did_emsg INIT(= false);       // vim_regcomp() called emsg()
 
 EXTERN int no_wait_return INIT(= 0);        // don't wait for return for now
@@ -296,7 +296,7 @@ EXTERN struct msglist **msg_list INIT(= NULL);
 /// interrupt message or reporting an exception that is still uncaught at the
 /// top level (which has already been discarded then).  Also used for the error
 /// message when no exception can be thrown.
-EXTERN int suppress_errthrow INIT(= false);
+EXTERN bool suppress_errthrow INIT(= false);
 
 /// The stack of all caught and not finished exceptions.  The exception on the
 /// top of the stack is the one got by evaluation of v:exception.  The complete
@@ -478,6 +478,8 @@ EXTERN int sc_col;              // column for shown command
 EXTERN int starting INIT(= NO_SCREEN);
 // true when planning to exit. Might keep running if there is a changed buffer.
 EXTERN bool exiting INIT(= false);
+// internal value of v:dying
+EXTERN int v_dying INIT(= 0);
 // is stdin a terminal?
 EXTERN int stdin_isatty INIT(= true);
 // is stdout a terminal?
@@ -638,7 +640,7 @@ EXTERN int arrow_used;                  // Normally false, set to true after
                                         // hitting cursor key in insert mode.
                                         // Used by vgetorpeek() to decide when
                                         // to call u_sync()
-EXTERN int ins_at_eol INIT(= false);    // put cursor after eol when
+EXTERN bool ins_at_eol INIT(= false);   // put cursor after eol when
                                         // restarting edit after CTRL-O
 EXTERN char_u *edit_submode INIT(= NULL);  // msg for CTRL-X submode
 EXTERN char_u *edit_submode_pre INIT(= NULL);  // prepended to edit_submode

@@ -44,6 +44,10 @@ if &lines < 24 || &columns < 80
   qa!
 endif
 
+if has('reltime')
+  let s:start_time = reltime()
+endif
+
 " Common with all tests on all systems.
 source setup.vim
 
@@ -98,13 +102,11 @@ func GetAllocId(name)
   return lnum - top - 1
 endfunc
 
-func CanRunVimInTerminal()
-  " Nvim: always false, we use Lua screen-tests instead.
-  return 0
-endfunc
-
 func RunTheTest(test)
   echo 'Executing ' . a:test
+  if has('reltime')
+    let func_start = reltime()
+  endif
 
   " Avoid stopping at the "hit enter" prompt
   set nomore
@@ -129,7 +131,11 @@ func RunTheTest(test)
     endtry
   endif
 
-  call add(s:messages, 'Executing ' . a:test)
+  let message = 'Executed ' . a:test
+  if has('reltime')
+    let message ..= ' in ' .. reltimestr(reltime(func_start)) .. ' seconds'
+  endif
+  call add(s:messages, message)
   let s:done += 1
 
   if a:test =~ 'Test_nocatch_'
@@ -234,6 +240,9 @@ func FinishTesting()
     let message = 'NO tests executed'
   else
     let message = 'Executed ' . s:done . (s:done > 1 ? ' tests' : ' test')
+  endif
+  if has('reltime')
+    let message ..= ' in ' .. reltimestr(reltime(s:start_time)) .. ' seconds'
   endif
   echo message
   call add(s:messages, message)

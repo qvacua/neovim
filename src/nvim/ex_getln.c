@@ -23,6 +23,7 @@
 #include "nvim/digraph.h"
 #include "nvim/edit.h"
 #include "nvim/eval.h"
+#include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_docmd.h"
@@ -431,8 +432,8 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
     tv_dict_add_nr(dict, S_LEN("cmdlevel"), ccline.level);
     tv_dict_set_keys_readonly(dict);
     // not readonly:
-    tv_dict_add_special(dict, S_LEN("abort"),
-                        s->gotesc ? kSpecialVarTrue : kSpecialVarFalse);
+    tv_dict_add_bool(dict, S_LEN("abort"),
+                     s->gotesc ? kBoolVarTrue : kBoolVarFalse);
     try_enter(&tstate);
     apply_autocmds(EVENT_CMDLINELEAVE, (char_u *)firstcbuf, (char_u *)firstcbuf,
                    false, curbuf);
@@ -947,6 +948,10 @@ static int command_line_execute(VimState *state, int key)
   // - wildcard expansion is only done when the 'wildchar' key is really
   //   typed, not when it comes from a macro
   if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm) {
+    int options = WILD_NO_BEEP;
+    if (wim_flags[s->wim_index] & WIM_BUFLASTUSED) {
+      options |= WILD_BUFLASTUSED;
+    }
     if (s->xpc.xp_numfiles > 0) {       // typed p_wc at least twice
       // if 'wildmode' contains "list" may still need to list
       if (s->xpc.xp_numfiles > 1
@@ -960,11 +965,11 @@ static int command_line_execute(VimState *state, int key)
       }
 
       if (wim_flags[s->wim_index] & WIM_LONGEST) {
-        s->res = nextwild(&s->xpc, WILD_LONGEST, WILD_NO_BEEP,
-            s->firstc != '@');
+        s->res = nextwild(&s->xpc, WILD_LONGEST, options,
+                          s->firstc != '@');
       } else if (wim_flags[s->wim_index] & WIM_FULL) {
-        s->res = nextwild(&s->xpc, WILD_NEXT, WILD_NO_BEEP,
-            s->firstc != '@');
+        s->res = nextwild(&s->xpc, WILD_NEXT, options,
+                          s->firstc != '@');
       } else {
         s->res = OK;                 // don't insert 'wildchar' now
       }
@@ -975,11 +980,11 @@ static int command_line_execute(VimState *state, int key)
       // if 'wildmode' first contains "longest", get longest
       // common part
       if (wim_flags[0] & WIM_LONGEST) {
-        s->res = nextwild(&s->xpc, WILD_LONGEST, WILD_NO_BEEP,
-            s->firstc != '@');
+        s->res = nextwild(&s->xpc, WILD_LONGEST, options,
+                          s->firstc != '@');
       } else {
-        s->res = nextwild(&s->xpc, WILD_EXPAND_KEEP, WILD_NO_BEEP,
-            s->firstc != '@');
+        s->res = nextwild(&s->xpc, WILD_EXPAND_KEEP, options,
+                          s->firstc != '@');
       }
 
       // if interrupted while completing, behave like it failed
@@ -1016,11 +1021,11 @@ static int command_line_execute(VimState *state, int key)
           s->did_wild_list = true;
 
           if (wim_flags[s->wim_index] & WIM_LONGEST) {
-            nextwild(&s->xpc, WILD_LONGEST, WILD_NO_BEEP,
-                s->firstc != '@');
+            nextwild(&s->xpc, WILD_LONGEST, options,
+                     s->firstc != '@');
           } else if (wim_flags[s->wim_index] & WIM_FULL) {
-            nextwild(&s->xpc, WILD_NEXT, WILD_NO_BEEP,
-                s->firstc != '@');
+            nextwild(&s->xpc, WILD_NEXT, options,
+                     s->firstc != '@');
           }
         } else {
           vim_beep(BO_WILD);
@@ -2447,9 +2452,10 @@ redraw:
   /* make following messages go to the next line */
   msg_didout = FALSE;
   msg_col = 0;
-  if (msg_row < Rows - 1)
-    ++msg_row;
-  emsg_on_display = FALSE;              /* don't want os_delay() */
+  if (msg_row < Rows - 1) {
+    msg_row++;
+  }
+  emsg_on_display = false;              // don't want os_delay()
 
   if (got_int)
     ga_clear(&line_ga);
@@ -5355,12 +5361,12 @@ void globpath(char_u *path, char_u *file, garray_T *ga, int expand_options)
 
         // Concatenate new results to previous ones.
         ga_grow(ga, num_p);
+        // take over the pointers and put them in "ga"
         for (int i = 0; i < num_p; i++) {
-          ((char_u **)ga->ga_data)[ga->ga_len] = vim_strsave(p[i]);
+          ((char_u **)ga->ga_data)[ga->ga_len] = p[i];
           ga->ga_len++;
         }
-
-        FreeWild(num_p, p);
+        xfree(p);
       }
     }
   }

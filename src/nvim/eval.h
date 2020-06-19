@@ -15,13 +15,6 @@
 // All user-defined functions are found in this hashtable.
 extern hashtab_T func_hashtab;
 
-///< Structure used by trans_function_name()
-typedef struct {
-  dict_T *fd_dict;  ///< Dictionary used.
-  char_u *fd_newkey;  ///< New key in "dict" in allocated memory.
-  dictitem_T  *fd_di;  ///< Dictionary item used.
-} funcdict_T;
-
 // From user function to hashitem and back.
 EXTERN ufunc_T dumuf;
 #define UF2HIKEY(fp) ((fp)->uf_name)
@@ -166,6 +159,7 @@ typedef enum {
     VV_ECHOSPACE,
     VV_EXITING,
     VV_LUA,
+    VV_ARGV,
 } VimVarIndex;
 
 /// All recognized msgpack types
@@ -186,9 +180,6 @@ typedef enum {
 extern const list_T *eval_msgpack_type_lists[LAST_MSGPACK_TYPE + 1];
 
 #undef LAST_MSGPACK_TYPE
-
-typedef int (*ArgvFunc)(int current_argcount, typval_T *argv,
-                        int called_func_argcount);
 
 /// trans_function_name() flags
 typedef enum {
@@ -241,6 +232,9 @@ typedef enum {
   kDictListValues,  ///< List dictionary values.
   kDictListItems,  ///< List dictionary contents: [keys, values].
 } DictListType;
+
+// Used for checking if local variables or arguments used in a lambda.
+extern bool *eval_lavars_used;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "eval.h.generated.h"

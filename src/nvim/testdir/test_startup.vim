@@ -271,7 +271,7 @@ func Test_V_arg()
   call assert_equal("  verbose=0\n", out)
 
   let out = system(GetVimCommand() . ' --clean -es -X -V2 -c "set verbose?" -cq')
-  " call assert_match("sourcing \"$VIMRUNTIME[\\/]defaults\.vim\"\r\nSearching for \"filetype\.vim\".*\n", out)
+  " call assert_match("sourcing \"$VIMRUNTIME[\\/]defaults\.vim\"\r\nline \\d\\+: sourcing \"[^\"]*runtime[\\/]filetype\.vim\".*\n", out)
   call assert_match("  verbose=2\n", out)
 
   let out = system(GetVimCommand() . ' --clean -es -X -V15 -c "set verbose?" -cq')
@@ -583,4 +583,13 @@ func Test_start_with_tabs()
 
   " clean up
   call StopVimInTerminal(buf)
+endfunc
+
+func Test_v_argv()
+  let out = system(GetVimCommand() . ' -es -V1 -X arg1 --cmd "echo v:argv" --cmd q')
+  let list = split(out, "', '")
+  call assert_match('vim', list[0])
+  let idx = index(list, 'arg1')
+  call assert_true(idx > 2)
+  call assert_equal(['arg1', '--cmd', 'echo v:argv', '--cmd', 'q'']'], list[idx:])
 endfunc

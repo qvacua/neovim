@@ -1741,6 +1741,31 @@ static int advance_color_col(int vcol, int **color_cols)
   return **color_cols >= 0;
 }
 
+// Returns the next grid column.
+static int text_to_screenline(win_T *wp, char_u *text, int col, int off)
+  FUNC_ATTR_NONNULL_ALL
+{
+  int idx = wp->w_p_rl ? off : off + col;
+  LineState s = LINE_STATE(text);
+
+  while (*s.p != NUL) {
+    // TODO(bfredl): cargo-culted from the old Vim code:
+    // if(col + cells > wp->w_width - (wp->w_p_rl ? col : 0)) { break; }
+    // This is obvious wrong. If Vim ever fixes this, solve for "cells" again
+    // in the correct condition.
+    const int maxcells = wp->w_grid.Columns - col - (wp->w_p_rl ? col : 0);
+    const int cells = line_putchar(&s, &linebuf_char[idx], maxcells,
+                                   wp->w_p_rl);
+    if (cells == -1) {
+      break;
+    }
+    col += cells;
+    idx += cells;
+  }
+
+  return col;
+}
+
 // Compute the width of the foldcolumn.  Based on 'foldcolumn' and how much
 // space is available for window "wp", minus "col".
 static int compute_foldcolumn(win_T *wp, int col)
@@ -1942,29 +1967,7 @@ static void fold_line(win_T *wp, long fold_count, foldinfo_T *foldinfo, linenr_T
   // 5. move the text to linebuf_char[off].  Fill up with "fold".
   //    Right-left text is put in columns 0 - number-col, normal text is put
   //    in columns number-col - window-width.
-  int idx;
-
-  if (wp->w_p_rl) {
-    idx = off;
-  } else {
-    idx = off + col;
-  }
-
-  LineState s = LINE_STATE(text);
-
-  while (*s.p != NUL) {
-    // TODO(bfredl): cargo-culted from the old Vim code:
-    // if(col + cells > wp->w_width - (wp->w_p_rl ? col : 0)) { break; }
-    // This is obvious wrong. If Vim ever fixes this, solve for "cells" again
-    // in the correct condition.
-    int maxcells = wp->w_grid.Columns - col - (wp->w_p_rl ? col : 0);
-    int cells = line_putchar(&s, &linebuf_char[idx], maxcells, wp->w_p_rl);
-    if (cells == -1) {
-      break;
-    }
-    col += cells;
-    idx += cells;
-  }
+  col = text_to_screenline(wp, text, col, off);
 
   /* Fill the rest of the line with the fold filler */
   if (wp->w_p_rl)
@@ -2220,7 +2223,6 @@ win_line (
   int tocol = MAXCOL;                   // end of inverting
   int fromcol_prev = -2;                // start of inverting after cursor
   bool noinvcur = false;                // don't invert the cursor
-  pos_T *top, *bot;
   int lnum_in_visual_area = false;
   pos_T pos;
   long v;
@@ -2420,6 +2422,8 @@ win_line (
 
     // handle Visual active in this window
     if (VIsual_active && wp->w_buffer == curwin->w_buffer) {
+      pos_T *top, *bot;
+
       if (ltoreq(curwin->w_cursor, VIsual)) {
         // Visual is after curwin->w_cursor
         top = &curwin->w_cursor;
@@ -2962,11 +2966,11 @@ win_line (
         }
       }
 
-      if (wp->w_p_brisbr && draw_state == WL_BRI - 1
+      if (wp->w_briopt_sbr && draw_state == WL_BRI - 1
           && n_extra == 0 && *p_sbr != NUL) {
         // draw indent after showbreak value
         draw_state = WL_BRI;
-      } else if (wp->w_p_brisbr && draw_state == WL_SBR && n_extra == 0) {
+      } else if (wp->w_briopt_sbr && draw_state == WL_SBR && n_extra == 0) {
         // after the showbreak, draw the breakindent
         draw_state = WL_BRI - 1;
       }
@@ -2990,7 +2994,13 @@ win_line (
           c_final = NUL;
           n_extra =
             get_breakindent_win(wp, ml_get_buf(wp->w_buffer, lnum, false));
-          if (wp->w_skipcol > 0 && wp->w_p_wrap) {
+          if (row == startrow) {
+            n_extra -= win_col_off2(wp);
+            if (n_extra < 0) {
+              n_extra = 0;
+            }
+          }
+          if (wp->w_skipcol > 0 && wp->w_p_wrap && wp->w_briopt_sbr) {
             need_showbreak = false;
           }
           // Correct end of highlighted area for 'breakindent',
@@ -3160,8 +3170,8 @@ win_line (
                   shl->endcol += (*mb_ptr2len)(line + shl->endcol);
                 }
 
-                /* Loop to check if the match starts at the
-                 * current position */
+                // Loop to check if the match starts at the
+                // current position
                 continue;
               }
             }
@@ -5710,6 +5720,7 @@ void grid_puts_line_flush(bool set_cursor)
 static void start_search_hl(void)
 {
   if (p_hls && !no_hlsearch) {
+    end_search_hl();  // just in case it wasn't called before
     last_pat_prog(&search_hl.rm);
     // Set the time limit to 'redrawtime'.
     search_hl.tm = profile_setlimit(p_rdt);
@@ -5732,12 +5743,11 @@ static void end_search_hl(void)
  * Init for calling prepare_search_hl().
  */
 static void init_search_hl(win_T *wp)
+  FUNC_ATTR_NONNULL_ALL
 {
-  matchitem_T *cur;
-
-  /* Setup for match and 'hlsearch' highlighting.  Disable any previous
-   * match */
-  cur = wp->w_match_head;
+  // Setup for match and 'hlsearch' highlighting.  Disable any previous
+  // match
+  matchitem_T *cur = wp->w_match_head;
   while (cur != NULL) {
     cur->hl.rm = cur->match;
     if (cur->hlg_id == 0)
@@ -5747,7 +5757,7 @@ static void init_search_hl(win_T *wp)
     cur->hl.buf = wp->w_buffer;
     cur->hl.lnum = 0;
     cur->hl.first_lnum = 0;
-    /* Set the time limit to 'redrawtime'. */
+    // Set the time limit to 'redrawtime'.
     cur->hl.tm = profile_setlimit(p_rdt);
     cur = cur->next;
   }
@@ -5763,18 +5773,16 @@ static void init_search_hl(win_T *wp)
  * Advance to the match in window "wp" line "lnum" or past it.
  */
 static void prepare_search_hl(win_T *wp, linenr_T lnum)
+  FUNC_ATTR_NONNULL_ALL
 {
-  matchitem_T *cur;             /* points to the match list */
-  match_T     *shl;             /* points to search_hl or a match */
-  int shl_flag;                 /* flag to indicate whether search_hl
-                                   has been processed or not */
-  int n;
+  matchitem_T *cur;             // points to the match list
+  match_T     *shl;             // points to search_hl or a match
+  bool shl_flag;                // flag to indicate whether search_hl
+                                // has been processed or not
 
-  /*
-   * When using a multi-line pattern, start searching at the top
-   * of the window or just after a closed fold.
-   * Do this both for search_hl and the match list.
-   */
+  // When using a multi-line pattern, start searching at the top
+  // of the window or just after a closed fold.
+  // Do this both for search_hl and the match list.
   cur = wp->w_match_head;
   shl_flag = false;
   while (cur != NULL || shl_flag == false) {
@@ -5801,7 +5809,7 @@ static void prepare_search_hl(win_T *wp, linenr_T lnum)
       }
       bool pos_inprogress = true; // mark that a position match search is
                                   // in progress
-      n = 0;
+      int n = 0;
       while (shl->first_lnum < lnum && (shl->rm.regprog != NULL
                                         || (cur != NULL && pos_inprogress))) {
         next_search_hl(wp, shl, shl->first_lnum, (colnr_T)n,
@@ -5839,6 +5847,7 @@ next_search_hl (
     colnr_T mincol,                /* minimal column for a match */
     matchitem_T *cur               /* to retrieve match positions if any */
 )
+  FUNC_ATTR_NONNULL_ARG(2)
 {
   linenr_T l;
   colnr_T matchcol;
@@ -5846,11 +5855,10 @@ next_search_hl (
   int save_called_emsg = called_emsg;
 
   if (shl->lnum != 0) {
-    /* Check for three situations:
-     * 1. If the "lnum" is below a previous match, start a new search.
-     * 2. If the previous match includes "mincol", use it.
-     * 3. Continue after the previous match.
-     */
+    // Check for three situations:
+    // 1. If the "lnum" is below a previous match, start a new search.
+    // 2. If the previous match includes "mincol", use it.
+    // 3. Continue after the previous match.
     l = shl->lnum + shl->rm.endpos[0].lnum - shl->rm.startpos[0].lnum;
     if (lnum > l)
       shl->lnum = 0;
@@ -5864,22 +5872,21 @@ next_search_hl (
    */
   called_emsg = FALSE;
   for (;; ) {
-    /* Stop searching after passing the time limit. */
+    // Stop searching after passing the time limit.
     if (profile_passed_limit(shl->tm)) {
       shl->lnum = 0;                    /* no match found in time */
       break;
     }
-    /* Three situations:
-     * 1. No useful previous match: search from start of line.
-     * 2. Not Vi compatible or empty match: continue at next character.
-     *    Break the loop if this is beyond the end of the line.
-     * 3. Vi compatible searching: continue at end of previous match.
-     */
-    if (shl->lnum == 0)
+    // Three situations:
+    // 1. No useful previous match: search from start of line.
+    // 2. Not Vi compatible or empty match: continue at next character.
+    //    Break the loop if this is beyond the end of the line.
+    // 3. Vi compatible searching: continue at end of previous match.
+    if (shl->lnum == 0) {
       matchcol = 0;
-    else if (vim_strchr(p_cpo, CPO_SEARCH) == NULL
-        || (shl->rm.endpos[0].lnum == 0
-          && shl->rm.endpos[0].col <= shl->rm.startpos[0].col)) {
+    } else if (vim_strchr(p_cpo, CPO_SEARCH) == NULL
+               || (shl->rm.endpos[0].lnum == 0
+                   && shl->rm.endpos[0].col <= shl->rm.startpos[0].col)) {
       char_u      *ml;
 
       matchcol = shl->rm.startpos[0].col;
@@ -5896,8 +5903,8 @@ next_search_hl (
 
     shl->lnum = lnum;
     if (shl->rm.regprog != NULL) {
-      /* Remember whether shl->rm is using a copy of the regprog in
-       * cur->match. */
+      // Remember whether shl->rm is using a copy of the regprog in
+      // cur->match.
       bool regprog_is_copy = (shl != &search_hl
                               && cur != NULL
                               && shl == &cur->hl
@@ -5926,7 +5933,7 @@ next_search_hl (
       nmatched = next_search_hl_pos(shl, lnum, &(cur->pos), matchcol);
     }
     if (nmatched == 0) {
-      shl->lnum = 0;                    /* no match found */
+      shl->lnum = 0;                    // no match found
       break;
     }
     if (shl->rm.startpos[0].lnum > 0
@@ -5934,7 +5941,7 @@ next_search_hl (
         || nmatched > 1
         || shl->rm.endpos[0].col > mincol) {
       shl->lnum += shl->rm.startpos[0].lnum;
-      break;                            /* useful match found */
+      break;                            // useful match found
     }
 
     // Restore called_emsg for assert_fails().
@@ -5951,6 +5958,7 @@ next_search_hl_pos(
     posmatch_T *posmatch, // match positions
     colnr_T mincol        // minimal column for a match
 )
+  FUNC_ATTR_NONNULL_ALL
 {
   int i;
   int found = -1;
@@ -6105,9 +6113,10 @@ void check_for_delay(int check_msg_scroll)
       && emsg_silent == 0) {
     ui_flush();
     os_delay(1000L, true);
-    emsg_on_display = FALSE;
-    if (check_msg_scroll)
-      msg_scroll = FALSE;
+    emsg_on_display = false;
+    if (check_msg_scroll) {
+      msg_scroll = false;
+    }
   }
 }
 

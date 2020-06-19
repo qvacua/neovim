@@ -578,6 +578,15 @@ void extmark_splice(buf_T *buf,
   }
 }
 
+void extmark_splice_cols(buf_T *buf,
+                         int start_row, colnr_T start_col,
+                         colnr_T old_col, colnr_T new_col,
+                         ExtmarkOp undo)
+{
+  extmark_splice(buf, start_row, start_col,
+                 0, old_col,
+                 0, new_col, undo);
+}
 
 void extmark_move_region(buf_T *buf,
                          int start_row, colnr_T start_col,
@@ -789,7 +798,7 @@ bool decorations_redraw_start(buf_T *buf, int top_row,
     ExtmarkItem *item = map_ref(uint64_t, ExtmarkItem)(buf->b_extmark_index,
                                                        start_id, false);
     if ((!(mark.id&MARKTREE_END_FLAG) && altpos.row < top_row
-         && !kv_size(item->virt_text))
+         && item && !kv_size(item->virt_text))
         || ((mark.id&MARKTREE_END_FLAG) && altpos.row >= top_row)) {
       goto next_mark;
     }
@@ -854,7 +863,7 @@ int decorations_redraw_col(buf_T *buf, int col, DecorationRedrawState *state)
 
     if (endpos.row < mark.row
         || (endpos.row == mark.row && endpos.col <= mark.col)) {
-      if (!kv_size(item->virt_text)) {
+      if (item && !kv_size(item->virt_text)) {
         goto next_mark;
       }
     }

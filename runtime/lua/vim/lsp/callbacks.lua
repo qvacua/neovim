@@ -3,6 +3,7 @@ local protocol = require 'vim.lsp.protocol'
 local util = require 'vim.lsp.util'
 local vim = vim
 local api = vim.api
+local buf = require 'vim.lsp.buf'
 
 local M = {}
 
@@ -11,13 +12,56 @@ local function err_message(...)
   api.nvim_command("redraw")
 end
 
+M['workspace/executeCommand'] = function(err, _)
+  if err then
+    error("Could not execute code action: "..err.message)
+  end
+end
+
+M['textDocument/codeAction'] = function(_, _, actions)
+  if actions == nil or vim.tbl_isempty(actions) then
+    print("No code actions available")
+    return
+  end
+
+  local option_strings = {"Code Actions:"}
+  for i, action in ipairs(actions) do
+    local title = action.title:gsub('\r\n', '\\r\\n')
+    title = title:gsub('\n', '\\n')
+    table.insert(option_strings, string.format("%d. %s", i, title))
+  end
+
+  local choice = vim.fn.inputlist(option_strings)
+  if choice < 1 or choice > #actions then
+    return
+  end
+  local action_chosen = actions[choice]
+  -- textDocument/codeAction can return either Command[] or CodeAction[].
+  -- If it is a CodeAction, it can have either an edit, a command or both.
+  -- Edits should be executed first
+  if action_chosen.edit or type(action_chosen.command) == "table" then
+    if action_chosen.edit then
+      util.apply_workspace_edit(action_chosen.edit)
+    end
+    if type(action_chosen.command) == "table" then
+      buf.execute_command(action_chosen.command)
+    end
+  else
+    buf.execute_command(action_chosen)
+  end
+end
+
 M['workspace/applyEdit'] = function(_, _, workspace_edit)
   if not workspace_edit then return end
   -- TODO(ashkan) Do something more with label?
   if workspace_edit.label then
     print("Workspace edit", workspace_edit.label)
   end
-  util.apply_workspace_edit(workspace_edit.edit)
+  local status, result = pcall(util.apply_workspace_edit, workspace_edit.edit)
+  return {
+    applied = status;
+    failureReason = result;
+  }
 end
 
 M['textDocument/publishDiagnostics'] = function(_, _, result)
@@ -28,7 +72,29 @@ M['textDocument/publishDiagnostics'] = function(_, _, result)
     err_message("LSP.publishDiagnostics: Couldn't find buffer for ", uri)
     return
   end
+
+  -- Unloaded buffers should not handle diagnostics.
+  --    When the buffer is loaded, we'll call on_attach, which sends textDocument/didOpen.
+  --    This should trigger another publish of the diagnostics.
+  --
+  -- In particular, this stops a ton of spam when first starting a server for current
+  -- unloaded buffers.
+  if not api.nvim_buf_is_loaded(bufnr) then
+    return
+  end
+
   util.buf_clear_diagnostics(bufnr)
+
+  -- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#diagnostic
+  -- The diagnostic's severity. Can be omitted. If omitted it is up to the
+  -- client to interpret diagnostics as error, warning, info or hint.
+  -- TODO: Replace this with server-specific heuristics to infer severity.
+  for _, diagnostic in ipairs(result.diagnostics) do
+    if diagnostic.severity == nil then
+      diagnostic.severity = protocol.DiagnosticSeverity.Error
+    end
+  end
+
   util.buf_diagnostics_save_positions(bufnr, result.diagnostics)
   util.buf_diagnostics_underline(bufnr, result.diagnostics)
   util.buf_diagnostics_virtual_text(bufnr, result.diagnostics)
@@ -39,15 +105,19 @@ end
 M['textDocument/references'] = function(_, _, result)
   if not result then return end
   util.set_qflist(util.locations_to_items(result))
+  api.nvim_command("copen")
+  api.nvim_command("wincmd p")
 end
 
-M['textDocument/documentSymbol'] = function(_, _, result, _, bufnr)
+local symbol_callback = function(_, _, result, _, bufnr)
   if not result or vim.tbl_isempty(result) then return end
 
   util.set_qflist(util.symbols_to_items(result, bufnr))
   api.nvim_command("copen")
   api.nvim_command("wincmd p")
 end
+M['textDocument/documentSymbol'] = symbol_callback
+M['workspace/symbol'] = symbol_callback
 
 M['textDocument/rename'] = function(_, _, result)
   if not result then return end
@@ -101,11 +171,20 @@ local function location_callback(_, method, result)
     local _ = log.info() and log.info(method, 'No location found')
     return nil
   end
-  util.jump_to_location(result[1])
-  if #result > 1 then
-    util.set_qflist(util.locations_to_items(result))
-    api.nvim_command("copen")
-    api.nvim_command("wincmd p")
+
+  -- textDocument/definition can return Location or Location[]
+  -- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_definition
+
+  if vim.tbl_islist(result) then
+    util.jump_to_location(result[1])
+
+    if #result > 1 then
+      util.set_qflist(util.locations_to_items(result))
+      api.nvim_command("copen")
+      api.nvim_command("wincmd p")
+    end
+  else
+    util.jump_to_location(result)
   end
 end
 
@@ -114,93 +193,19 @@ M['textDocument/definition'] = location_callback
 M['textDocument/typeDefinition'] = location_callback
 M['textDocument/implementation'] = location_callback
 
---- Convert SignatureHelp response to preview contents.
--- https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#textDocument_signatureHelp
-local function signature_help_to_preview_contents(input)
-  if not input.signatures then
-    return
-  end
-  --The active signature. If omitted or the value lies outside the range of
-  --`signatures` the value defaults to zero or is ignored if `signatures.length
-  --=== 0`. Whenever possible implementors should make an active decision about
-  --the active signature and shouldn't rely on a default value.
-  local contents = {}
-  local active_signature = input.activeSignature or 0
-  -- If the activeSignature is not inside the valid range, then clip it.
-  if active_signature >= #input.signatures then
-    active_signature = 0
-  end
-  local signature = input.signatures[active_signature + 1]
-  if not signature then
-    return
-  end
-  vim.list_extend(contents, vim.split(signature.label, '\n', true))
-  if signature.documentation then
-    util.convert_input_to_markdown_lines(signature.documentation, contents)
-  end
-  if input.parameters then
-    local active_parameter = input.activeParameter or 0
-    -- If the activeParameter is not inside the valid range, then clip it.
-    if active_parameter >= #input.parameters then
-      active_parameter = 0
-    end
-    local parameter = signature.parameters and signature.parameters[active_parameter]
-    if parameter then
-      --[=[
-      --Represents a parameter of a callable-signature. A parameter can
-      --have a label and a doc-comment.
-      interface ParameterInformation {
-        --The label of this parameter information.
-        --
-        --Either a string or an inclusive start and exclusive end offsets within its containing
-        --signature label. (see SignatureInformation.label). The offsets are based on a UTF-16
-        --string representation as `Position` and `Range` does.
-        --
-        --*Note*: a label of type string should be a substring of its containing signature label.
-        --Its intended use case is to highlight the parameter label part in the `SignatureInformation.label`.
-        label: string | [number, number];
-        --The human-readable doc-comment of this parameter. Will be shown
-        --in the UI but can be omitted.
-        documentation?: string | MarkupContent;
-      }
-      --]=]
-      -- TODO highlight parameter
-      if parameter.documentation then
-        util.convert_input_to_markdown_lines(parameter.documentation, contents)
-      end
-    end
-  end
-  return contents
-end
-
 M['textDocument/signatureHelp'] = function(_, method, result)
   util.focusable_preview(method, function()
     if not (result and result.signatures and result.signatures[1]) then
       return { 'No signature available' }
     end
     -- TODO show popup when signatures is empty?
-    local lines = signature_help_to_preview_contents(result)
+    local lines = util.convert_signature_help_to_markdown_lines(result)
     lines = util.trim_empty_lines(lines)
     if vim.tbl_isempty(lines) then
       return { 'No signature available' }
     end
     return lines, util.try_trim_markdown_code_blocks(lines)
   end)
-end
-
-M['textDocument/peekDefinition'] = function(_, _, result, _)
-  if not (result and result[1]) then return end
-  local loc = result[1]
-  local bufnr = vim.uri_to_bufnr(loc.uri) or error("not found: "..tostring(loc.uri))
-  local start = loc.range.start
-  local finish = loc.range["end"]
-  util.open_floating_peek_preview(bufnr, start, finish, { offset_x = 1 })
-  local headbuf = util.open_floating_preview({"Peek:"}, nil, {
-    offset_y = -(finish.line - start.line);
-    width = finish.character - start.character + 2;
-  })
-  -- TODO(ashkan) change highlight group?
-  api.nvim_buf_add_highlight(headbuf, -1, 'Keyword', 0, -1)
 end
 
 M['textDocument/documentHighlight'] = function(_, _, result, _)
@@ -248,12 +253,12 @@ end
 
 -- Add boilerplate error validation and logging for all of these.
 for k, fn in pairs(M) do
-  M[k] = function(err, method, params, client_id)
-    local _ = log.debug() and log.debug('default_callback', method, { params = params, client_id = client_id, err = err })
+  M[k] = function(err, method, params, client_id, bufnr)
+    log.debug('default_callback', method, { params = params, client_id = client_id, err = err, bufnr = bufnr })
     if err then
       error(tostring(err))
     end
-    return fn(err, method, params, client_id)
+    return fn(err, method, params, client_id, bufnr)
   end
 end
 

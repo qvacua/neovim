@@ -3,8 +3,34 @@ local vim = vim
 local validate = vim.validate
 local api = vim.api
 local list_extend = vim.list_extend
+local highlight = require 'vim.highlight'
 
 local M = {}
+
+--- Diagnostics received from the server via `textDocument/publishDiagnostics`
+-- by buffer.
+--
+--  {<bufnr>: {diagnostics}}
+--
+-- This contains only entries for active buffers. Entries for detached buffers
+-- are discarded.
+--
+-- If you override the `textDocument/publishDiagnostic` callback,
+-- this will be empty unless you call `buf_diagnostics_save_positions`.
+--
+--
+-- Diagnostic is:
+--
+-- {
+--    range: Range
+--    message: string
+--    severity?: DiagnosticSeverity
+--    code?: number | string
+--    source?: string
+--    tags?: DiagnosticTag[]
+--    relatedInformation?: DiagnosticRelatedInformation[]
+-- }
+M.diagnostics_by_buf = {}
 
 local split = vim.split
 local function split_lines(value)
@@ -66,21 +92,48 @@ local function sort_by_key(fn)
   end
 end
 local edit_sort_key = sort_by_key(function(e)
-  return {e.A[1], e.A[2], e.i}
+  return {e.A[1], e.A[2], -e.i}
 end)
+
+--- Position is a https://microsoft.github.io/language-server-protocol/specifications/specification-current/#position
+-- Returns a zero-indexed column, since set_lines() does the conversion to
+-- 1-indexed
+local function get_line_byte_from_position(bufnr, position)
+  -- LSP's line and characters are 0-indexed
+  -- Vim's line and columns are 1-indexed
+  local col = position.character
+  -- When on the first character, we can ignore the difference between byte and
+  -- character
+  if col > 0 then
+    local line = position.line
+    local lines = api.nvim_buf_get_lines(bufnr, line, line + 1, false)
+    if #lines > 0 then
+      return vim.str_byteindex(lines[1], col)
+    end
+  end
+  return col
+end
 
 function M.apply_text_edits(text_edits, bufnr)
   if not next(text_edits) then return end
+  if not api.nvim_buf_is_loaded(bufnr) then
+    vim.fn.bufload(bufnr)
+  end
   local start_line, finish_line = math.huge, -1
   local cleaned = {}
   for i, e in ipairs(text_edits) do
+    -- adjust start and end column for UTF-16 encoding of non-ASCII characters
+    local start_row = e.range.start.line
+    local start_col = get_line_byte_from_position(bufnr, e.range.start)
+    local end_row = e.range["end"].line
+    local end_col = get_line_byte_from_position(bufnr, e.range['end'])
     start_line = math.min(e.range.start.line, start_line)
     finish_line = math.max(e.range["end"].line, finish_line)
     -- TODO(ashkan) sanity check ranges for overlap.
     table.insert(cleaned, {
       i = i;
-      A = {e.range.start.line; e.range.start.character};
-      B = {e.range["end"].line; e.range["end"].character};
+      A = {start_row; start_col};
+      B = {end_row; end_col};
       lines = vim.split(e.newText, '\n', true);
     })
   end
@@ -88,9 +141,6 @@ function M.apply_text_edits(text_edits, bufnr)
   -- Reverse sort the orders so we can apply them without interfering with
   -- eachother. Also add i as a sort key to mimic a stable sort.
   table.sort(cleaned, edit_sort_key)
-  if not api.nvim_buf_is_loaded(bufnr) then
-    vim.fn.bufload(bufnr)
-  end
   local lines = api.nvim_buf_get_lines(bufnr, start_line, finish_line + 1, false)
   local fix_eol = api.nvim_buf_get_option(bufnr, 'fixeol')
   local set_eol = fix_eol and api.nvim_buf_line_count(bufnr) <= finish_line + 1
@@ -134,10 +184,12 @@ end
 function M.apply_text_document_edit(text_document_edit)
   local text_document = text_document_edit.textDocument
   local bufnr = vim.uri_to_bufnr(text_document.uri)
-  -- TODO(ashkan) check this is correct.
-  if (M.buf_versions[bufnr] or 0) > text_document.version then
-    print("Buffer ", text_document.uri, " newer than edits.")
-    return
+  if text_document.version then
+    -- `VersionedTextDocumentIdentifier`s version may be null https://microsoft.github.io/language-server-protocol/specification#versionedTextDocumentIdentifier
+    if text_document.version ~= vim.NIL and M.buf_versions[bufnr] ~= nil and M.buf_versions[bufnr] > text_document.version then
+      print("Buffer ", text_document.uri, " newer than edits.")
+      return
+    end
   end
   M.apply_text_edits(text_document_edit.edits, bufnr)
 end
@@ -146,6 +198,66 @@ function M.get_current_line_to_cursor()
   local pos = api.nvim_win_get_cursor(0)
   local line = assert(api.nvim_buf_get_lines(0, pos[1]-1, pos[1], false)[1])
   return line:sub(pos[2]+1)
+end
+
+local function parse_snippet_rec(input, inner)
+  local res = ""
+
+  local close, closeend = nil, nil
+  if inner then
+    close, closeend = input:find("}", 1, true)
+    while close ~= nil and input:sub(close-1,close-1) == "\\" do
+      close, closeend = input:find("}", closeend+1, true)
+    end
+  end
+
+  local didx = input:find('$',  1, true)
+  if didx == nil and close == nil then
+    return input, ""
+  elseif close ~=nil and (didx == nil or close < didx) then
+    -- No inner placeholders
+    return input:sub(0, close-1), input:sub(closeend+1)
+  end
+
+  res = res .. input:sub(0, didx-1)
+  input = input:sub(didx+1)
+
+  local tabstop, tabstopend = input:find('^%d+')
+  local placeholder, placeholderend = input:find('^{%d+:')
+  local choice, choiceend = input:find('^{%d+|')
+
+  if tabstop then
+    input = input:sub(tabstopend+1)
+  elseif choice then
+    input = input:sub(choiceend+1)
+    close, closeend = input:find("|}", 1, true)
+
+    res = res .. input:sub(0, close-1)
+    input = input:sub(closeend+1)
+  elseif placeholder then
+    -- TODO: add support for variables
+    input = input:sub(placeholderend+1)
+
+    -- placeholders and variables are recursive
+    while input ~= "" do
+      local r, tail = parse_snippet_rec(input, true)
+      r = r:gsub("\\}", "}")
+
+      res = res .. r
+      input = tail
+    end
+  else
+    res = res .. "$"
+  end
+
+  return res, input
+end
+
+-- Parse completion entries, consuming snippet tokens
+function M.parse_snippet(input)
+  local res, _ = parse_snippet_rec(input, false)
+
+  return res
 end
 
 -- Sort by CompletionItem.sortText
@@ -157,13 +269,40 @@ local function sort_completion_items(items)
   end
 end
 
--- Some lanuguage servers return complementary candidates whose prefixes do not match are also returned.
+-- Returns text that should be inserted when selecting completion item. The precedence is as follows:
+-- textEdit.newText > insertText > label
+-- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_completion
+local function get_completion_word(item)
+  if item.textEdit ~= nil and item.textEdit.newText ~= nil then
+    if protocol.InsertTextFormat[item.insertTextFormat] == "PlainText" then
+      return item.textEdit.newText
+    else
+      return M.parse_snippet(item.textEdit.newText)
+    end
+  elseif item.insertText ~= nil then
+    if protocol.InsertTextFormat[item.insertTextFormat] == "PlainText" then
+      return item.insertText
+    else
+      return M.parse_snippet(item.insertText)
+    end
+  end
+  return item.label
+end
+
+-- Some language servers return complementary candidates whose prefixes do not match are also returned.
 -- So we exclude completion candidates whose prefix does not match.
 local function remove_unmatch_completion_items(items, prefix)
   return vim.tbl_filter(function(item)
-    local word = item.insertText or item.label
+    local word = get_completion_word(item)
     return vim.startswith(word, prefix)
   end, items)
+end
+
+-- Acording to LSP spec, if the client set "completionItemKind.valueSet",
+-- the client must handle it properly even if it receives a value outside the specification.
+-- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_completion
+function M._get_completion_item_kind_name(completion_item_kind)
+  return protocol.CompletionItemKind[completion_item_kind] or "Unknown"
 end
 
 --- Getting vim complete-items with incomplete flag.
@@ -193,16 +332,23 @@ function M.text_document_completion_list_to_complete_items(result, prefix)
       end
     end
 
-    local word = completion_item.insertText or completion_item.label
+    local word = get_completion_word(completion_item)
     table.insert(matches, {
       word = word,
       abbr = completion_item.label,
-      kind = protocol.CompletionItemKind[completion_item.kind] or '',
+      kind = M._get_completion_item_kind_name(completion_item.kind),
       menu = completion_item.detail or '',
       info = info,
       icase = 1,
       dup = 1,
       empty = 1,
+      user_data = {
+        nvim = {
+          lsp = {
+            completion_item = completion_item
+          }
+        }
+      },
     })
   end
 
@@ -275,6 +421,65 @@ function M.convert_input_to_markdown_lines(input, contents)
   return contents
 end
 
+--- Convert SignatureHelp response to markdown lines.
+-- https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#textDocument_signatureHelp
+function M.convert_signature_help_to_markdown_lines(signature_help)
+  if not signature_help.signatures then
+    return
+  end
+  --The active signature. If omitted or the value lies outside the range of
+  --`signatures` the value defaults to zero or is ignored if `signatures.length
+  --=== 0`. Whenever possible implementors should make an active decision about
+  --the active signature and shouldn't rely on a default value.
+  local contents = {}
+  local active_signature = signature_help.activeSignature or 0
+  -- If the activeSignature is not inside the valid range, then clip it.
+  if active_signature >= #signature_help.signatures then
+    active_signature = 0
+  end
+  local signature = signature_help.signatures[active_signature + 1]
+  if not signature then
+    return
+  end
+  vim.list_extend(contents, vim.split(signature.label, '\n', true))
+  if signature.documentation then
+    M.convert_input_to_markdown_lines(signature.documentation, contents)
+  end
+  if signature_help.parameters then
+    local active_parameter = signature_help.activeParameter or 0
+    -- If the activeParameter is not inside the valid range, then clip it.
+    if active_parameter >= #signature_help.parameters then
+      active_parameter = 0
+    end
+    local parameter = signature.parameters and signature.parameters[active_parameter]
+    if parameter then
+      --[=[
+      --Represents a parameter of a callable-signature. A parameter can
+      --have a label and a doc-comment.
+      interface ParameterInformation {
+        --The label of this parameter information.
+        --
+        --Either a string or an inclusive start and exclusive end offsets within its containing
+        --signature label. (see SignatureInformation.label). The offsets are based on a UTF-16
+        --string representation as `Position` and `Range` does.
+        --
+        --*Note*: a label of type string should be a substring of its containing signature label.
+        --Its intended use case is to highlight the parameter label part in the `SignatureInformation.label`.
+        label: string | [number, number];
+        --The human-readable doc-comment of this parameter. Will be shown
+        --in the UI but can be omitted.
+        documentation?: string | MarkupContent;
+      }
+      --]=]
+      -- TODO highlight parameter
+      if parameter.documentation then
+        M.convert_input_help_to_markdown_lines(parameter.documentation, contents)
+      end
+    end
+  end
+  return contents
+end
+
 function M.make_floating_popup_options(width, height, opts)
   validate {
     opts = { opts, 't', true };
@@ -321,18 +526,48 @@ function M.make_floating_popup_options(width, height, opts)
 end
 
 function M.jump_to_location(location)
-  if location.uri == nil then return end
-  local bufnr = vim.uri_to_bufnr(location.uri)
+  -- location may be Location or LocationLink
+  local uri = location.uri or location.targetUri
+  if uri == nil then return end
+  local bufnr = vim.uri_to_bufnr(uri)
   -- Save position in jumplist
   vim.cmd "normal! m'"
-  -- TODO(ashkan) use tagfunc here to update tagstack.
+
+  -- Push a new item into tagstack
+  local from = {vim.fn.bufnr('%'), vim.fn.line('.'), vim.fn.col('.'), 0}
+  local items = {{tagname=vim.fn.expand('<cword>'), from=from}}
+  vim.fn.settagstack(vim.fn.win_getid(), {items=items}, 't')
+
+  --- Jump to new location (adjusting for UTF-16 encoding of characters)
   api.nvim_set_current_buf(bufnr)
-  local row = location.range.start.line
-  local col = location.range.start.character
-  local line = api.nvim_buf_get_lines(0, row, row+1, true)[1]
-  col = vim.str_byteindex(line, col)
+  api.nvim_buf_set_option(0, 'buflisted', true)
+  local range = location.range or location.targetSelectionRange
+  local row = range.start.line
+  local col = get_line_byte_from_position(0, range.start)
   api.nvim_win_set_cursor(0, {row + 1, col})
   return true
+end
+
+--- Preview a location in a floating windows
+---
+--- behavior depends on type of location:
+---   - for Location, range is shown (e.g., function definition)
+---   - for LocationLink, targetRange is shown (e.g., body of function definition)
+---
+--@param location a single Location or LocationLink
+--@return bufnr,winnr buffer and window number of floating window or nil
+function M.preview_location(location)
+  -- location may be LocationLink or Location (more useful for the former)
+  local uri = location.targetUri or location.uri
+  if uri == nil then return end
+  local bufnr = vim.uri_to_bufnr(uri)
+  if not api.nvim_buf_is_loaded(bufnr) then
+    vim.fn.bufload(bufnr)
+  end
+  local range = location.targetRange or location.range
+  local contents = api.nvim_buf_get_lines(bufnr, range.start.line, range["end"].line+1, false)
+  local filetype = api.nvim_buf_get_option(bufnr, 'filetype')
+  return M.open_floating_preview(contents, filetype)
 end
 
 local function find_window_by_var(name, value)
@@ -379,13 +614,53 @@ function M.focusable_preview(unique_name, fn)
   end)
 end
 
--- Convert markdown into syntax highlighted regions by stripping the code
--- blocks and converting them into highlighted code.
--- This will by default insert a blank line separator after those code block
--- regions to improve readability.
+--- Trim empty lines from input and pad left and right with spaces
+---
+--@param contents table of lines to trim and pad
+--@param opts dictionary with optional fields
+--             - pad_left  amount of columns to pad contents at left (default 1)
+--             - pad_right amount of columns to pad contents at right (default 1)
+--@return contents table of trimmed and padded lines
+function M._trim_and_pad(contents, opts)
+  validate {
+    contents = { contents, 't' };
+    opts = { opts, 't', true };
+  }
+  opts = opts or {}
+  local left_padding = (" "):rep(opts.pad_left or 1)
+  local right_padding = (" "):rep(opts.pad_right or 1)
+  contents = M.trim_empty_lines(contents)
+  for i, line in ipairs(contents) do
+    contents[i] = string.format('%s%s%s', left_padding, line:gsub("\r", ""), right_padding)
+  end
+  return contents
+end
+
+
+
+--- Convert markdown into syntax highlighted regions by stripping the code
+--- blocks and converting them into highlighted code.
+--- This will by default insert a blank line separator after those code block
+--- regions to improve readability.
+--- The result is shown in a floating preview
+--- TODO: refactor to separate stripping/converting and make use of open_floating_preview
+---
+--@param contents table of lines to show in window
+--@param opts dictionary with optional fields
+--             - height    of floating window
+--             - width     of floating window
+--             - wrap_at   character to wrap at for computing height
+--             - pad_left  amount of columns to pad contents at left
+--             - pad_right amount of columns to pad contents at right
+--             - separator insert separator after code block
+--@return width,height size of float
 function M.fancy_floating_markdown(contents, opts)
-  local pad_left = opts and opts.pad_left
-  local pad_right = opts and opts.pad_right
+  validate {
+    contents = { contents, 't' };
+    opts = { opts, 't', true };
+  }
+  opts = opts or {}
+
   local stripped = {}
   local highlights = {}
   do
@@ -419,31 +694,27 @@ function M.fancy_floating_markdown(contents, opts)
       end
     end
   end
-  local width = 0
-  for i, v in ipairs(stripped) do
-    v = v:gsub("\r", "")
-    if pad_left then v = (" "):rep(pad_left)..v end
-    if pad_right then v = v..(" "):rep(pad_right) end
-    stripped[i] = v
-    width = math.max(width, #v)
-  end
-  if opts and opts.max_width then
-    width = math.min(opts.max_width, width)
-  end
-  -- TODO(ashkan): decide how to make this customizable.
-  local insert_separator = true
+  -- Clean up and add padding
+  stripped = M._trim_and_pad(stripped, opts)
+
+  -- Compute size of float needed to show (wrapped) lines
+  opts.wrap_at = opts.wrap_at or (vim.wo["wrap"] and api.nvim_win_get_width(0))
+  local width, height = M._make_floating_popup_size(stripped, opts)
+
+  -- Insert blank line separator after code block
+  local insert_separator = opts.separator or true
   if insert_separator then
     for i, h in ipairs(highlights) do
       h.start = h.start + i - 1
       h.finish = h.finish + i - 1
       if h.finish + 1 <= #stripped then
         table.insert(stripped, h.finish + 1, string.rep("─", width))
+        height = height + 1
       end
     end
   end
 
   -- Make the floating window.
-  local height = #stripped
   local bufnr = api.nvim_create_buf(false, true)
   local winnr = api.nvim_open_win(bufnr, false, M.make_floating_popup_options(width, height, opts))
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, stripped)
@@ -455,7 +726,7 @@ function M.fancy_floating_markdown(contents, opts)
 
   vim.cmd("ownsyntax markdown")
   local idx = 1
-  local function highlight_region(ft, start, finish)
+  local function apply_syntax_to_region(ft, start, finish)
     if ft == '' then return end
     local name = ft..idx
     idx = idx + 1
@@ -471,8 +742,8 @@ function M.fancy_floating_markdown(contents, opts)
   -- make sure that regions between code blocks are definitely markdown.
   -- local ph = {start = 0; finish = 1;}
   for _, h in ipairs(highlights) do
-    -- highlight_region('markdown', ph.finish, h.start)
-    highlight_region(h.ft, h.start, h.finish)
+    -- apply_syntax_to_region('markdown', ph.finish, h.start)
+    apply_syntax_to_region(h.ft, h.start, h.finish)
     -- ph = h
   end
 
@@ -484,6 +755,66 @@ function M.close_preview_autocmd(events, winnr)
   api.nvim_command("autocmd "..table.concat(events, ',').." <buffer> ++once lua pcall(vim.api.nvim_win_close, "..winnr..", true)")
 end
 
+--- Compute size of float needed to show contents (with optional wrapping)
+---
+--@param contents table of lines to show in window
+--@param opts dictionary with optional fields
+--             - height  of floating window
+--             - width   of floating window
+--             - wrap_at character to wrap at for computing height
+--@return width,height size of float
+function M._make_floating_popup_size(contents, opts)
+  validate {
+    contents = { contents, 't' };
+    opts = { opts, 't', true };
+  }
+  opts = opts or {}
+
+  local width = opts.width
+  local height = opts.height
+  local line_widths = {}
+
+  if not width then
+    width = 0
+    for i, line in ipairs(contents) do
+      -- TODO(ashkan) use nvim_strdisplaywidth if/when that is introduced.
+      line_widths[i] = vim.fn.strdisplaywidth(line)
+      width = math.max(line_widths[i], width)
+    end
+  end
+
+  if not height then
+    height = #contents
+    local wrap_at = opts.wrap_at
+    if wrap_at and width > wrap_at then
+      height = 0
+      if vim.tbl_isempty(line_widths) then
+        for _, line in ipairs(contents) do
+          local line_width = vim.fn.strdisplaywidth(line)
+          height = height + math.ceil(line_width/wrap_at)
+        end
+      else
+        for i = 1, #contents do
+          height = height + math.ceil(line_widths[i]/wrap_at)
+        end
+      end
+    end
+  end
+
+  return width, height
+end
+
+--- Show contents in a floating window
+---
+--@param contents table of lines to show in window
+--@param filetype string of filetype to set for opened buffer
+--@param opts dictionary with optional fields
+--             - height    of floating window
+--             - width     of floating window
+--             - wrap_at   character to wrap at for computing height
+--             - pad_left  amount of columns to pad contents at left
+--             - pad_right amount of columns to pad contents at right
+--@return bufnr,winnr buffer and window number of floating window or nil
 function M.open_floating_preview(contents, filetype, opts)
   validate {
     contents = { contents, 't' };
@@ -492,24 +823,12 @@ function M.open_floating_preview(contents, filetype, opts)
   }
   opts = opts or {}
 
-  -- Trim empty lines from the end.
-  contents = M.trim_empty_lines(contents)
+  -- Clean up input: trim empty lines from the end, pad
+  contents = M._trim_and_pad(contents, opts)
 
-  local width = opts.width
-  local height = opts.height or #contents
-  if not width then
-    width = 0
-    for i, line in ipairs(contents) do
-      -- Clean up the input and add left pad.
-      line = " "..line:gsub("\r", "")
-      -- TODO(ashkan) use nvim_strdisplaywidth if/when that is introduced.
-      local line_width = vim.fn.strdisplaywidth(line)
-      width = math.max(line_width, width)
-      contents[i] = line
-    end
-    -- Add right padding of 1 each.
-    width = width + 1
-  end
+  -- Compute size of float needed to show (wrapped) lines
+  opts.wrap_at = opts.wrap_at or (vim.wo["wrap"] and api.nvim_win_get_width(0))
+  local width, height = M._make_floating_popup_size(contents, opts)
 
   local floating_bufnr = api.nvim_create_buf(false, true)
   if filetype then
@@ -522,52 +841,11 @@ function M.open_floating_preview(contents, filetype, opts)
   end
   api.nvim_buf_set_lines(floating_bufnr, 0, -1, true, contents)
   api.nvim_buf_set_option(floating_bufnr, 'modifiable', false)
-  -- TODO make InsertCharPre disappearing optional?
-  api.nvim_command("autocmd CursorMoved,BufHidden,InsertCharPre <buffer> ++once lua pcall(vim.api.nvim_win_close, "..floating_winnr..", true)")
+  M.close_preview_autocmd({"CursorMoved", "CursorMovedI", "BufHidden", "BufLeave"}, floating_winnr)
   return floating_bufnr, floating_winnr
 end
 
-local function validate_lsp_position(pos)
-  validate { pos = {pos, 't'} }
-  validate {
-    line = {pos.line, 'n'};
-    character = {pos.character, 'n'};
-  }
-  return true
-end
-
-function M.open_floating_peek_preview(bufnr, start, finish, opts)
-  validate {
-    bufnr = {bufnr, 'n'};
-    start = {start, validate_lsp_position, 'valid start Position'};
-    finish = {finish, validate_lsp_position, 'valid finish Position'};
-    opts = { opts, 't', true };
-  }
-  local width = math.max(finish.character - start.character + 1, 1)
-  local height = math.max(finish.line - start.line + 1, 1)
-  local floating_winnr = api.nvim_open_win(bufnr, false, M.make_floating_popup_options(width, height, opts))
-  api.nvim_win_set_cursor(floating_winnr, {start.line+1, start.character})
-  api.nvim_command("autocmd CursorMoved * ++once lua pcall(vim.api.nvim_win_close, "..floating_winnr..", true)")
-  return floating_winnr
-end
-
-
-local function highlight_range(bufnr, ns, hiname, start, finish)
-  if start[1] == finish[1] then
-    -- TODO care about encoding here since this is in byte index?
-    api.nvim_buf_add_highlight(bufnr, ns, hiname, start[1], start[2], finish[2])
-  else
-    api.nvim_buf_add_highlight(bufnr, ns, hiname, start[1], start[2], -1)
-    for line = start[1] + 1, finish[1] - 1 do
-      api.nvim_buf_add_highlight(bufnr, ns, hiname, line, 0, -1)
-    end
-    api.nvim_buf_add_highlight(bufnr, ns, hiname, finish[1], 0, finish[2])
-  end
-end
-
 do
-  local all_buffer_diagnostics = {}
-
   local diagnostic_ns = api.nvim_create_namespace("vim_lsp_diagnostics")
   local reference_ns = api.nvim_create_namespace("vim_lsp_references")
   local sign_ns = 'vim_lsp_signs'
@@ -581,6 +859,8 @@ do
 
   local severity_highlights = {}
 
+  local severity_floating_highlights = {}
+
   local default_severity_highlight = {
     [protocol.DiagnosticSeverity.Error] = { guifg = "Red" };
     [protocol.DiagnosticSeverity.Warning] = { guifg = "Orange" };
@@ -592,13 +872,17 @@ do
   for severity, hi_info in pairs(default_severity_highlight) do
     local severity_name = protocol.DiagnosticSeverity[severity]
     local highlight_name = "LspDiagnostics"..severity_name
+    local floating_highlight_name = highlight_name.."Floating"
     -- Try to fill in the foreground color with a sane default.
     local cmd_parts = {"highlight", "default", highlight_name}
     for k, v in pairs(hi_info) do
       table.insert(cmd_parts, k.."="..v)
     end
     api.nvim_command(table.concat(cmd_parts, ' '))
+    api.nvim_command('highlight link ' .. highlight_name .. 'Sign ' .. highlight_name)
+    api.nvim_command('highlight link ' .. highlight_name .. 'Floating ' .. highlight_name)
     severity_highlights[severity] = highlight_name
+    severity_floating_highlights[severity] = floating_highlight_name
   end
 
   function M.buf_clear_diagnostics(bufnr)
@@ -616,21 +900,29 @@ do
     return severity_highlights[severity]
   end
 
-  function M.show_line_diagnostics()
+  function M.get_line_diagnostics()
     local bufnr = api.nvim_get_current_buf()
-    local line = api.nvim_win_get_cursor(0)[1] - 1
+    local linenr = api.nvim_win_get_cursor(0)[1] - 1
+
+    local buffer_diagnostics = M.diagnostics_by_buf[bufnr]
+
+    if not buffer_diagnostics then
+      return {}
+    end
+
+    local diagnostics_by_line = M.diagnostics_group_by_line(buffer_diagnostics)
+    return diagnostics_by_line[linenr] or {}
+  end
+
+  function M.show_line_diagnostics()
     -- local marks = api.nvim_buf_get_extmarks(bufnr, diagnostic_ns, {line, 0}, {line, -1}, {})
     -- if #marks == 0 then
     --   return
     -- end
-    -- local buffer_diagnostics = all_buffer_diagnostics[bufnr]
     local lines = {"Diagnostics:"}
     local highlights = {{0, "Bold"}}
-
-    local buffer_diagnostics = all_buffer_diagnostics[bufnr]
-    if not buffer_diagnostics then return end
-    local line_diagnostics = buffer_diagnostics[line]
-    if not line_diagnostics then return end
+    local line_diagnostics = M.get_line_diagnostics()
+    if vim.tbl_isempty(line_diagnostics) then return end
 
     for i, diagnostic in ipairs(line_diagnostics) do
     -- for i, mark in ipairs(marks) do
@@ -639,7 +931,8 @@ do
 
       -- TODO(ashkan) make format configurable?
       local prefix = string.format("%d. ", i)
-      local hiname = severity_highlights[diagnostic.severity]
+      local hiname = severity_floating_highlights[diagnostic.severity]
+      assert(hiname, 'unknown severity: ' .. tostring(diagnostic.severity))
       local message_lines = split_lines(diagnostic.message)
       table.insert(lines, prefix..message_lines[1])
       table.insert(highlights, {#prefix + 1, hiname})
@@ -657,6 +950,8 @@ do
     return popup_bufnr, winnr
   end
 
+  --- Saves the diagnostics (Diagnostic[]) into diagnostics_by_buf
+  --
   function M.buf_diagnostics_save_positions(bufnr, diagnostics)
     validate {
       bufnr = {bufnr, 'n', true};
@@ -665,28 +960,15 @@ do
     if not diagnostics then return end
     bufnr = bufnr == 0 and api.nvim_get_current_buf() or bufnr
 
-    if not all_buffer_diagnostics[bufnr] then
+    if not M.diagnostics_by_buf[bufnr] then
       -- Clean up our data when the buffer unloads.
       api.nvim_buf_attach(bufnr, false, {
         on_detach = function(b)
-          all_buffer_diagnostics[b] = nil
+          M.diagnostics_by_buf[b] = nil
         end
       })
     end
-    all_buffer_diagnostics[bufnr] = {}
-    local buffer_diagnostics = all_buffer_diagnostics[bufnr]
-
-    for _, diagnostic in ipairs(diagnostics) do
-      local start = diagnostic.range.start
-      -- local mark_id = api.nvim_buf_set_extmark(bufnr, diagnostic_ns, 0, start.line, 0, {})
-      -- buffer_diagnostics[mark_id] = diagnostic
-      local line_diagnostics = buffer_diagnostics[start.line]
-      if not line_diagnostics then
-        line_diagnostics = {}
-        buffer_diagnostics[start.line] = line_diagnostics
-      end
-      table.insert(line_diagnostics, diagnostic)
-    end
+    M.diagnostics_by_buf[bufnr] = diagnostics
   end
 
   function M.buf_diagnostics_underline(bufnr, diagnostics)
@@ -701,8 +983,7 @@ do
         [protocol.DiagnosticSeverity.Hint]='Hint',
       }
 
-      -- TODO care about encoding here since this is in byte index?
-      highlight_range(bufnr, diagnostic_ns,
+      highlight.range(bufnr, diagnostic_ns,
         underline_highlight_name..hlmap[diagnostic.severity],
         {start.line, start.character},
         {finish.line, finish.character}
@@ -725,19 +1006,31 @@ do
         [protocol.DocumentHighlightKind.Read] = "LspReferenceRead";
         [protocol.DocumentHighlightKind.Write] = "LspReferenceWrite";
       }
-      highlight_range(bufnr, reference_ns, document_highlight_kind[reference["kind"]], start_pos, end_pos)
+      local kind = reference["kind"] or protocol.DocumentHighlightKind.Text
+      highlight.range(bufnr, reference_ns, document_highlight_kind[kind], start_pos, end_pos)
     end
   end
 
-  function M.buf_diagnostics_virtual_text(bufnr, diagnostics)
-    local buffer_line_diagnostics = all_buffer_diagnostics[bufnr]
-    if not buffer_line_diagnostics then
-      M.buf_diagnostics_save_positions(bufnr, diagnostics)
+  function M.diagnostics_group_by_line(diagnostics)
+    if not diagnostics then return end
+    local diagnostics_by_line = {}
+    for _, diagnostic in ipairs(diagnostics) do
+      local start = diagnostic.range.start
+      local line_diagnostics = diagnostics_by_line[start.line]
+      if not line_diagnostics then
+        line_diagnostics = {}
+        diagnostics_by_line[start.line] = line_diagnostics
+      end
+      table.insert(line_diagnostics, diagnostic)
     end
-    buffer_line_diagnostics = all_buffer_diagnostics[bufnr]
-    if not buffer_line_diagnostics then
+    return diagnostics_by_line
+  end
+
+  function M.buf_diagnostics_virtual_text(bufnr, diagnostics)
+    if not diagnostics then
       return
     end
+    local buffer_line_diagnostics = M.diagnostics_group_by_line(diagnostics)
     for line, line_diags in pairs(buffer_line_diagnostics) do
       local virt_texts = {}
       for i = 1, #line_diags - 1 do
@@ -749,31 +1042,29 @@ do
       api.nvim_buf_set_virtual_text(bufnr, diagnostic_ns, line, virt_texts, {})
     end
   end
+
   function M.buf_diagnostics_count(kind)
     local bufnr = vim.api.nvim_get_current_buf()
-    local buffer_line_diagnostics = all_buffer_diagnostics[bufnr]
-    if not buffer_line_diagnostics then return end
+    local diagnostics = M.diagnostics_by_buf[bufnr]
+    if not diagnostics then return end
     local count = 0
-    for _, line_diags in pairs(buffer_line_diagnostics) do
-      for _, diag in ipairs(line_diags) do
-        if protocol.DiagnosticSeverity[kind] == diag.severity then count = count + 1 end
+    for _, diagnostic in pairs(diagnostics) do
+      if protocol.DiagnosticSeverity[kind] == diagnostic.severity then
+        count = count + 1
       end
     end
     return count
   end
-  function M.buf_diagnostics_signs(bufnr, diagnostics)
-    vim.fn.sign_define('LspDiagnosticsErrorSign', {text=vim.g['LspDiagnosticsErrorSign'] or 'E', texthl='LspDiagnosticsError', linehl='', numhl=''})
-    vim.fn.sign_define('LspDiagnosticsWarningSign', {text=vim.g['LspDiagnosticsWarningSign'] or 'W', texthl='LspDiagnosticsWarning', linehl='', numhl=''})
-    vim.fn.sign_define('LspDiagnosticsInformationSign', {text=vim.g['LspDiagnosticsInformationSign'] or 'I', texthl='LspDiagnosticsInformation', linehl='', numhl=''})
-    vim.fn.sign_define('LspDiagnosticsHintSign', {text=vim.g['LspDiagnosticsHintSign'] or 'H', texthl='LspDiagnosticsHint', linehl='', numhl=''})
 
+  local diagnostic_severity_map = {
+    [protocol.DiagnosticSeverity.Error] = "LspDiagnosticsErrorSign";
+    [protocol.DiagnosticSeverity.Warning] = "LspDiagnosticsWarningSign";
+    [protocol.DiagnosticSeverity.Information] = "LspDiagnosticsInformationSign";
+    [protocol.DiagnosticSeverity.Hint] = "LspDiagnosticsHintSign";
+  }
+
+  function M.buf_diagnostics_signs(bufnr, diagnostics)
     for _, diagnostic in ipairs(diagnostics) do
-      local diagnostic_severity_map = {
-        [protocol.DiagnosticSeverity.Error] = "LspDiagnosticsErrorSign";
-        [protocol.DiagnosticSeverity.Warning] = "LspDiagnosticsWarningSign";
-        [protocol.DiagnosticSeverity.Information] = "LspDiagnosticsInformationSign";
-        [protocol.DiagnosticSeverity.Hint] = "LspDiagnosticsHintSign";
-      }
       vim.fn.sign_place(0, sign_ns, diagnostic_severity_map[diagnostic.severity], bufnr, {lnum=(diagnostic.range.start.line+1)})
     end
   end
@@ -795,9 +1086,11 @@ function M.locations_to_items(locations)
     end;
   })
   for _, d in ipairs(locations) do
-    local start = d.range.start
-    local fname = assert(vim.uri_to_fname(d.uri))
-    table.insert(grouped[fname], {start = start})
+    -- locations may be Location or LocationLink
+    local uri = d.uri or d.targetUri
+    local fname = assert(vim.uri_to_fname(uri))
+    local range = d.range or d.targetSelectionRange
+    table.insert(grouped[fname], {start = range.start})
   end
 
 
@@ -848,6 +1141,13 @@ function M.set_qflist(items)
   })
 end
 
+-- Acording to LSP spec, if the client set "symbolKind.valueSet",
+-- the client must handle it properly even if it receives a value outside the specification.
+-- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_documentSymbol
+function M._get_symbol_kind_name(symbol_kind)
+  return protocol.SymbolKind[symbol_kind] or "Unknown"
+end
+
 --- Convert symbols to quickfix list items
 ---
 --@symbols DocumentSymbol[] or SymbolInformation[]
@@ -856,7 +1156,7 @@ function M.symbols_to_items(symbols, bufnr)
     for _, symbol in ipairs(_symbols) do
       if symbol.location then -- SymbolInformation type
         local range = symbol.location.range
-        local kind = protocol.SymbolKind[symbol.kind]
+        local kind = M._get_symbol_kind_name(symbol.kind)
         table.insert(_items, {
           filename = vim.uri_to_fname(symbol.location.uri),
           lnum = range.start.line + 1,
@@ -865,7 +1165,7 @@ function M.symbols_to_items(symbols, bufnr)
           text = '['..kind..'] '..symbol.name,
         })
       elseif symbol.range then -- DocumentSymbole type
-        local kind = protocol.SymbolKind[symbol.kind]
+        local kind = M._get_symbol_kind_name(symbol.kind)
         table.insert(_items, {
           -- bufnr = _bufnr,
           filename = vim.api.nvim_buf_get_name(_bufnr),
@@ -875,10 +1175,8 @@ function M.symbols_to_items(symbols, bufnr)
           text = '['..kind..'] '..symbol.name
         })
         if symbol.children then
-          for _, child in ipairs(symbol) do
-            for _, v in ipairs(_symbols_to_items(child, _items, _bufnr)) do
-              vim.list_extend(_items, v)
-            end
+          for _, v in ipairs(_symbols_to_items(symbol.children, _items, _bufnr)) do
+            vim.list_extend(_items, v)
           end
         end
       end
@@ -934,14 +1232,26 @@ function M.try_trim_markdown_code_blocks(lines)
 end
 
 local str_utfindex = vim.str_utfindex
-function M.make_position_params()
+local function make_position_param()
   local row, col = unpack(api.nvim_win_get_cursor(0))
   row = row - 1
   local line = api.nvim_buf_get_lines(0, row, row+1, true)[1]
   col = str_utfindex(line, col)
+  return { line = row; character = col; }
+end
+
+function M.make_position_params()
   return {
     textDocument = M.make_text_document_params();
-    position = { line = row; character = col; }
+    position = make_position_param()
+  }
+end
+
+function M.make_range_params()
+  local position = make_position_param()
+  return {
+    textDocument = { uri = vim.uri_from_bufnr(0) },
+    range = { start = position; ["end"] = position; }
   }
 end
 

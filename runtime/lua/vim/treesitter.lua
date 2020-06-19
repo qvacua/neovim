@@ -124,7 +124,7 @@ end
 function M.parse_query(lang, query)
   M.require_language(lang)
   local self = setmetatable({}, Query)
-  self.query = vim._ts_parse_query(lang, query)
+  self.query = vim._ts_parse_query(lang, vim.fn.escape(query,'\\'))
   self.info = self.query:inspect()
   self.captures = self.info.captures
   self.regexes = {}
@@ -159,16 +159,20 @@ function Query:match_preds(match, pattern, bufnr)
   end
   local regexes = self.regexes[pattern]
   for i, pred in pairs(preds) do
+    -- Here we only want to return if a predicate DOES NOT match, and
+    -- continue on the other case. This way unknown predicates will not be considered,
+    -- which allows some testing and easier user extensibility (#12173).
+    -- Also, tree-sitter strips the leading # from predicates for us.
     if pred[1] == "eq?" then
       local node = match[pred[2]]
       local node_text = get_node_text(node, bufnr)
 
       local str
       if type(pred[3]) == "string" then
-        -- (eq? @aa "foo")
+        -- (#eq? @aa "foo")
         str = pred[3]
       else
-        -- (eq? @aa @bb)
+        -- (#eq? @aa @bb)
         str = get_node_text(match[pred[3]], bufnr)
       end
 
@@ -184,9 +188,9 @@ function Query:match_preds(match, pattern, bufnr)
       if start_row ~= end_row then
         return false
       end
-      return regexes[i]:match_line(bufnr, start_row, start_col, end_col)
-    else
-      return false
+      if not regexes[i]:match_line(bufnr, start_row, start_col, end_col) then
+        return false
+      end
     end
   end
   return true
