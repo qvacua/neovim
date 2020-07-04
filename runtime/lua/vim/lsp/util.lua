@@ -952,7 +952,9 @@ do
   end
 
   --- Saves the diagnostics (Diagnostic[]) into diagnostics_by_buf
-  --
+  ---
+  --@param bufnr bufnr for which the diagnostics are for.
+  --@param diagnostics Diagnostics[] received from the language server.
   function M.buf_diagnostics_save_positions(bufnr, diagnostics)
     validate {
       bufnr = {bufnr, 'n', true};
@@ -1044,6 +1046,29 @@ do
     end
   end
 
+  --- Returns the number of diagnostics of given kind for current buffer.
+  ---
+  --- Useful for showing diagnostic counts in statusline. eg:
+  ---
+  --- <pre>
+  --- function! LspStatus() abort
+  ---     let sl = ''
+  ---     if luaeval('not vim.tbl_isempty(vim.lsp.buf_get_clients(0))')
+  ---         let sl.='%#MyStatuslineLSP#E:'
+  ---         let sl.='%#MyStatuslineLSPErrors#%{luaeval("vim.lsp.util.buf_diagnostics_count([[Error]])")}'
+  ---         let sl.='%#MyStatuslineLSP# W:'
+  ---         let sl.='%#MyStatuslineLSPWarnings#%{luaeval("vim.lsp.util.buf_diagnostics_count([[Warning]])")}'
+  ---     else
+  ---         let sl.='%#MyStatuslineLSPErrors#off'
+  ---     endif
+  ---     return sl
+  --- endfunction
+  --- let &l:statusline = '%#MyStatuslineLSP#LSP '.LspStatus()
+  --- </pre>
+  ---
+  --@param kind Diagnostic severity kind: See |vim.lsp.protocol.DiagnosticSeverity|
+  ---
+  --@return Count of diagnostics
   function M.buf_diagnostics_count(kind)
     local bufnr = vim.api.nvim_get_current_buf()
     local diagnostics = M.diagnostics_by_buf[bufnr]
@@ -1064,6 +1089,16 @@ do
     [protocol.DiagnosticSeverity.Hint] = "LspDiagnosticsHintSign";
   }
 
+  --- Place signs for each diagnostic in the sign column.
+  ---
+  --- Sign characters can be customized with the following commands:
+  ---
+  --- <pre>
+  --- sign define LspDiagnosticsErrorSign text=E texthl=LspDiagnosticsError linehl= numhl=
+  --- sign define LspDiagnosticsWarningSign text=W texthl=LspDiagnosticsWarning linehl= numhl=
+  --- sign define LspDiagnosticsInformationSign text=I texthl=LspDiagnosticsInformation linehl= numhl=
+  --- sign define LspDiagnosticsHintSign text=H texthl=LspDiagnosticsHint linehl= numhl=
+  --- </pre>
   function M.buf_diagnostics_signs(bufnr, diagnostics)
     for _, diagnostic in ipairs(diagnostics) do
       vim.fn.sign_place(0, sign_ns, diagnostic_severity_map[diagnostic.severity], bufnr, {lnum=(diagnostic.range.start.line+1)})
@@ -1089,40 +1124,31 @@ function M.locations_to_items(locations)
   for _, d in ipairs(locations) do
     -- locations may be Location or LocationLink
     local uri = d.uri or d.targetUri
-    local fname = assert(vim.uri_to_fname(uri))
     local range = d.range or d.targetSelectionRange
-    table.insert(grouped[fname], {start = range.start})
+    table.insert(grouped[uri], {start = range.start})
   end
 
 
   local keys = vim.tbl_keys(grouped)
   table.sort(keys)
   -- TODO(ashkan) I wish we could do this lazily.
-  for _, fname in ipairs(keys) do
-    local rows = grouped[fname]
-
+  for _, uri in ipairs(keys) do
+    local rows = grouped[uri]
     table.sort(rows, position_sort)
-    local i = 0
-    for line in io.lines(fname) do
-      for _, temp in ipairs(rows) do
-        local pos = temp.start
-        local row = pos.line
-        if i == row then
-          local col
-          if pos.character > #line then
-            col = #line
-          else
-            col = vim.str_byteindex(line, pos.character)
-          end
-          table.insert(items, {
-            filename = fname,
-            lnum = row + 1,
-            col = col + 1;
-            text = line;
-          })
-        end
-      end
-      i = i + 1
+    local bufnr = vim.uri_to_bufnr(uri)
+    vim.fn.bufload(bufnr)
+    local filename = vim.uri_to_fname(uri)
+    for _, temp in ipairs(rows) do
+      local pos = temp.start
+      local row = pos.line
+      local line = (api.nvim_buf_get_lines(bufnr, row, row + 1, false) or {""})[1]
+      local col = M.character_offset(bufnr, row, pos.character)
+      table.insert(items, {
+        filename = filename,
+        lnum = row + 1,
+        col = col + 1;
+        text = line;
+      })
     end
   end
   return items
@@ -1151,7 +1177,7 @@ end
 
 --- Convert symbols to quickfix list items
 ---
---@symbols DocumentSymbol[] or SymbolInformation[]
+--@param symbols DocumentSymbol[] or SymbolInformation[]
 function M.symbols_to_items(symbols, bufnr)
   local function _symbols_to_items(_symbols, _items, _bufnr)
     for _, symbol in ipairs(_symbols) do
@@ -1258,6 +1284,30 @@ end
 
 function M.make_text_document_params()
   return { uri = vim.uri_from_bufnr(0) }
+end
+
+--- Get visual width of tabstop.
+---
+--@see |softtabstop|
+--@param bufnr (optional, number): Buffer handle, defaults to current
+--@returns (number) tabstop visual width
+function M.get_effective_tabstop(bufnr)
+  validate { bufnr = {bufnr, 'n', true} }
+  local bo = bufnr and vim.bo[bufnr] or vim.bo
+  local sts = bo.softtabstop
+  return (sts > 0 and sts) or (sts < 0 and bo.shiftwidth) or bo.tabstop
+end
+
+function M.make_formatting_params(options)
+  validate { options = {options, 't', true} }
+  options = vim.tbl_extend('keep', options or {}, {
+    tabSize = M.get_effective_tabstop();
+    insertSpaces = vim.bo.expandtab;
+  })
+  return {
+    textDocument = { uri = vim.uri_from_bufnr(0) };
+    options = options;
+  }
 end
 
 -- @param buf buffer handle or 0 for current.

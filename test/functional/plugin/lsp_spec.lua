@@ -1070,6 +1070,64 @@ describe('LSP', function()
       ]])
     end)
   end)
+  describe('lsp.util.locations_to_items', function()
+    it('Convert Location[] to items', function()
+      local expected = {
+        {
+          filename = 'fake/uri',
+          lnum = 1,
+          col = 3,
+          text = 'testing'
+        },
+      }
+      local actual = exec_lua [[
+        local bufnr = vim.uri_to_bufnr("file://fake/uri")
+        local lines = {"testing", "123"}
+        vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, lines)
+        local locations = {
+          {
+            uri = 'file://fake/uri',
+            range = {
+              start = { line = 0, character = 2 },
+              ['end'] = { line = 0, character = 3 },
+            }
+          },
+        }
+        return vim.lsp.util.locations_to_items(locations)
+      ]]
+      eq(expected, actual)
+    end)
+    it('Convert LocationLink[] to items', function()
+      local expected = {
+        {
+          filename = 'fake/uri',
+          lnum = 1,
+          col = 3,
+          text = 'testing'
+        },
+      }
+      local actual = exec_lua [[
+        local bufnr = vim.uri_to_bufnr("file://fake/uri")
+        local lines = {"testing", "123"}
+        vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, lines)
+        local locations = {
+          {
+            targetUri = vim.uri_from_bufnr(bufnr),
+            targetRange = {
+              start = { line = 0, character = 2 },
+              ['end'] = { line = 0, character = 3 },
+            },
+            targetSelectionRange = {
+              start = { line = 0, character = 2 },
+              ['end'] = { line = 0, character = 3 },
+            }
+          },
+        }
+        return vim.lsp.util.locations_to_items(locations)
+      ]]
+      eq(expected, actual)
+    end)
+  end)
   describe('lsp.util.symbols_to_items', function()
     describe('convert DocumentSymbol[] to items', function()
       it('DocumentSymbol has children', function()
@@ -1423,5 +1481,20 @@ describe('LSP', function()
     it('calculates size correctly with wrapping', function()
       eq({15,5}, exec_lua[[ return {vim.lsp.util._make_floating_popup_size(contents,{width = 15, wrap_at = 14})} ]])
     end)
+  end)
+
+  describe('lsp.util.get_effective_tabstop', function()
+    local function test_tabstop(tabsize, softtabstop)
+      exec_lua(string.format([[
+        vim.api.nvim_buf_set_option(0, 'softtabstop', %d)
+        vim.api.nvim_buf_set_option(0, 'tabstop', 2)
+        vim.api.nvim_buf_set_option(0, 'shiftwidth', 3)
+      ]], softtabstop))
+      eq(tabsize, exec_lua('return vim.lsp.util.get_effective_tabstop()'))
+    end
+
+    it('with softtabstop = 1', function() test_tabstop(1, 1) end)
+    it('with softtabstop = 0', function() test_tabstop(2, 0) end)
+    it('with softtabstop = -1', function() test_tabstop(3, -1) end)
   end)
 end)

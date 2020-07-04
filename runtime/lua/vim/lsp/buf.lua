@@ -23,6 +23,9 @@ local function request(method, params, callback)
   return vim.lsp.buf_request(0, method, params, callback)
 end
 
+--- Sends a notification through all clients associated with current buffer.
+--
+--@return `true` if server responds.
 function M.server_ready()
   return not not vim.lsp.buf_notify(0, "window/progress", {})
 end
@@ -65,17 +68,20 @@ function M.completion(context)
 end
 
 function M.formatting(options)
-  validate { options = {options, 't', true} }
-  local sts = vim.bo.softtabstop;
-  options = vim.tbl_extend('keep', options or {}, {
-    tabSize = (sts > 0 and sts) or (sts < 0 and vim.bo.shiftwidth) or vim.bo.tabstop;
-    insertSpaces = vim.bo.expandtab;
-  })
-  local params = {
-    textDocument = { uri = vim.uri_from_bufnr(0) };
-    options = options;
-  }
+  local params = util.make_formatting_params(options)
   return request('textDocument/formatting', params)
+end
+
+--- Perform |vim.lsp.buf.formatting()| synchronously.
+---
+--- Useful for running on save, to make sure buffer is formatted prior to being
+--- saved.  {timeout_ms} is passed on to |vim.lsp.buf_request_sync()|.
+function M.formatting_sync(options, timeout_ms)
+  local params = util.make_formatting_params(options)
+  local result = vim.lsp.buf_request_sync(0, "textDocument/formatting", params, timeout_ms)
+  if not result then return end
+  result = result[1].result
+  vim.lsp.util.apply_text_edits(result)
 end
 
 function M.range_formatting(options, start_pos, end_pos)
@@ -116,7 +122,7 @@ function M.rename(new_name)
   -- TODO(ashkan) use prepareRename
   -- * result: [`Range`](#range) \| `{ range: Range, placeholder: string }` \| `null` describing the range of the string to rename and optionally a placeholder text of the string content to be renamed. If `null` is returned then it is deemed that a 'textDocument/rename' request is not valid at the given position.
   local params = util.make_position_params()
-  new_name = new_name or npcall(vfn.input, "New Name: ")
+  new_name = new_name or npcall(vfn.input, "New Name: ", vfn.expand('<cword>'))
   if not (new_name and #new_name > 0) then return end
   params.newName = new_name
   request('textDocument/rename', params)
@@ -137,6 +143,12 @@ function M.document_symbol()
   request('textDocument/documentSymbol', params)
 end
 
+
+--- Lists all symbols in the current workspace in the quickfix window.
+---
+--- The list is filtered against the optional argument {query};
+--- if the argument is omitted from the call, the user is prompted to enter a string on the command line.
+--- An empty string means no filtering is done.
 function M.workspace_symbol(query)
   query = query or npcall(vfn.input, "Query: ")
   local params = {query = query}

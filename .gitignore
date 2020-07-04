@@ -63,6 +63,8 @@ local.mk
 /runtime/doc/*.html
 /runtime/doc/tags.ref
 /runtime/doc/errors.log
+# Don't include the mpack files.
+/runtime/doc/*.mpack
 
 # CLion
 /.idea/
