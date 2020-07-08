@@ -95,6 +95,66 @@ Note:
   plugins using shell which will not work with paths containing semicolons it
   is better to not have them in 'runtimepath' at all.
 
+==============================================================================
+Lua Syntax Information                                         *lua-syntax-help*
+
+While Lua has a simple syntax, there are a few things to understand,
+particularly when looking at the documentation above.
+
+                                                      *lua-syntax-call-function*
+
+Lua functions can be called in multiple ways. Consider the function: >
+
+    local example_func = function(a, b)
+        print("A is: ", a)
+        print("B is: ", b)
+    end
+
+
+The first way to call a function is: >
+    
+    example_func(1, 2)
+    -- ==== Result ====
+    -- A is: 1
+    -- B is: 2
+<
+    This way of calling a function is familiar to most scripting languages.
+    In Lua, it's important to understand that any function arguments that are
+    not supplied are automatically set to `nil`. For example: >
+
+    example_func(1)
+    -- ==== Result ====
+    -- A is: 1
+    -- B is: nil
+<
+
+    Additionally, if any extra parameters are passed, they are discarded
+    completely.
+
+In Lua, it is also possible (when only one argument is passed) to call the
+function without any parentheses. This is most often used to approximate
+"keyword"-style arguments with a single dictionary. For example: >
+
+    local func_with_opts = function(opts)
+        local will_do_foo = opts.foo
+        local filename = opts.filename
+
+        ...
+    end
+
+    func_with_opts { foo = true, filename = "hello.world" }
+<
+
+    In this style, each "parameter" is passed via keyword. It is still valid
+    to call the function in this style: >
+
+    func_with_opts({ foo = true, filename = "hello.world" })
+<
+
+    But often in the documentation, you will see the former rather than the
+    latter style, due to its brevity (this is vim after all!).
+
+
 ------------------------------------------------------------------------------
 LUA PLUGIN EXAMPLE					*lua-require-example*
 
@@ -415,6 +475,8 @@ To avoid the error use |vim.schedule_wrap()| to defer the callback: >
       vim.api.nvim_command('echomsg "test"')
     end))
 
+(For one-shot timers, see |vim.defer_fn()|, which automatically adds the wrapping.)
+
 Example: repeating timer
     1. Save this code to a file.
     2. Execute it with ":luafile %". >
@@ -711,25 +773,26 @@ VIM.HIGHLIGHT                  				*lua-highlight*
 Nvim includes a function for highlighting a selection on yank (see for example
 https://github.com/machakann/vim-highlightedyank). To enable it, add
 >
- au TextYankPost * silent! lua require'vim.highlight'.on_yank()
+ au TextYankPost * silent! lua vim.highlight.on_yank()
 <
 to your `init.vim`. You can customize the highlight group and the duration of
 the highlight via
 >
- au TextYankPost * silent! lua require'vim.highlight'.on_yank("IncSearch", 500)
+ au TextYankPost * silent! lua vim.highlight.on_yank {higroup="IncSearch", timeout=150}
 <
 If you want to exclude visual selections from highlighting on yank, use
 >
-au TextYankPost * silent! lua return (not vim.v.event.visual) and require'vim.highlight'.on_yank()
+ au TextYankPost * silent! lua vim.highlight.on_yank {on_visual=false}
 <
 
-vim.highlight.on_yank([{higroup}, {timeout}, {event}]) 
-                                                    *vim.highlight.on_yank()*
-        Highlights the yanked text. Optional arguments are the highlight group
-        to use ({higroup}, default `"IncSearch"`), the duration of highlighting
-        in milliseconds ({timeout}, default `500`), and the event structure 
-        that is fired ({event}, default `vim.v.event`).
-
+vim.highlight.on_yank({opts})                         *vim.highlight.on_yank()*
+        Highlights the yanked text. The fields of the optional dict {opts}
+        control the highlight:
+          - {higroup} highlight group for yanked region (default `"IncSearch"`)
+          - {timeout} time in ms before highlight is cleared (default `150`)
+          - {on_macro} highlight when executing macro (default `false`)
+          - {on_visual} highlight when yanking visual selection (default `true`)
+          - {event} event structure (default `vim.v.event`)
 
 vim.highlight.range({bufnr}, {ns}, {higroup}, {start}, {finish}, {rtype}, {inclusive})
                                                        *vim.highlight.range()*
@@ -738,7 +801,6 @@ vim.highlight.range({bufnr}, {ns}, {higroup}, {start}, {finish}, {rtype}, {inclu
         {ns}. Optional arguments are the type of range (characterwise, linewise,
         or blockwise, see |setreg|; default to characterwise) and whether the
         range is inclusive (default false).
-
 
 ------------------------------------------------------------------------------
 VIM.REGEX							*lua-regex*
@@ -858,6 +920,9 @@ vim.schedule({callback})				*vim.schedule()*
 vim.defer_fn({fn}, {timeout})                                    *vim.defer_fn*
     Defers calling {fn} until {timeout} ms passes.  Use to do a one-shot timer
     that calls {fn}.
+
+    Note: The {fn} is |schedule_wrap|ped automatically, so API functions are
+    safe to call.
 
     Parameters: ~
         {fn}        Callback to call once {timeout} expires
