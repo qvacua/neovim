@@ -5552,19 +5552,18 @@ void prepare_assert_error(garray_T *gap)
   }
 }
 
-// Append "str" to "gap", escaping unprintable characters.
+// Append "p[clen]" to "gap", escaping unprintable characters.
 // Changes NL to \n, CR to \r, etc.
-static void ga_concat_esc(garray_T *gap, char_u *str)
+static void ga_concat_esc(garray_T *gap, const char_u *p, int clen)
+  FUNC_ATTR_NONNULL_ALL
 {
-  char_u *p;
   char_u buf[NUMBUFLEN];
 
-  if (str == NULL) {
-    ga_concat(gap, (char_u *)"NULL");
-    return;
-  }
-
-  for (p = str; *p != NUL; p++) {
+  if (clen > 1) {
+    memmove(buf, p, clen);
+    buf[clen] = NUL;
+    ga_concat(gap, buf);
+  } else {
     switch (*p) {
       case BS: ga_concat(gap, (char_u *)"\\b"); break;
       case ESC: ga_concat(gap, (char_u *)"\\e"); break;
@@ -5581,6 +5580,41 @@ static void ga_concat_esc(garray_T *gap, char_u *str)
           ga_append(gap, *p);
         }
         break;
+    }
+  }
+}
+
+// Append "str" to "gap", escaping unprintable characters.
+// Changes NL to \n, CR to \r, etc.
+static void ga_concat_shorten_esc(garray_T *gap, const char_u *str)
+  FUNC_ATTR_NONNULL_ARG(1)
+{
+  char_u buf[NUMBUFLEN];
+
+  if (str == NULL) {
+    ga_concat(gap, (char_u *)"NULL");
+    return;
+  }
+
+  for (const char_u *p = str; *p != NUL; p++) {
+    int same_len = 1;
+    const char_u *s = p;
+    const int c = mb_ptr2char_adv(&s);
+    const int clen = s - p;
+    while (*s != NUL && c == utf_ptr2char(s)) {
+      same_len++;
+      s += clen;
+    }
+    if (same_len > 20) {
+      ga_concat(gap, (char_u *)"\\[");
+      ga_concat_esc(gap, p, clen);
+      ga_concat(gap, (char_u *)" occurs ");
+      vim_snprintf((char *)buf, NUMBUFLEN, "%d", same_len);
+      ga_concat(gap, buf);
+      ga_concat(gap, (char_u *)" times]");
+      p = s - 1;
+    } else {
+      ga_concat_esc(gap, p, clen);
     }
   }
 }
@@ -5609,10 +5643,10 @@ void fill_assert_error(garray_T *gap, typval_T *opt_msg_tv,
 
   if (exp_str == NULL) {
     tofree = (char_u *)encode_tv2string(exp_tv, NULL);
-    ga_concat_esc(gap, tofree);
+    ga_concat_shorten_esc(gap, tofree);
     xfree(tofree);
   } else {
-    ga_concat_esc(gap, exp_str);
+    ga_concat_shorten_esc(gap, exp_str);
   }
 
   if (atype != ASSERT_NOTEQUAL) {
@@ -5624,7 +5658,7 @@ void fill_assert_error(garray_T *gap, typval_T *opt_msg_tv,
       ga_concat(gap, (char_u *)" but got ");
     }
     tofree = (char_u *)encode_tv2string(got_tv, NULL);
-    ga_concat_esc(gap, tofree);
+    ga_concat_shorten_esc(gap, tofree);
     xfree(tofree);
   }
 }
@@ -5674,6 +5708,9 @@ int assert_equalfile(typval_T *argvars)
 
   IObuff[0] = NUL;
   FILE *const fd1 = os_fopen(fname1, READBIN);
+  char line1[200];
+  char line2[200];
+  ptrdiff_t lineidx = 0;
   if (fd1 == NULL) {
     snprintf((char *)IObuff, IOSIZE, (char *)e_notread, fname1);
   } else {
@@ -5682,6 +5719,7 @@ int assert_equalfile(typval_T *argvars)
       fclose(fd1);
       snprintf((char *)IObuff, IOSIZE, (char *)e_notread, fname2);
     } else {
+      int64_t linecount = 1;
       for (int64_t count = 0; ; count++) {
         const int c1 = fgetc(fd1);
         const int c2 = fgetc(fd2);
@@ -5693,10 +5731,24 @@ int assert_equalfile(typval_T *argvars)
         } else if (c2 == EOF) {
           STRCPY(IObuff, "second file is shorter");
           break;
-        } else if (c1 != c2) {
-          snprintf((char *)IObuff, IOSIZE,
-                   "difference at byte %" PRId64, count);
-          break;
+        } else {
+          line1[lineidx] = c1;
+          line2[lineidx] = c2;
+          lineidx++;
+          if (c1 != c2) {
+            snprintf((char *)IObuff, IOSIZE,
+                     "difference at byte %" PRId64 ", line %" PRId64,
+                     count, linecount);
+            break;
+          }
+        }
+        if (c1 == NL) {
+          linecount++;
+          lineidx = 0;
+        } else if (lineidx + 2 == (ptrdiff_t)sizeof(line1)) {
+          memmove(line1, line1 + 100, lineidx - 100);
+          memmove(line2, line2 + 100, lineidx - 100);
+          lineidx -= 100;
         }
       }
       fclose(fd1);
@@ -5705,7 +5757,24 @@ int assert_equalfile(typval_T *argvars)
   }
   if (IObuff[0] != NUL) {
     prepare_assert_error(&ga);
+    if (argvars[2].v_type != VAR_UNKNOWN) {
+      char *const tofree = encode_tv2echo(&argvars[2], NULL);
+      ga_concat(&ga, (char_u *)tofree);
+      xfree(tofree);
+      ga_concat(&ga, (char_u *)": ");
+    }
     ga_concat(&ga, IObuff);
+    if (lineidx > 0) {
+      line1[lineidx] = NUL;
+      line2[lineidx] = NUL;
+      ga_concat(&ga, (char_u *)" after \"");
+      ga_concat(&ga, (char_u *)line1);
+      if (STRCMP(line1, line2) != 0) {
+        ga_concat(&ga, (char_u *)"\" vs \"");
+        ga_concat(&ga, (char_u *)line2);
+      }
+      ga_concat(&ga, (char_u *)"\"");
+    }
     assert_error(&ga);
     ga_clear(&ga);
     return 1;
@@ -7143,6 +7212,16 @@ bool callback_from_typval(Callback *const callback, typval_T *const arg)
     func_ref(name);
     callback->data.funcref = vim_strsave(name);
     callback->type = kCallbackFuncref;
+  } else if (nlua_is_table_from_lua(arg)) {
+    char_u *name = nlua_register_table_as_callable(arg);
+
+    if (name != NULL) {
+      func_ref(name);
+      callback->data.funcref = vim_strsave(name);
+      callback->type = kCallbackFuncref;
+    } else {
+      r = FAIL;
+    }
   } else if (arg->v_type == VAR_NUMBER && arg->vval.v_number == 0) {
     callback->type = kCallbackNone;
   } else {
@@ -8460,27 +8539,6 @@ void set_selfdict(typval_T *const rettv, dict_T *const selfdict)
   make_partial(selfdict, rettv);
 }
 
-// Turn a typeval into a string.  Similar to tv_get_string_buf() but uses
-// string() on Dict, List, etc.
-static const char *tv_stringify(typval_T *varp, char *buf)
-  FUNC_ATTR_NONNULL_ALL
-{
-  if (varp->v_type == VAR_LIST
-      || varp->v_type == VAR_DICT
-      || varp->v_type == VAR_FUNC
-      || varp->v_type == VAR_PARTIAL
-      || varp->v_type == VAR_FLOAT) {
-    typval_T tmp;
-
-    f_string(varp, &tmp, NULL);
-    const char *const res = tv_get_string_buf(&tmp, buf);
-    tv_clear(varp);
-    *varp = tmp;
-    return res;
-  }
-  return tv_get_string_buf(varp, buf);
-}
-
 // Find variable "name" in the list of variables.
 // Return a pointer to it if found, NULL if not found.
 // Careful: "a:0" variables don't have a name.
@@ -9327,16 +9385,20 @@ void ex_execute(exarg_T *eap)
     }
 
     if (!eap->skip) {
-      char buf[NUMBUFLEN];
       const char *const argstr = eap->cmdidx == CMD_execute
-        ? tv_get_string_buf(&rettv, buf)
-        : tv_stringify(&rettv, buf);
+        ? tv_get_string(&rettv)
+        : rettv.v_type == VAR_STRING
+        ? encode_tv2echo(&rettv, NULL)
+        : encode_tv2string(&rettv, NULL);
       const size_t len = strlen(argstr);
       ga_grow(&ga, len + 2);
       if (!GA_EMPTY(&ga)) {
         ((char_u *)(ga.ga_data))[ga.ga_len++] = ' ';
       }
       memcpy((char_u *)(ga.ga_data) + ga.ga_len, argstr, len + 1);
+      if (eap->cmdidx != CMD_execute) {
+        xfree((void *)argstr);
+      }
       ga.ga_len += len;
     }
 

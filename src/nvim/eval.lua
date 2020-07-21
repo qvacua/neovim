@@ -28,7 +28,7 @@ return {
     asin={args=1, func="float_op_wrapper", data="&asin"},  -- WJMc
     assert_beeps={args={1, 2}},
     assert_equal={args={2, 3}},
-    assert_equalfile={args=2},
+    assert_equalfile={args={2, 3}},
     assert_exception={args={1, 2}},
     assert_fails={args={1, 3}},
     assert_false={args={1, 2}},
@@ -111,6 +111,7 @@ return {
     filter={args=2},
     finddir={args={1, 3}},
     findfile={args={1, 3}},
+    flatten={args={1, 2}},
     float2nr={args=1},
     floor={args=1, func="float_op_wrapper", data="&floor"},
     fmod={args=2},
