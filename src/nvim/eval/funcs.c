@@ -9523,7 +9523,7 @@ static void f_split(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   tv_list_alloc_ret(rettv, kListLenMayKnow);
 
   if (typeerr) {
-    return;
+    goto theend;
   }
 
   regmatch_T regmatch = {
@@ -9567,6 +9567,7 @@ static void f_split(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     vim_regfree(regmatch.regprog);
   }
 
+theend:
   p_cpo = save_cpo;
 }
 

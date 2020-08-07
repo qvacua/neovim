@@ -2804,8 +2804,8 @@ win_line (
     off += col;
   }
 
-  // wont highlight after 1024 columns
-  int term_attrs[1024] = {0};
+  // wont highlight after TERM_ATTRS_MAX columns
+  int term_attrs[TERM_ATTRS_MAX] = { 0 };
   if (wp->w_buffer->terminal) {
     terminal_get_line_attributes(wp->w_buffer->terminal, wp, lnum, term_attrs);
     extra_check = true;
@@ -3068,10 +3068,12 @@ win_line (
     }
 
     // When still displaying '$' of change command, stop at cursor
-    if ((dollar_vcol >= 0 && wp == curwin
-         && lnum == wp->w_cursor.lnum && vcol >= (long)wp->w_virtcol
-         && filler_todo <= 0)
-        || (number_only && draw_state > WL_NR)) {
+    if (((dollar_vcol >= 0
+          && wp == curwin
+          && lnum == wp->w_cursor.lnum
+          && vcol >= (long)wp->w_virtcol)
+         || (number_only && draw_state > WL_NR))
+        && filler_todo <= 0) {
       grid_put_linebuf(grid, row, 0, col, -grid->Columns, wp->w_p_rl, wp,
                        wp->w_hl_attr_normal, false);
       // Pretend we have finished updating the window.  Except when
@@ -3476,6 +3478,7 @@ win_line (
          * Only do this when there is no syntax highlighting, the
          * @Spell cluster is not used or the current syntax item
          * contains the @Spell cluster. */
+        v = (long)(ptr - line);
         if (has_spell && v >= word_end && v > cur_checked_col) {
           spell_attr = 0;
           if (!attr_pri) {
@@ -4172,7 +4175,7 @@ win_line (
         int n = wp->w_p_rl ? -1 : 1;
         while (col >= 0 && col < grid->Columns) {
           schar_from_ascii(linebuf_char[off], ' ');
-          linebuf_attr[off] = term_attrs[vcol];
+          linebuf_attr[off] = vcol >= TERM_ATTRS_MAX ? 0 : term_attrs[vcol];
           off += n;
           vcol += n;
           col += n;
