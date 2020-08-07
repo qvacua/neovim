@@ -146,8 +146,8 @@ set(MSGPACK_URL https://github.com/msgpack/msgpack-c/releases/download/cpp-3.0.0
 set(MSGPACK_SHA256 bfbb71b7c02f806393bc3cbc491b40523b89e64f83860c58e3e54af47de176e4)
 
 # https://github.com/LuaJIT/LuaJIT/tree/v2.1
-set(LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/f0e865dd4861520258299d0f2a56491bd9d602e1.tar.gz)
-set(LUAJIT_SHA256 ad5077bd861241bf5e50ae4bf543d291c5fcffab95ccc3218401131f503e45bd)
+set(LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/384d6d56f4a3841fdef607a511dda92a579af2ff.tar.gz)
+set(LUAJIT_SHA256 a3eef1383fd8a142ae6d6f4c94dda93107aaac5b22b725f6855b4bd680e9fcc5)
 
 set(LUA_URL https://www.lua.org/ftp/lua-5.1.5.tar.gz)
 set(LUA_SHA256 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333)
@@ -161,8 +161,8 @@ set(UNIBILIUM_SHA256 29815283c654277ef77a3adcc8840db79ddbb20a0f0b0c8f648bd8cd49a
 set(LIBTERMKEY_URL http://www.leonerd.org.uk/code/libtermkey/libtermkey-0.22.tar.gz)
 set(LIBTERMKEY_SHA256 6945bd3c4aaa83da83d80a045c5563da4edd7d0374c62c0d35aec09eb3014600)
 
-set(LIBVTERM_URL https://github.com/neovim/libvterm/archive/65dbda3ed214f036ee799d18b2e693a833a0e591.tar.gz)
-set(LIBVTERM_SHA256 95d3c7e86336fbd40dfd7a0aa0a795320bb71bc957ea995ea0e549c96d20db3a)
+set(LIBVTERM_URL https://github.com/neovim/libvterm/archive/bb6293a6a53611be1edb163a61cc1f6d1d66a57d.tar.gz)
+set(LIBVTERM_SHA256 58a84cd13427b50b3b16780e96f7a7d2774a2479421dc260c21683471a0c5326)
 
 set(LUV_VERSION 1.30.1-1)
 set(LUV_URL https://github.com/luvit/luv/archive/${LUV_VERSION}.tar.gz)
