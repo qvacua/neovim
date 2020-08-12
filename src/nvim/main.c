@@ -10,6 +10,7 @@
 #include <msgpack.h>
 
 #include "nvim/ascii.h"
+#include "nvim/channel.h"
 #include "nvim/vim.h"
 #include "nvim/main.h"
 #include "nvim/aucmd.h"
@@ -283,6 +284,12 @@ int main(int argc, char **argv)
 
   if (GARGCOUNT > 0) {
     fname = get_fname(&params, cwd);
+  }
+
+  // Recovery mode without a file name: List swap files.
+  // In this case, no UI is needed.
+  if (recoverymode && fname == NULL) {
+    headless_mode = true;
   }
 
   TIME_MSG("expanding arguments");
@@ -970,7 +977,6 @@ static void command_line_scan(mparm_T *parmp)
         case 'r':    // "-r" recovery mode
         case 'L': {  // "-L" recovery mode
           recoverymode = 1;
-          headless_mode = true;
           break;
         }
         case 's': {

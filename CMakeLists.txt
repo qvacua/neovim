@@ -115,7 +115,7 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 4)
-set(NVIM_VERSION_PATCH 3)
+set(NVIM_VERSION_PATCH 4)
 set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
@@ -315,6 +315,11 @@ if(UNIX)
   endif()
 endif()
 
+check_c_compiler_flag(-fno-common HAVE_FNO_COMMON)
+if (HAVE_FNO_COMMON)
+  add_compile_options(-fno-common)
+endif()
+
 check_c_compiler_flag(-fdiagnostics-color=auto HAS_DIAG_COLOR_FLAG)
 if(HAS_DIAG_COLOR_FLAG)
   if(CMAKE_GENERATOR MATCHES "Ninja")
@@ -465,15 +470,15 @@ if((CLANG_ASAN_UBSAN OR CLANG_MSAN OR CLANG_TSAN) AND NOT CMAKE_C_COMPILER_ID MA
   message(FATAL_ERROR "Sanitizers are only supported for Clang")
 endif()
 
+if(ENABLE_LIBICONV)
+  find_package(Iconv REQUIRED)
+  include_directories(SYSTEM ${Iconv_INCLUDE_DIRS})
+endif()
+
 if(ENABLE_LIBINTL)
   # LibIntl (not Intl) selects our FindLibIntl.cmake script. #8464
   find_package(LibIntl REQUIRED)
   include_directories(SYSTEM ${LibIntl_INCLUDE_DIRS})
-endif()
-
-if(ENABLE_LIBICONV)
-  find_package(Iconv REQUIRED)
-  include_directories(SYSTEM ${Iconv_INCLUDE_DIRS})
 endif()
 
 # Determine platform's threading library. Set CMAKE_THREAD_PREFER_PTHREAD
