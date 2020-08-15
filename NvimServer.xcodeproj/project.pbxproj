@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4BD565A724E8665000D52809 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BD565A624E8665000D52809 /* CoreFoundation.framework */; };
 		4BFB6C4524E853E800B105BA /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = 4BFB6C3E24E853E800B105BA /* main.c */; };
 		4BFB6C4624E853E800B105BA /* server_ui_bridge.c in Sources */ = {isa = PBXBuildFile; fileRef = 4BFB6C4224E853E800B105BA /* server_ui_bridge.c */; };
 		4BFB6C4724E853E800B105BA /* server.c in Sources */ = {isa = PBXBuildFile; fileRef = 4BFB6C4424E853E800B105BA /* server.c */; };
@@ -25,6 +26,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4BD565A424E865C800D52809 /* ui_events.generated.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ui_events.generated.h; path = build/src/nvim/auto/ui_events.generated.h; sourceTree = SOURCE_ROOT; };
+		4BD565A624E8665000D52809 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		4BFB6C2824E852BC00B105BA /* NvimServer */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NvimServer; sourceTree = BUILT_PRODUCTS_DIR; };
 		4BFB6C3D24E853E800B105BA /* server_log.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = server_log.h; path = Sources/server_log.h; sourceTree = "<group>"; };
 		4BFB6C3E24E853E800B105BA /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = main.c; path = Sources/main.c; sourceTree = "<group>"; };
@@ -43,17 +46,27 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4BD565A724E8665000D52809 /* CoreFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		4BD565A524E8665000D52809 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				4BD565A624E8665000D52809 /* CoreFoundation.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		4BFB6C1F24E852BC00B105BA = {
 			isa = PBXGroup;
 			children = (
 				4BFB6C2A24E852BC00B105BA /* NvimServer */,
 				4BFB6C2924E852BC00B105BA /* Products */,
+				4BD565A524E8665000D52809 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -68,6 +81,7 @@
 		4BFB6C2A24E852BC00B105BA /* NvimServer */ = {
 			isa = PBXGroup;
 			children = (
+				4BD565A424E865C800D52809 /* ui_events.generated.h */,
 				4BFB6C4824E8573E00B105BA /* include */,
 				4BFB6C4924E8575400B105BA /* nvim */,
 				4BFB6C3F24E853E800B105BA /* foundation_shim.h */,
@@ -269,19 +283,20 @@
 					"INCLUDE_GENERATED_DECLARATIONS=1",
 				);
 				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/src",
 					"$(PROJECT_DIR)/build/include",
 					"$(PROJECT_DIR)/.deps/usr/include",
 					"$(PROJECT_DIR)/build/config",
 					"$(PROJECT_DIR)/NvimServer/third-party/libintl/include",
 				);
 				OTHER_LDFLAGS = (
-					"$(PROJECT_DIR)/neovim/build/lib/libnvim.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libmsgpackc.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libluv.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libuv.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libvterm.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libluajit-5.1.a",
-					"$(PROJECT_DIR)/third-party/libintl/lib/libintl.a",
+					"$(PROJECT_DIR)/build/lib/libnvim.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libmsgpackc.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libluv.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libuv.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libvterm.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libluajit-5.1.a",
+					"$(PROJECT_DIR)/NvimServer/third-party/libintl/lib/libintl.a",
 					"-lutil",
 					"-lm",
 					"-ldl",
@@ -307,19 +322,20 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = "INCLUDE_GENERATED_DECLARATIONS=1";
 				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/src",
 					"$(PROJECT_DIR)/build/include",
 					"$(PROJECT_DIR)/.deps/usr/include",
 					"$(PROJECT_DIR)/build/config",
 					"$(PROJECT_DIR)/NvimServer/third-party/libintl/include",
 				);
 				OTHER_LDFLAGS = (
-					"$(PROJECT_DIR)/neovim/build/lib/libnvim.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libmsgpackc.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libluv.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libuv.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libvterm.a",
-					"$(PROJECT_DIR)/neovim/.deps/usr/lib/libluajit-5.1.a",
-					"$(PROJECT_DIR)/third-party/libintl/lib/libintl.a",
+					"$(PROJECT_DIR)/build/lib/libnvim.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libmsgpackc.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libluv.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libuv.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libvterm.a",
+					"$(PROJECT_DIR)/.deps/usr/lib/libluajit-5.1.a",
+					"$(PROJECT_DIR)/NvimServer/third-party/libintl/lib/libintl.a",
 					"-lutil",
 					"-lm",
 					"-ldl",
