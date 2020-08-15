@@ -8,9 +8,7 @@
 # undef Boolean
 #endif
 
-#ifdef HAVE_LOCALE_H
-# include <locale.h>
-#endif
+#include <locale.h>
 #include "nvim/os/lang.h"
 #include "nvim/os/os.h"
 
@@ -53,14 +51,10 @@ void lang_init(void)
       }
     }
     CFRelease(cf_lang_region);
-# ifdef HAVE_LOCALE_H
     setlocale(LC_ALL, "");
 
-#  ifdef LC_NUMERIC
     // Make sure strtod() uses a decimal point, not a comma.
     setlocale(LC_NUMERIC, "C");
-#  endif
-# endif
   }
 #endif
 }
