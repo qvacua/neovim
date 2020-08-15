@@ -1,0 +1,8 @@
+CMAKE_BUILD_TYPE := Release
+
+DEPS_CMAKE_FLAGS += -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DCMAKE_C_COMPILER_ARG1=--target=x86_64-apple-macos10.15 -DCMAKE_CXX_COMPILER_ARG1=--target=x86_64-apple-macos10.15
+
+#CMAKE_EXTRA_FLAGS += -DCMAKE_INSTALL_PREFIX=/Users/hat/.local/neovim
+
+# build via
+# make SDKROOT=$(xcrun --show-sdk-path) CFLAGS="--target=x86_64-apple-macos10.15" CXXFLAGS="--target=x86_64-apple-macos10.15"
