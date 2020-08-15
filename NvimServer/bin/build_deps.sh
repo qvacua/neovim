@@ -9,7 +9,7 @@ build_gettext() {
   local -r libintl_path="third-party/libintl"
 
   echo "### Building gettext"
-  rm -f ${libintl_path}
+  rm -rf ${libintl_path}
   mkdir -p ${libintl_path}
 
   rm -rf .deps/gettext*
