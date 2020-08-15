@@ -14,6 +14,11 @@ int main(int argc, const char *argv[]) {
   logger = os_log_create("com.qvacua.NvimServer", "server");
   observe_parent_termination();
 
+  if (argc < 4) {
+    printf("We need at least 3 arguments! Exiting...\n");
+    return 1;
+  }
+
   const int nvim_argc = argc - 3;
   const char **nvim_args = &argv[3];
   const char *remote_port_name = argv[1];

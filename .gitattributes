@@ -1,4 +1,2 @@
 *.h linguist-language=C
 src/nvim/testdir/test42.in diff
-*.a filter=lfs diff=lfs merge=lfs -text
-*.dylib filter=lfs diff=lfs merge=lfs -text
