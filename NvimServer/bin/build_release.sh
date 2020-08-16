@@ -44,8 +44,7 @@ package() {
   local -r nvimserver_path=$2
   local -r resources_path=./NvimServer/Resources
   local -r sources_path=./NvimServer/Sources
-  local -r tag=$(git describe --exact-match --tags --abbrev=0)
-  local -r package_name="nvimserver-${tag:-"dev"}"
+  local -r package_name="NvimServer"
   local -r package_dir_path="${build_dir_path}/${package_name}"
 
   rm -rf ${package_dir_path}
