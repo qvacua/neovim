@@ -23,7 +23,7 @@ build_gettext() {
   pushd gettext >/dev/null
   # Configure from https://github.com/Homebrew/homebrew-core/blob/8d1ae1b8967a6b77cc1f6f1af6bb348b3268553e/Formula/gettext.rb
   # Set the deployment target to $deployment_target
-  ./configure CFLAGS="-mmacosx-version-min=${deployment_target}" MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
+  ./configure MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
     --disable-dependency-tracking \
     --disable-silent-rules \
     --disable-debug \
@@ -38,7 +38,7 @@ build_gettext() {
     --without-git \
     --without-cvs \
     --without-xz
-  make install
+  make MACOSX_DEPLOYMENT_TARGET=${deployment_target} install
   popd >/dev/null
   popd >/dev/null
 

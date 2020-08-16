@@ -23,8 +23,6 @@ build_runtime() {
   echo "### Building nvim to get the complete runtime"
   make \
     SDKROOT=$(xcrun --show-sdk-path) \
-    CFLAGS="-mmacosx-version-min=${deployment_target}" \
-    CXXFLAGS="-mmacosx-version-min=${deployment_target}" \
     MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
