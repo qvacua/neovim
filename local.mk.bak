@@ -1,0 +1,34 @@
+CMAKE_BUILD_TYPE := Release
+
+DEPS_CMAKE_FLAGS += -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DCMAKE_C_COMPILER_ARG1=--target=x86_64-apple-macos10.15
+CMAKE_EXTRA_FLAGS += -DCMAKE_INSTALL_PREFIX=/Users/hat/.local/neovim
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#CMAKE_CXX_FLAGS = --target=x86_64-apple-macos11
+#CMAKE_C_FLAGS = --target=x86_64-apple-macos11
+
+#CMAKE_C_COMPILER_ARG1 += "--target=x86_64-apple-macos11"
+
+#DEPS_CMAKE_FLAGS += -DCMAKE_OSX_DEPLOYMENT_TARGET=11.00 -DCMAKE_C_COMPILER_ARG1="--target=x86_64-apple-macos11"
+#DEPS_CMAKE_FLAGS += -DUSE_BUNDLED_LUA=ON
+#CMAKE_EXTRA_FLAGS += -DPREFER_LUA=ON
+#CMAKE_CFLAGS += "-target arm64-apple-macos11"
+#x86_64-apple-macos10.12
+#-DCMAKE_INSTALL_PREFIX=$HOME/.local/neovim
