@@ -84,9 +84,6 @@ static void ready_for_rpcevents(void **argv);
 static void debug1(void **argv);
 static void do_autocmd_guienter(void **argv);
 
-// We declare nvim_main because it's not declared in any header files of neovim
-extern int nvim_main(int argc, const char **argv);
-
 #ifdef DEBUG
 
 void debug_function() {

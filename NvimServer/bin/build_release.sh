@@ -40,6 +40,31 @@ build_nvimserver() {
   xcodebuild -derivedDataPath ${build_dir_path} -configuration Release -scheme NvimServer build
 }
 
+package() {
+  echo "### Packaging"
+  local -r runtime_path=$1
+  local -r nvimserver_path=$2
+  local -r resources_path=./NvimServer/Resources
+  local -r sources_path=./NvimServer/Sources
+  local -r tag=$(git describe --exact-match --tags --abbrev=0)
+  local -r package_name="nvimserver-${tag:-"dev"}"
+  local -r package_dir_path="${build_dir_path}/${package_name}"
+
+  rm -rf ${package_dir_path}
+  mkdir -p ${package_dir_path}
+  cp -r ${runtime_path} ${package_dir_path}
+  cp -r ${nvimserver_path} ${package_dir_path}
+  cp ${resources_path}/* ${package_dir_path}
+  cp "${sources_path}/foundation_shim.h" ${package_dir_path}
+  cp "${sources_path}/server_shared_types.h" ${package_dir_path}
+
+  pushd ${build_dir_path} >/dev/null
+  tar jcvf "${package_name}.tar.bz2" ${package_name}
+
+  echo "### Packaged to ${build_dir_path}/${package_name}.tar.bz2"
+  popd >/dev/null
+}
+
 main() {
   echo "### Building release"
   # This script is located in /NvimServer/bin and we have to go to /
@@ -52,12 +77,17 @@ main() {
     clean_everything
   fi
 
-  build_runtime ${deployment_target}
+  rm -rf ${build_dir_path}
   make clean
+  build_runtime ${deployment_target}
 
+  rm -rf ${build_dir_path}
+  make clean
   build_deps=${clean} ./NvimServer/bin/build_libnvim.sh
 
   build_nvimserver
+
+  package "${build_dir_path}/runtime" "${build_dir_path}/Build/Products/Release/NvimServer"
 
   popd >/dev/null
   echo "### Built release"

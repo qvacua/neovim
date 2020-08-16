@@ -25,6 +25,7 @@ build_libnvim() {
     MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
+    CMAKE_BUILD_TYPE=Release \
     libnvim
 }
 

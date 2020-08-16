@@ -24,6 +24,9 @@ void send_msg_packing(NvimServerMsgId msgid, pack_block body);
 void msgpack_pack_bool(msgpack_packer *packer, bool value);
 void msgpack_pack_cstr(msgpack_packer *packer, const char *cstr);
 
+// We declare nvim_main because it's not declared in any header files of neovim
+int nvim_main(int argc, const char **argv);
+
 #ifdef DEBUG
 void debug_function(void);
 #endif

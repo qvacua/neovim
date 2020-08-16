@@ -15,8 +15,15 @@ int main(int argc, const char *argv[]) {
   observe_parent_termination();
 
   if (argc < 4) {
-    printf("We need at least 3 arguments! Exiting...\n");
-    return 1;
+    printf("We need at least 3 arguments! Printing --version and exiting...\n");
+
+    const char **nvim_argv = malloc(2 * sizeof(char *));
+
+    nvim_argv[0] = "nvim";
+    nvim_argv[1] = "--version";
+
+    nvim_main(2, nvim_argv);
+    return 0;
   }
 
   const int nvim_argc = argc - 3;
