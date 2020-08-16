@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly clean=${clean:-true}
 readonly build_dir_name="build"
 readonly build_dir_path="./${build_dir_name}"
+readonly nvim_install_path=$(mktemp -d -t 'nvim-runtime')
 
 clean_everything() {
   rm -rf build
@@ -14,9 +15,7 @@ clean_everything() {
 
 build_runtime() {
   local -r deployment_target=$1
-  local -r install_path=$(mktemp -d -t 'nvim-runtime')
-
-  echo "#### runtime in ${install_path}"
+  echo "#### runtime in ${nvim_install_path}"
 
   ln -f -s ./NvimServer/local.mk .
 
@@ -26,12 +25,8 @@ build_runtime() {
     MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
-    CMAKE_FLAGS="-DCUSTOM_UI=0 -DCMAKE_INSTALL_PREFIX=${install_path}" \
+    CMAKE_FLAGS="-DCUSTOM_UI=0 -DCMAKE_INSTALL_PREFIX=${nvim_install_path}" \
     install
-
-  mkdir -p ${build_dir_path}
-  rm -rf "${build_dir_path}/runtime"
-  cp -r ${install_path}/share/nvim/runtime "${build_dir_path}/runtime"
 }
 
 build_nvimserver() {
@@ -40,8 +35,7 @@ build_nvimserver() {
 
 package() {
   echo "### Packaging"
-  local -r runtime_path=$1
-  local -r nvimserver_path=$2
+  local -r nvimserver_path=$1
   local -r resources_path=./NvimServer/Resources
   local -r sources_path=./NvimServer/Sources
   local -r package_name="NvimServer"
@@ -49,7 +43,7 @@ package() {
 
   rm -rf ${package_dir_path}
   mkdir -p ${package_dir_path}
-  cp -r ${runtime_path} ${package_dir_path}
+  cp -r ${nvim_install_path}/share/nvim/runtime ${package_dir_path}
   cp -r ${nvimserver_path} ${package_dir_path}
   cp ${resources_path}/* ${package_dir_path}
   cp "${sources_path}/foundation_shim.h" ${package_dir_path}
@@ -84,7 +78,7 @@ main() {
 
   build_nvimserver
 
-  package "${build_dir_path}/runtime" "${build_dir_path}/Build/Products/Release/NvimServer"
+  package "${build_dir_path}/Build/Products/Release/NvimServer"
 
   popd >/dev/null
   echo "### Built release"
