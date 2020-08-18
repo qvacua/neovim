@@ -33,7 +33,7 @@ function(BuildLibvterm)
     INSTALL_COMMAND "${_libvterm_INSTALL_COMMAND}")
 endfunction()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   set(LIBVTERM_PATCH_COMMAND
     ${GIT_EXECUTABLE} -C ${DEPS_BUILD_DIR}/src/libvterm init
       COMMAND ${GIT_EXECUTABLE} -C ${DEPS_BUILD_DIR}/src/libvterm apply --ignore-whitespace
