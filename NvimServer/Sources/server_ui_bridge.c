@@ -8,7 +8,7 @@
 #define FileInfo CarbonFileInfo
 #define Boolean CarbonBoolean
 
-#include "server_shared_types.h"
+#include "NvimServerTypes.h"
 #include "server.h"
 
 #undef Boolean

@@ -7,7 +7,7 @@
 #define NVIMSERVER_SERVER_H
 
 #include <msgpack.h>
-#include "server_shared_types.h"
+#include "NvimServerTypes.h"
 
 void server_set_nvim_args(int argc, const char **const args);
 

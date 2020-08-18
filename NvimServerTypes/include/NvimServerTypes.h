@@ -6,7 +6,10 @@
 #ifndef NVIMSERVER_SHARED_TYPES_H
 #define NVIMSERVER_SHARED_TYPES_H
 
-#include "foundation_shim.h"
+#include <CoreFoundation/CoreFoundation.h>
+
+#define NSInteger long
+#define NSUInteger unsigned long
 
 typedef CF_OPTIONS(NSUInteger, FontTrait) {
   FontTraitNone = 0,
