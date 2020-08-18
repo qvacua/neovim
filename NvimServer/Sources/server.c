@@ -60,7 +60,6 @@ static uv_thread_t nvim_thread;
 
 static const char *cfstr2cstr(CFStringRef cfstr, bool *free_bytes);
 
-static void setenv_vimruntime(void);
 static void start_nvim(void *_);
 static int nvim_argc = 0;
 static const char **nvim_argv;
@@ -216,41 +215,7 @@ void send_msg_packing(NvimServerMsgId msgid, pack_block body) {
 static void start_nvim(void *arg __unused) {
   backspace = cstr_as_string("<BS>");
 
-  setenv_vimruntime();
   nvim_main(nvim_argc, nvim_argv);
-}
-
-static void setenv_vimruntime() {
-  CFBundleRef main_bundle = CFBundleGetMainBundle();
-  CFURLRef bundle_url = CFBundleCopyBundleURL(main_bundle);
-
-  CFURLRef rsrc_url = CFURLCreateCopyAppendingPathComponent(
-      kCFAllocatorDefault,
-      bundle_url,
-      CFSTR("Resources"),
-      true
-  );
-  CFRelease(bundle_url);
-
-  CFURLRef runtime_url = CFURLCreateCopyAppendingPathComponent(
-      kCFAllocatorDefault,
-      rsrc_url,
-      CFSTR("runtime"),
-      true
-  );
-  CFRelease(rsrc_url);
-
-  CFStringRef runtime_path = CFURLCopyPath(runtime_url);
-  CFRelease(runtime_url);
-
-  bool free_runtime_cstr;
-  const char *runtime_cstr = cfstr2cstr(runtime_path, &free_runtime_cstr);
-
-  setenv("VIMRUNTIME", runtime_cstr, true);
-
-  if (free_runtime_cstr) { free((void *) runtime_cstr); }
-
-  CFRelease(runtime_path);
 }
 
 static CFDataRef data_async(CFDataRef data, argv_callback cb) {
