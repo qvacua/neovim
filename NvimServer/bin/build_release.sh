@@ -2,11 +2,9 @@
 set -Eeuo pipefail
 
 readonly clean=${clean:-true}
-readonly build_dir_name="build"
-readonly build_dir_path="./${build_dir_name}"
-readonly nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
 
 clean_everything() {
+  local -r build_dir_path=$1
   rm -rf build
   make distclean
 
@@ -15,6 +13,8 @@ clean_everything() {
 
 build_runtime() {
   local -r deployment_target=$1
+  local -r nvim_install_path=$2
+
   echo "#### runtime in ${nvim_install_path}"
 
   ln -f -s ./NvimServer/local.mk .
@@ -22,7 +22,7 @@ build_runtime() {
   echo "### Building nvim to get the complete runtime"
   make \
     SDKROOT="$(xcrun --show-sdk-path)" \
-    MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
+    MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     CMAKE_FLAGS="-DCUSTOM_UI=0 -DCMAKE_INSTALL_PREFIX=${nvim_install_path}" \
@@ -34,8 +34,9 @@ build_nvimserver() {
 }
 
 package() {
-  echo "### Packaging"
   local -r nvimserver_path=$1
+
+  echo "### Packaging"
   local -r resources_path="./NvimServer/Resources"
   local -r sources_path="./NvimServer/Sources"
   local -r package_name="NvimServer"
@@ -61,23 +62,29 @@ main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-  local -r deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
+    local -r build_dir_path="./build"
+    local -r nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
 
-  if ${clean} ; then
-    clean_everything
-  fi
+    local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
+    local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
+    local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
+    local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
 
-  rm -rf "${build_dir_path}"
-  make clean
-  build_runtime "${deployment_target}"
+    if ${clean} ; then
+      clean_everything "${build_dir_path}"
+    fi
 
-  rm -rf "${build_dir_path}"
-  make clean
-  build_deps=${clean} ./NvimServer/bin/build_libnvim.sh
+    rm -rf "${build_dir_path}"
+    make clean
+    build_runtime "${x86_64_deployment_target}" "${nvim_install_path}"
 
-  build_nvimserver
+    rm -rf "${build_dir_path}"
+    make clean
+    build_deps=${clean} ./NvimServer/bin/build_libnvim.sh
 
-  package "${build_dir_path}/Build/Products/Release/NvimServer"
+    build_nvimserver
+
+    package "${build_dir_path}/Build/Products/Release/NvimServer"
 
   popd >/dev/null
   echo "### Built release"

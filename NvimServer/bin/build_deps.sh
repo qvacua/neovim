@@ -68,6 +68,8 @@ main() {
 
   local -r x86_64_deployment_target=$(cat "./Resources/x86_64_deployment_target.txt")
   local -r arm64_deployment_target=$(cat "./Resources/arm64_deployment_target.txt")
+  local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
+  local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
 
   rm -rf "${install_path_lib:?}/"*
   rm -rf "${install_path_include:?}/"*
@@ -79,7 +81,7 @@ main() {
 
   build_gettext \
       "${x86_64_deployment_target}" \
-      "${gettext_default_cflags}" \
+      "${gettext_default_cflags} --target=${x86_64_target}" \
       "${working_directory}" \
       "${x86_64_install_path}"
 
