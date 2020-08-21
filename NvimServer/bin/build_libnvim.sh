@@ -10,17 +10,14 @@ build_libnvim() {
 
   ln -f -s ./NvimServer/local.mk local.mk
 
-  local -r deployment_target_file="./NvimServer/Resources/macos_deployment_target.txt"
-  local -r deployment_target=$(cat ${deployment_target_file})
+  local -r deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
 
   # Brew's gettext does not get sym-linked to PATH
-  export PATH=/usr/local/opt/gettext/bin:$PATH
+  export PATH="/usr/local/opt/gettext/bin:${PATH}"
 
-  # Use custom gettext source only when building libnvim => not in local.mk which is also used to build the full nvim
-  # to get the full runtime.
   make \
-    SDKROOT=$(xcrun --show-sdk-path) \
-    MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
+    SDKROOT="$(xcrun --show-sdk-path)" \
+    MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     CMAKE_BUILD_TYPE=Release \
@@ -29,6 +26,7 @@ build_libnvim() {
 
 main() {
   echo "### Building libnvim"
+
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
@@ -39,4 +37,3 @@ main() {
 }
 
 main
-

@@ -4,13 +4,13 @@ set -Eeuo pipefail
 readonly clean=${clean:-true}
 readonly build_dir_name="build"
 readonly build_dir_path="./${build_dir_name}"
-readonly nvim_install_path=$(mktemp -d -t 'nvim-runtime')
+readonly nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
 
 clean_everything() {
   rm -rf build
   make distclean
 
-  xcodebuild -derivedDataPath ${build_dir_path} -configuration Release -scheme NvimServer clean
+  xcodebuild -derivedDataPath "${build_dir_path}" -configuration Release -scheme NvimServer clean
 }
 
 build_runtime() {
@@ -21,7 +21,7 @@ build_runtime() {
 
   echo "### Building nvim to get the complete runtime"
   make \
-    SDKROOT=$(xcrun --show-sdk-path) \
+    SDKROOT="$(xcrun --show-sdk-path)" \
     MACOSX_DEPLOYMENT_TARGET=${deployment_target} \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
@@ -30,24 +30,24 @@ build_runtime() {
 }
 
 build_nvimserver() {
-  xcodebuild -derivedDataPath ${build_dir_path} -configuration Release -scheme NvimServer build
+  xcodebuild -derivedDataPath "${build_dir_path}" -configuration Release -scheme NvimServer build
 }
 
 package() {
   echo "### Packaging"
   local -r nvimserver_path=$1
-  local -r resources_path=./NvimServer/Resources
-  local -r sources_path=./NvimServer/Sources
+  local -r resources_path="./NvimServer/Resources"
+  local -r sources_path="./NvimServer/Sources"
   local -r package_name="NvimServer"
   local -r package_dir_path="${build_dir_path}/${package_name}"
 
   rm -rf ${package_dir_path}
   mkdir -p ${package_dir_path}
-  cp -r ${nvim_install_path}/share/nvim/runtime ${package_dir_path}
-  cp -r ${nvimserver_path} ${package_dir_path}
-  cp ${resources_path}/* ${package_dir_path}
-  cp "${sources_path}/foundation_shim.h" ${package_dir_path}
-  cp "${sources_path}/server_shared_types.h" ${package_dir_path}
+  cp -r "${nvim_install_path}/share/nvim/runtime" "${package_dir_path}"
+  cp -r "${nvimserver_path}" "${package_dir_path}"
+  cp "${resources_path:?}/"* "${package_dir_path}"
+  cp "${sources_path}/foundation_shim.h" "${package_dir_path}"
+  cp "${sources_path}/server_shared_types.h" "${package_dir_path}"
 
   pushd ${build_dir_path} >/dev/null
   tar jcvf "${package_name}.tar.bz2" ${package_name}
@@ -61,18 +61,17 @@ main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-  local -r deployment_target_file="./NvimServer/Resources/macos_deployment_target.txt"
-  local -r deployment_target=$(cat ${deployment_target_file})
+  local -r deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
 
   if ${clean} ; then
     clean_everything
   fi
 
-  rm -rf ${build_dir_path}
+  rm -rf "${build_dir_path}"
   make clean
-  build_runtime ${deployment_target}
+  build_runtime "${deployment_target}"
 
-  rm -rf ${build_dir_path}
+  rm -rf "${build_dir_path}"
   make clean
   build_deps=${clean} ./NvimServer/bin/build_libnvim.sh
 
