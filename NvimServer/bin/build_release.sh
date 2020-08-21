@@ -48,8 +48,6 @@ package() {
   cp -r "${nvim_install_path}/share/nvim/runtime" "${package_dir_path}"
   cp -r "${nvimserver_path}" "${package_dir_path}"
   cp "${resources_path:?}/"* "${package_dir_path}"
-  cp "${sources_path}/foundation_shim.h" "${package_dir_path}"
-  cp "${sources_path}/server_shared_types.h" "${package_dir_path}"
 
   pushd ${build_dir_path} >/dev/null
   tar jcvf "${package_name}.tar.bz2" ${package_name}
