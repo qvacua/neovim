@@ -21,34 +21,31 @@ build_runtime() {
     install
 }
 
-package() {
-  local -r nvimserver_path=$1
-  local -r nvimserver_build_dir_path=$2
+package2() {
+  local -r nvimserver_build_dir_prefix=$1
+  local -r nvim_install_path=$2
+
+  local -r x86_64_nvimserver="${nvimserver_build_dir_prefix}/x86_64/Build/Products/Release/NvimServer"
+  local -r arm64_nvimserver="${nvimserver_build_dir_prefix}/arm64/Build/Products/Release/NvimServer"
+
+  # TODO: lipo before packaging
+  local -r nvimserver_path="${x86_64_nvimserver}"
 
   echo "### Packaging"
   local -r resources_path="./NvimServer/Resources"
   local -r package_name="NvimServer"
-  local -r package_dir_path="${nvimserver_build_dir_path}/${package_name}"
-
+  local -r package_dir_path="${nvimserver_build_dir_prefix}/NvimServer"
   rm -rf "${package_dir_path}"
-  mkdir -p "${package_dir_path}"
+
   cp -r "${nvim_install_path}/share/nvim/runtime" "${package_dir_path}"
   cp -r "${nvimserver_path}" "${package_dir_path}"
   cp "${resources_path:?}/"* "${package_dir_path}"
 
-  pushd "${nvimserver_build_dir_path}" >/dev/null
-  tar jcvf "${package_name}.tar.bz2" ${package_name}
-
-  echo "### Packaged to ${build_dir_path}/${package_name}.tar.bz2"
+  pushd "${nvimserver_build_dir_prefix}" >/dev/null
+    tar jcvf "${package_name}.tar.bz2" ${package_name}
   popd >/dev/null
-}
 
-build_target() {
-  export target=$1
-  export build_deps=true
-  ./NvimServer/bin/build_nvimserver.sh
-  unset target
-  unset build_deps
+  echo "### Packaged to ${nvimserver_build_dir_prefix}/${package_name}.tar.bz2"
 }
 
 main() {
@@ -56,10 +53,11 @@ main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-    local -r nvim_build_dir_path="$(realpath ./build)"
+    local -r nvim_build_dir_path="./build"
     local -r nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
 
-    local -r nvimserver_build_dir_prefix="$(realpath ./NvimServer/build)"
+    local -r nvimserver_build_dir_prefix="./NvimServer/build"
+    rm -rf "${nvimserver_build_dir_prefix}"
 
     local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
     local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
@@ -73,8 +71,9 @@ main() {
     rm -rf "${nvim_build_dir_path}"
     make distclean
     rm -rf "${nvimserver_build_dir_prefix}/x86_64"
-    build_target "x86_64"
+    ./NvimServer/bin/build_nvimserver.sh "x86_64" true "${nvimserver_build_dir_prefix}"
 
+    package2 "${nvimserver_build_dir_prefix}" "${nvim_install_path}"
 #    package \
 #        "${nvimserver_build_dir_path}/Build/Products/Release/NvimServer" \
 #        "${nvimserver_build_dir_path}"
