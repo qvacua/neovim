@@ -11,7 +11,7 @@ include(LibFindMacros)
 
 if (GETTEXT_SOURCE MATCHES CUSTOM)
 
-  list(APPEND CMAKE_PREFIX_PATH "../third-party/libintl")
+  list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NvimServer/third-party")
 
 else()
 

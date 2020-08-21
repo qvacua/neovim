@@ -71,3 +71,4 @@ local.mk
 
 # NvimServer
 .swiftpm
+/NvimServer/build

@@ -1,12 +1,12 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly build_deps=${build_deps:-true}
+readonly target=${1:?"1st argument = target: x86_64 or arm64"}
+readonly build_deps=${2:?"2nd argument = build_deps: true or false"}
 
 build_libnvim() {
   local -r deployment_target=$1
-
-  ln -f -s ./NvimServer/local.mk local.mk
+  local -r target_option=$2
 
   # Brew's gettext does not get sym-linked to PATH
   export PATH="/usr/local/opt/gettext/bin:${PATH}"
@@ -14,28 +14,27 @@ build_libnvim() {
   make \
     SDKROOT="$(xcrun --show-sdk-path)" \
     MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
-    CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
-    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${x86_64_deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
+    CFLAGS="${target_option}" \
+    CXXFLAGS="${target_option}" \
+    CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target}" \
+    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++) -DCMAKE_C_COMPILER_ARG1=${target_option}" \
     CMAKE_BUILD_TYPE=Release \
     libnvim
 }
 
 main() {
-  echo "### Building libnvim"
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-    local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
-    local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
-    local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
-    local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
+  local -r deployment_target=$(cat "./NvimServer/Resources/${target}_deployment_target.txt")
+  local -r target_option="--target=${target}-apple-macos${deployment_target}"
 
-    if ${build_deps} ; then
-      build_gettext=true ./NvimServer/bin/build_deps.sh
+  echo "### Building libnvim"
+    if "${build_deps}" ; then
+      ./NvimServer/bin/build_deps.sh "${target}"
     fi
 
-    build_libnvim "${x86_64_deployment_target}"
-
+    build_libnvim "${deployment_target}" "${target_option}"
   popd >/dev/null
   echo "### Built libnvim"
 }

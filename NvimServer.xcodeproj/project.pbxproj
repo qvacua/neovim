@@ -286,7 +286,7 @@
 					"$(PROJECT_DIR)/build/include",
 					"$(PROJECT_DIR)/.deps/usr/include",
 					"$(PROJECT_DIR)/build/config",
-					"$(PROJECT_DIR)/NvimServer/third-party/libintl/include",
+					"$(PROJECT_DIR)/NvimServer/third-party/include",
 				);
 				OTHER_LDFLAGS = (
 					"$(PROJECT_DIR)/build/lib/libnvim.a",
@@ -295,7 +295,7 @@
 					"$(PROJECT_DIR)/.deps/usr/lib/libuv.a",
 					"$(PROJECT_DIR)/.deps/usr/lib/libvterm.a",
 					"$(PROJECT_DIR)/.deps/usr/lib/libluajit-5.1.a",
-					"$(PROJECT_DIR)/NvimServer/third-party/libintl/lib/libintl.a",
+					"$(PROJECT_DIR)/NvimServer/third-party/lib/libintl.a",
 					"-lutil",
 					"-lm",
 					"-ldl",
@@ -322,7 +322,7 @@
 					"$(PROJECT_DIR)/build/include",
 					"$(PROJECT_DIR)/.deps/usr/include",
 					"$(PROJECT_DIR)/build/config",
-					"$(PROJECT_DIR)/NvimServer/third-party/libintl/include",
+					"$(PROJECT_DIR)/NvimServer/third-party/include",
 				);
 				OTHER_LDFLAGS = (
 					"$(PROJECT_DIR)/build/lib/libnvim.a",
@@ -331,7 +331,7 @@
 					"$(PROJECT_DIR)/.deps/usr/lib/libuv.a",
 					"$(PROJECT_DIR)/.deps/usr/lib/libvterm.a",
 					"$(PROJECT_DIR)/.deps/usr/lib/libluajit-5.1.a",
-					"$(PROJECT_DIR)/NvimServer/third-party/libintl/lib/libintl.a",
+					"$(PROJECT_DIR)/NvimServer/third-party/lib/libintl.a",
 					"-lutil",
 					"-lm",
 					"-ldl",

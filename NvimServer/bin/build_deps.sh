@@ -1,6 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+readonly target=${1:?"1st argument = target: x86_64 or arm64"}
+
 readonly gettext_version="0.20.1"
 readonly gettext_default_cflags="-g -O2"
 
@@ -17,20 +19,17 @@ download_gettext() {
 }
 
 build_gettext() {
-  local -r x86_64_deployment_target=$1
+  local -r deployment_target=$1
   local -r cflags=$2
   local -r working_directory=$3
   local -r install_path=$4
 
   echo "### Building gettext"
-  rm -rf "${install_path}"
-  mkdir -p "${install_path}"
-
   pushd "${working_directory}/gettext" >/dev/null
     make distclean || true
     ./configure \
+        MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
         CFLAGS="${cflags}" \
-        MACOSX_DEPLOYMENT_TARGET="${x86_64_deployment_target}" \
         --disable-dependency-tracking \
         --disable-silent-rules \
         --disable-debug \
@@ -45,10 +44,7 @@ build_gettext() {
         --without-cvs \
         --without-xz \
         --prefix="${install_path}"
-    make MACOSX_DEPLOYMENT_TARGET="${x86_64_deployment_target}" install
-
-    cp -r "${x86_64_install_path}/include"/* "${install_path_include}"
-    cp -r "${x86_64_install_path}/lib"/* "${install_path_lib}"
+    make MACOSX_DEPLOYMENT_TARGET="${deployment_target}" install
   popd >/dev/null
   echo "### Built gettext"
 }
@@ -56,34 +52,22 @@ build_gettext() {
 main() {
   echo "### Building deps"
   pushd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null
-
+  
+  rm -rf "./third-party" && mkdir -p "./third-party"
   local -r install_path="$(realpath ./third-party)"
-  local -r install_path_lib="$(realpath ./third-party/lib)"
-  local -r install_path_include="$(realpath ./third-party/include)"
-
   local -r working_directory="$(realpath ./third-party/.deps)"
 
-  local -r x86_64_install_path="${install_path}/libintl/x86_64"
-  local -r arm64_install_path="${install_path}/libintl/arm64"
-
-  local -r x86_64_deployment_target=$(cat "./Resources/x86_64_deployment_target.txt")
-  local -r arm64_deployment_target=$(cat "./Resources/arm64_deployment_target.txt")
-  local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
-  local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
-
-  rm -rf "${install_path_lib:?}/"*
-  rm -rf "${install_path_include:?}/"*
-  mkdir -p "${install_path_lib}"
-  mkdir -p "${install_path_include}"
+  local -r deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
+  local -r target_option="--target=${target}-apple-macos${deployment_target}"
 
   mkdir -p "${working_directory}"
   download_gettext "${working_directory}"
 
   build_gettext \
-      "${x86_64_deployment_target}" \
-      "${gettext_default_cflags} --target=${x86_64_target}" \
+      "${deployment_target}" \
+      "${gettext_default_cflags} ${target_option}" \
       "${working_directory}" \
-      "${x86_64_install_path}"
+      "${install_path}" \
 
   popd >/dev/null
   echo "### Built deps"
