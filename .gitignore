@@ -68,3 +68,6 @@ local.mk
 
 # CLion
 /.idea/
+
+# NvimServer
+.swiftpm

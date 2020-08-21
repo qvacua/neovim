@@ -26,6 +26,7 @@ build_runtime() {
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     CMAKE_FLAGS="-DCUSTOM_UI=0 -DCMAKE_INSTALL_PREFIX=${nvim_install_path}" \
+    CMAKE_BUILD_TYPE="Release" \
     install
 }
 
@@ -85,6 +86,8 @@ main() {
     build_nvimserver
 
     package "${build_dir_path}/Build/Products/Release/NvimServer"
+
+  echo "#### runtime is installed at ${nvim_install_path}/share/nvim/runtime"
 
   popd >/dev/null
   echo "### Built release"

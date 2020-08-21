@@ -1,0 +1,10 @@
+diff --git a/bin/vterm-ctrl.c b/bin/vterm-ctrl.c
+index ba0d61e..8f8be7e 100644
+--- a/bin/vterm-ctrl.c
++++ b/bin/vterm-ctrl.c
+@@ -1,4 +1,4 @@
+-#define _XOPEN_SOURCE 500  /* strdup */
++#define _XOPEN_SOURCE 600  /* strdup */
+ 
+ #include <stdbool.h>
+ #include <stdio.h>
