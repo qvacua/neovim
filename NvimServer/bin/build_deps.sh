@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly target=${1:?"1st argument = target: x86_64 or arm64"}
+readonly target=${target:?"x86_64 or arm64"}
 
 readonly gettext_version="0.20.1"
 readonly gettext_default_cflags="-g -O2"

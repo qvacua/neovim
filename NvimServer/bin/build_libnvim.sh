@@ -1,8 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly target=${1:?"1st argument = target: x86_64 or arm64"}
-readonly build_deps=${2:?"2nd argument = build_deps: true or false"}
+readonly target=${target:?"x86_64 or arm64"}
+readonly build_deps=${build_deps:?"true or false"}
 
 build_libnvim() {
   local -r deployment_target=$1
@@ -31,7 +31,7 @@ main() {
 
   echo "### Building libnvim"
     if "${build_deps}" ; then
-      ./NvimServer/bin/build_deps.sh "${target}"
+      ./NvimServer/bin/build_deps.sh
     fi
 
     build_libnvim "${deployment_target}" "${target_option}"

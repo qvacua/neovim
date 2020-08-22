@@ -55,9 +55,7 @@ main() {
 
     local -r nvim_build_dir_path="./build"
     local -r nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
-
     local -r nvimserver_build_dir_prefix="./NvimServer/build"
-    rm -rf "${nvimserver_build_dir_prefix}"
 
     local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
     local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
@@ -65,13 +63,18 @@ main() {
     local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
 
     ./NvimServer/bin/clean_all.sh
+
     # Build only *once* with x86_64 target; no arm64 build necessary.
     build_runtime "${x86_64_deployment_target}" "${nvim_install_path}" "${x86_64_target}"
 
     rm -rf "${nvim_build_dir_path}"
     make distclean
     rm -rf "${nvimserver_build_dir_prefix}/x86_64"
-    ./NvimServer/bin/build_nvimserver.sh "x86_64" true "${nvimserver_build_dir_prefix}"
+
+    local -x target="x86_64"
+    local -r -x build_deps=true
+    local -r -x build_dir_prefix="${nvimserver_build_dir_prefix}"
+    ./NvimServer/bin/build_nvimserver.sh
 
     package "${nvimserver_build_dir_prefix}" "${nvim_install_path}"
     echo "#### runtime is installed at ${nvim_install_path}/share/nvim/runtime"
