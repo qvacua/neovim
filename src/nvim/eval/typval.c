@@ -16,6 +16,7 @@
 #include "nvim/eval/typval_encode.h"
 #include "nvim/eval.h"
 #include "nvim/eval/userfunc.h"
+#include "nvim/lua/executor.h"
 #include "nvim/types.h"
 #include "nvim/assert.h"
 #include "nvim/memory.h"
@@ -301,6 +302,7 @@ void tv_list_free_list(list_T *const l)
   }
   list_log(l, NULL, NULL, "freelist");
 
+  nlua_free_typval_list(l);
   xfree(l);
 }
 
@@ -638,6 +640,57 @@ tv_list_copy_error:
   return NULL;
 }
 
+/// Flatten "list" in place to depth "maxdepth".
+/// Does nothing if "maxdepth" is 0.
+///
+/// @param[in,out] list   List to flatten
+/// @param[in] maxdepth   Maximum depth that will be flattened
+///
+/// @return OK or FAIL
+int tv_list_flatten(list_T *list, long maxdepth)
+  FUNC_ATTR_NONNULL_ARG(1) FUNC_ATTR_WARN_UNUSED_RESULT
+{
+  listitem_T *item;
+  listitem_T *to_free;
+  int n;
+  if (maxdepth == 0) {
+    return OK;
+  }
+
+  n = 0;
+  item = list->lv_first;
+  while (item != NULL) {
+    fast_breakcheck();
+    if (got_int) {
+      return FAIL;
+    }
+    if (item->li_tv.v_type == VAR_LIST) {
+      listitem_T *next = item->li_next;
+
+      tv_list_drop_items(list, item, item);
+      tv_list_extend(list, item->li_tv.vval.v_list, next);
+      tv_clear(&item->li_tv);
+      to_free = item;
+
+      if (item->li_prev == NULL) {
+        item = list->lv_first;
+      } else {
+        item = item->li_prev->li_next;
+      }
+      xfree(to_free);
+
+      if (++n >= maxdepth) {
+        n = 0;
+        item = next;
+      }
+    } else {
+      n = 0;
+      item = item->li_next;
+    }
+  }
+  return OK;
+}
+
 /// Extend first list with the second
 ///
 /// @param[out]  l1  List to extend.
@@ -797,10 +850,14 @@ bool tv_list_equal(list_T *const l1, list_T *const l2, const bool ic,
   if (l1 == l2) {
     return true;
   }
-  if (l1 == NULL || l2 == NULL) {
+  if (tv_list_len(l1) != tv_list_len(l2)) {
     return false;
   }
-  if (tv_list_len(l1) != tv_list_len(l2)) {
+  if (tv_list_len(l1) == 0) {
+    // empty and NULL list are considered equal
+    return true;
+  }
+  if (l1 == NULL || l2 == NULL) {
     return false;
   }
 
@@ -1374,6 +1431,7 @@ void tv_dict_free_dict(dict_T *const d)
     d->dv_used_next->dv_used_prev = d->dv_used_prev;
   }
 
+  nlua_free_typval_dict(d);
   xfree(d);
 }
 
@@ -1721,9 +1779,9 @@ int tv_dict_add_bool(dict_T *const d, const char *const key,
 int tv_dict_add_str(dict_T *const d,
                     const char *const key, const size_t key_len,
                     const char *const val)
-  FUNC_ATTR_NONNULL_ALL
+  FUNC_ATTR_NONNULL_ARG(1, 2)
 {
-  return tv_dict_add_allocated_str(d, key, key_len, xstrdup(val));
+  return tv_dict_add_str_len(d, key, key_len, val, -1);
 }
 
 /// Add a string entry to dictionary
@@ -1737,10 +1795,10 @@ int tv_dict_add_str(dict_T *const d,
 /// @return OK in case of success, FAIL when key already exists.
 int tv_dict_add_str_len(dict_T *const d,
                         const char *const key, const size_t key_len,
-                        char *const val, int len)
+                        const char *const val, int len)
   FUNC_ATTR_NONNULL_ARG(1, 2)
 {
-  char *s = val ? val : "";
+  char *s = NULL;
   if (val != NULL) {
     s = (len < 0) ? xstrdup(val) : xstrndup(val, (size_t)len);
   }
@@ -1763,7 +1821,7 @@ int tv_dict_add_str_len(dict_T *const d,
 int tv_dict_add_allocated_str(dict_T *const d,
                               const char *const key, const size_t key_len,
                               char *const val)
-  FUNC_ATTR_NONNULL_ALL
+  FUNC_ATTR_NONNULL_ARG(1, 2)
 {
   dictitem_T *const item = tv_dict_item_alloc_len(key, key_len);
 

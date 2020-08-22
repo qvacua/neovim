@@ -415,7 +415,7 @@ static void f_assert_equal(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   rettv->vval.v_number = assert_equal_common(argvars, ASSERT_EQUAL);
 }
 
-// "assert_equalfile(fname-one, fname-two)" function
+// "assert_equalfile(fname-one, fname-two[, msg])" function
 static void f_assert_equalfile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->vval.v_number = assert_equalfile(argvars);
@@ -824,9 +824,12 @@ static void f_call(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   } else if (argvars[0].v_type == VAR_PARTIAL) {
     partial = argvars[0].vval.v_partial;
     func = partial_name(partial);
+  } else if (nlua_is_table_from_lua(&argvars[0])) {
+    func = nlua_register_table_as_callable(&argvars[0]);
   } else {
     func = (char_u *)tv_get_string(&argvars[0]);
   }
+
   if (*func == NUL) {
     return;             // type error or empty name
   }
@@ -2155,6 +2158,42 @@ static void f_expandcmd(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     EMSG(errormsg);
   }
   rettv->vval.v_string = cmdstr;
+}
+
+
+/// "flatten(list[, {maxdepth}])" function
+static void f_flatten(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  list_T *list;
+  long maxdepth;
+  bool error = false;
+
+  if (argvars[0].v_type != VAR_LIST) {
+    EMSG2(_(e_listarg), "flatten()");
+    return;
+  }
+
+  if (argvars[1].v_type == VAR_UNKNOWN) {
+    maxdepth = 999999;
+  } else {
+    maxdepth = (long)tv_get_number_chk(&argvars[1], &error);
+    if (error) {
+      return;
+    }
+    if (maxdepth < 0) {
+      EMSG(_("E900: maxdepth must be non-negative number"));
+      return;
+    }
+  }
+
+  list = argvars[0].vval.v_list;
+  if (list != NULL
+      && !tv_check_lock(tv_list_locked(list),
+                        N_("flatten() argument"),
+                        TV_TRANSLATE)
+      && tv_list_flatten(list, maxdepth) == OK) {
+    tv_copy(&argvars[0], rettv);
+  }
 }
 
 /*
@@ -4678,6 +4717,14 @@ static void f_insert(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   }
 }
 
+// "interrupt()" function
+static void f_interrupt(typval_T *argvars FUNC_ATTR_UNUSED,
+                        typval_T *rettv FUNC_ATTR_UNUSED,
+                        FunPtr fptr FUNC_ATTR_UNUSED)
+{
+  got_int = true;
+}
+
 /*
  * "invert(expr)" function
  */
@@ -5238,7 +5285,7 @@ static void libcall_common(typval_T *argvars, typval_T *rettv, int out_type)
   // input variables
   char *str_in = (in_type == VAR_STRING)
       ? (char *)argvars[2].vval.v_string : NULL;
-  int64_t int_in = argvars[2].vval.v_number;
+  int int_in = argvars[2].vval.v_number;
 
   // output variables
   char **str_out = (out_type == VAR_STRING)
@@ -9480,7 +9527,7 @@ static void f_split(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   tv_list_alloc_ret(rettv, kListLenMayKnow);
 
   if (typeerr) {
-    return;
+    goto theend;
   }
 
   regmatch_T regmatch = {
@@ -9524,6 +9571,7 @@ static void f_split(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     vim_regfree(regmatch.regprog);
   }
 
+theend:
   p_cpo = save_cpo;
 }
 

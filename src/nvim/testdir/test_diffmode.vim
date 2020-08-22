@@ -1,6 +1,7 @@
 " Tests for diff mode
 source shared.vim
 source screendump.vim
+source check.vim
 
 func Test_diff_fold_sync()
   enew!
@@ -800,3 +801,53 @@ func Test_diff_closeoff()
   diffoff!
   enew!
 endfunc
+
+func Test_diff_rnu()
+  CheckScreendump
+
+  let content =<< trim END
+    call setline(1, ['a', 'a', 'a', 'y', 'b', 'b', 'b', 'b', 'b'])
+    vnew
+    call setline(1, ['a', 'a', 'a', 'x', 'x', 'x', 'b', 'b', 'b', 'b', 'b'])
+    call setline(1, ['a', 'a', 'a', 'y', 'b', 'b', 'b', 'b', 'b'])
+    vnew
+    call setline(1, ['a', 'a', 'a', 'x', 'x', 'x', 'b', 'b', 'b', 'b', 'b'])
+    windo diffthis
+    setlocal number rnu foldcolumn=0
+  END
+  call writefile(content, 'Xtest_diff_rnu')
+  let buf = RunVimInTerminal('-S Xtest_diff_rnu', {})
+
+  call VerifyScreenDump(buf, 'Test_diff_rnu_01', {})
+
+  call term_sendkeys(buf, "j")
+  call VerifyScreenDump(buf, 'Test_diff_rnu_02', {})
+  call term_sendkeys(buf, "j")
+  call VerifyScreenDump(buf, 'Test_diff_rnu_03', {})
+
+  " clean up
+  call StopVimInTerminal(buf)
+  call delete('Xtest_diff_rnu')
+endfunc
+
+func Test_diff_and_scroll()
+  " this was causing an ml_get error
+  set ls=2
+  for i in range(winheight(0) * 2) 
+    call setline(i, i < winheight(0) - 10 ? i : i + 10) 
+  endfor
+  vnew
+  for i in range(winheight(0)*2 + 10) 
+    call setline(i, i < winheight(0) - 10 ? 0 : i) 
+  endfor
+  diffthis
+  wincmd p
+  diffthis
+  execute 'normal ' . winheight(0) . "\<C-d>"
+
+  bwipe!
+  bwipe!
+  set ls&
+endfunc
+
+" vim: shiftwidth=2 sts=2 expandtab

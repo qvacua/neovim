@@ -80,6 +80,7 @@
 #ifdef WIN32
 # include "nvim/os/pty_conpty_win.h"
 #endif
+#include "nvim/lua/executor.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/os/input.h"
 #include "nvim/os/lang.h"
@@ -314,7 +315,7 @@ static char *(p_icm_values[]) =       { "nosplit", "split", NULL };
 static char *(p_scl_values[]) =       { "yes", "no", "auto", "auto:1", "auto:2",
   "auto:3", "auto:4", "auto:5", "auto:6", "auto:7", "auto:8", "auto:9",
   "yes:1", "yes:2", "yes:3", "yes:4", "yes:5", "yes:6", "yes:7", "yes:8",
-  "yes:9", NULL };
+  "yes:9", "number", NULL };
 static char *(p_fdc_values[]) =       { "auto:1", "auto:2",
   "auto:3", "auto:4", "auto:5", "auto:6", "auto:7", "auto:8", "auto:9",
   "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", NULL };
@@ -1354,11 +1355,11 @@ int do_set(
       // Disallow changing some options from modelines.
       if (opt_flags & OPT_MODELINE) {
         if (flags & (P_SECURE | P_NO_ML)) {
-          errmsg = (char_u *)_("E520: Not allowed in a modeline");
+          errmsg = (char_u *)N_("E520: Not allowed in a modeline");
           goto skip;
         }
         if ((flags & P_MLE) && !p_mle) {
-          errmsg = (char_u *)_(
+          errmsg = (char_u *)N_(
               "E992: Not allowed in a modeline when 'modelineexpr' is off");
           goto skip;
         }
@@ -1375,7 +1376,7 @@ int do_set(
 
       // Disallow changing some options in the sandbox
       if (sandbox != 0 && (flags & P_SECURE)) {
-        errmsg = (char_u *)_(e_sandbox);
+        errmsg = e_sandbox;
         goto skip;
       }
 
@@ -1711,6 +1712,7 @@ int do_set(
 #ifdef BACKSLASH_IN_FILENAME
                     && !((flags & P_EXPAND)
                          && vim_isfilec(arg[1])
+                         && !ascii_iswhite(arg[1])
                          && (arg[1] != '\\'
                              || (s == newval
                                  && arg[2] != '\\')))
@@ -3183,6 +3185,13 @@ ambw_end:
     if (check_opt_strings(*varp, p_scl_values, false) != OK) {
       errmsg = e_invarg;
     }
+    // When changing the 'signcolumn' to or from 'number', recompute the
+    // width of the number column if 'number' or 'relativenumber' is set.
+    if (((*oldval == 'n' && *(oldval + 1) == 'u')
+         || (*curwin->w_p_scl == 'n' && *(curwin->w_p_scl + 1) =='u'))
+        && (curwin->w_p_nu || curwin->w_p_rnu)) {
+      curwin->w_nrwidth_line_count = 0;
+    }
   } else if (varp == &curwin->w_p_fdc || varp == &curwin->w_allbuf_opt.wo_fdc) {
     // 'foldcolumn'
     if (check_opt_strings(*varp, p_fdc_values, false) != OK) {
@@ -3336,6 +3345,10 @@ ambw_end:
   } else if (varp == &curwin->w_p_winhl) {
     if (!parse_winhl_opt(curwin)) {
       errmsg = e_invarg;
+    }
+  } else if (varp == &p_rtp) {  // 'runtimepath'
+    if (!nlua_update_package_path()) {
+      errmsg = (char_u *)N_("E970: Failed to initialize lua interpreter");
     }
   } else {
     // Options that are a list of flags.
@@ -7397,7 +7410,10 @@ int win_signcol_count(win_T *wp)
   int maximum = 1, needed_signcols;
   const char *scl = (const char *)wp->w_p_scl;
 
-  if (*scl == 'n') {
+  // Note: It checks "no" or "number" in 'signcolumn' option
+  if (*scl == 'n'
+      && (*(scl + 1) == 'o' || (*(scl + 1) == 'u'
+                                && (wp->w_p_nu || wp->w_p_rnu)))) {
     return 0;
   }
   needed_signcols = buf_signcols(wp->w_buffer);

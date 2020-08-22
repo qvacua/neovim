@@ -92,7 +92,7 @@ local function sort_by_key(fn)
   end
 end
 local edit_sort_key = sort_by_key(function(e)
-  return {e.A[1], e.A[2], -e.i}
+  return {e.A[1], e.A[2], e.i}
 end)
 
 --- Position is a https://microsoft.github.io/language-server-protocol/specifications/specification-current/#position
@@ -193,12 +193,6 @@ function M.apply_text_document_edit(text_document_edit)
     end
   end
   M.apply_text_edits(text_document_edit.edits, bufnr)
-end
-
-function M.get_current_line_to_cursor()
-  local pos = api.nvim_win_get_cursor(0)
-  local line = assert(api.nvim_buf_get_lines(0, pos[1]-1, pos[1], false)[1])
-  return line:sub(pos[2]+1)
 end
 
 local function parse_snippet_rec(input, inner)
@@ -735,6 +729,7 @@ function M.fancy_floating_markdown(contents, opts)
   local bufnr = api.nvim_create_buf(false, true)
   local winnr = api.nvim_open_win(bufnr, false, M.make_floating_popup_options(width, height, opts))
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, stripped)
+  api.nvim_buf_set_option(bufnr, 'modifiable', false)
 
   -- Switch to the floating window to apply the syntax highlighting.
   -- This is because the syntax command doesn't accept a target.

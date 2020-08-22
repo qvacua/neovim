@@ -274,7 +274,7 @@ static void terminfo_start(UI *ui)
                                : (konsole ? 1 : 0);
 
   patch_terminfo_bugs(data, term, colorterm, vtev, konsolev, iterm_env, nsterm);
-  augment_terminfo(data, term, colorterm, vtev, konsolev, iterm_env, nsterm);
+  augment_terminfo(data, term, vtev, konsolev, iterm_env, nsterm);
   data->can_change_scroll_region =
     !!unibi_get_str(data->ut, unibi_change_scroll_region);
   data->can_set_lr_margin =
@@ -1817,9 +1817,8 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
             || tmux       // per tmux manual page
             // https://lists.gnu.org/archive/html/screen-devel/2013-03/msg00000.html
             || (true_screen
-                && (!screen_host_linuxvt
-                    || (screen_host_linuxvt
-                        && (xterm_version || (vte_version > 0) || colorterm))))
+                && (screen_host_linuxvt
+                    && (xterm_version || (vte_version > 0) || colorterm)))
             // Since GNU Screen does not support DECSCUSR, DECSCUSR is wrapped
             // in DCS and output to the host terminal.
             || st         // #7641
@@ -1907,7 +1906,7 @@ static void patch_terminfo_bugs(TUIData *data, const char *term,
 /// This adds stuff that is not in standard terminfo as extended unibilium
 /// capabilities.
 static void augment_terminfo(TUIData *data, const char *term,
-                             const char *colorterm, long vte_version,
+                             long vte_version,
                              long konsolev, bool iterm_env, bool nsterm)
 {
   unibi_term *ut = data->ut;

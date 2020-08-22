@@ -2207,8 +2207,12 @@ static inline ShaDaWriteResult shada_read_when_writing(
           shada_free_shada_entry(&entry);
           break;
         }
-        hms_insert(&wms->hms[entry.data.history_item.histtype], entry, true,
-                   true);
+        if (wms->hms[entry.data.history_item.histtype].hmll.size != 0) {
+          hms_insert(&wms->hms[entry.data.history_item.histtype], entry, true,
+                     true);
+        } else {
+          shada_free_shada_entry(&entry);
+        }
         break;
       }
       case kSDItemRegister: {
@@ -2675,6 +2679,36 @@ static ShaDaWriteResult shada_write(ShaDaWriteDef *const sd_writer,
       var_iter = var_shada_iter(var_iter, &name, &vartv, VAR_FLAVOUR_SHADA);
       if (name == NULL) {
         break;
+      }
+      switch (vartv.v_type) {
+        case VAR_FUNC:
+        case VAR_PARTIAL:
+          tv_clear(&vartv);
+          continue;
+        case VAR_DICT:
+          {
+            dict_T *di = vartv.vval.v_dict;
+            int copyID = get_copyID();
+            if (!set_ref_in_ht(&di->dv_hashtab, copyID, NULL)
+                && copyID == di->dv_copyID) {
+              tv_clear(&vartv);
+              continue;
+            }
+            break;
+          }
+        case VAR_LIST:
+          {
+            list_T *l = vartv.vval.v_list;
+            int copyID = get_copyID();
+            if (!set_ref_in_list(l, copyID, NULL)
+                && copyID == l->lv_copyID) {
+              tv_clear(&vartv);
+              continue;
+            }
+            break;
+          }
+        default:
+          break;
       }
       typval_T tgttv;
       tv_copy(&vartv, &tgttv);
@@ -4114,7 +4148,7 @@ static inline size_t shada_init_jumps(
     }
     const char *const fname = (char *) (fm.fmark.fnum == 0
                                         ? (fm.fname == NULL ? NULL : fm.fname)
-                                        : buf->b_ffname);
+                                        : buf ? buf->b_ffname : NULL);
     if (fname == NULL) {
       continue;
     }
