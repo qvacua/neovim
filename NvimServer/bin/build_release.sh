@@ -21,7 +21,7 @@ build_runtime() {
     install
 }
 
-package2() {
+package() {
   local -r nvimserver_build_dir_prefix=$1
   local -r nvim_install_path=$2
 
@@ -73,12 +73,8 @@ main() {
     rm -rf "${nvimserver_build_dir_prefix}/x86_64"
     ./NvimServer/bin/build_nvimserver.sh "x86_64" true "${nvimserver_build_dir_prefix}"
 
-    package2 "${nvimserver_build_dir_prefix}" "${nvim_install_path}"
-#    package \
-#        "${nvimserver_build_dir_path}/Build/Products/Release/NvimServer" \
-#        "${nvimserver_build_dir_path}"
-
-  echo "#### runtime is installed at ${nvim_install_path}/share/nvim/runtime"
+    package "${nvimserver_build_dir_prefix}" "${nvim_install_path}"
+    echo "#### runtime is installed at ${nvim_install_path}/share/nvim/runtime"
 
   popd >/dev/null
   echo "### Built release"
