@@ -16,10 +16,13 @@ After editing the code of neovim or NvimServer, you build NvimServer in Xcode
 or by executing the following:
 
 ```
-$ target=x86_64 build_dir="${some_dir}" build_deps=false ./bin/build_nvimserver.sh
+$ target=x86_64 \
+  build_deps=false \
+  build_dir="${PROJECT_ROOT}/NvimServer/build" \
+  ./bin/build_nvimserver.sh
 ```
 
-where the resulting binary will be located in `${some_dir}`
+We use `${PROJECT_ROOT}/NvimServer/build` as the NvimServer target assumes that location.
 
 ## How to release
 
@@ -27,7 +30,7 @@ where the resulting binary will be located in `${some_dir}`
 $ ./bin/build_release.sh 
 ```
 
-The resulting packge will be in ...
+The resulting packge will be in `${PROJECT_ROOT}/NvimServer/build/NvimServer.tar.bz2`.
 
 ## Individual steps
 
@@ -42,7 +45,7 @@ $ target=x86_64 ./bin/build_deps.sh
 which will result in
 
 ```
-/
+${PROJECT_ROOT}
     NvimServer
         third-party
             lib
@@ -62,7 +65,8 @@ which will result in
                     b.h
 ```
 
-Files in `/NvimServer/third-party` are used to build `libnvim` and NvimServer.
+Files, e.g. `lib` and `include`, in `${PROJECT_ROOT}/NvimServer/third-party` are used to build
+`libnvim` and NvimServer.
 
 ### How to build `libnvim`
 

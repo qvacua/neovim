@@ -73,7 +73,7 @@ main() {
 
     local -x target="x86_64"
     local -r -x build_deps=true
-    local -r -x build_dir_prefix="${nvimserver_build_dir_prefix}"
+    local -r -x build_dir="${nvimserver_build_dir_prefix}/${target}"
     ./NvimServer/bin/build_nvimserver.sh
 
     package "${nvimserver_build_dir_prefix}" "${nvim_install_path}"

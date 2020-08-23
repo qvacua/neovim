@@ -1,11 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly target=${target:?"1st argument = target: x86_64 or arm64"}
-readonly build_deps=${build_deps:?"2nd argument = build_deps: true or false"}
-readonly build_dir_prefix=${build_dir_prefix:?"3rd argument = build_dir_prefix: eg ./NvimServer/build"}
-
-readonly build_dir="${build_dir_prefix}/${target}"
+readonly target=${target:?"x86_64 or arm64"}
+readonly build_deps=${build_deps:?"true or false"}
+readonly build_dir=${build_dir:?"where to put the resuling binary"}
 
 main() {
   echo "### Building libnvim"
