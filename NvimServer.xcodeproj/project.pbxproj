@@ -301,10 +301,6 @@
 					"-ldl",
 					"-lpthread",
 					"-liconv",
-					"-image_base",
-					100000000,
-					"-pagezero_size",
-					10000,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -337,10 +333,6 @@
 					"-ldl",
 					"-lpthread",
 					"-liconv",
-					"-image_base",
-					100000000,
-					"-pagezero_size",
-					10000,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

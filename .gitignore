@@ -72,3 +72,5 @@ local.mk
 # NvimServer
 .swiftpm
 /NvimServer/build
+/NvimServer/third-party-x86_64
+/NvimServer/third-party-arm64
