@@ -53,7 +53,7 @@ endif()
 
 option(USE_EXISTING_SRC_DIR "Skip download of deps sources in case of existing source directory." OFF)
 
-if(WIN32 OR (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+if(WIN32)
   find_package(Git)
   if(NOT Git_FOUND)
     message(FATAL_ERROR "Git is required to apply patches for Windows and arm64 Macs.")
