@@ -15,7 +15,7 @@ build_runtime() {
     CFLAGS="${target}" \
     CXXFLAGS="${target}" \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
-    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
+    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_C_COMPILER_ARG1=${target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     CMAKE_FLAGS="-DCUSTOM_UI=0 -DCMAKE_INSTALL_PREFIX=${nvim_install_path}" \
     CMAKE_BUILD_TYPE="Release" \
     install
@@ -25,11 +25,8 @@ package() {
   local -r nvimserver_build_dir_prefix=$1
   local -r nvim_install_path=$2
 
-  local -r x86_64_nvimserver="${nvimserver_build_dir_prefix}/x86_64/Build/Products/Release/NvimServer"
-  local -r arm64_nvimserver="${nvimserver_build_dir_prefix}/arm64/Build/Products/Release/NvimServer"
-
-  # TODO: lipo before packaging
-  local -r nvimserver_path="${x86_64_nvimserver}"
+  local -r nvimserver="${nvimserver_build_dir_prefix}/Build/Products/Release/NvimServer"
+  local -r nvimserver_path="${nvimserver}"
 
   echo "### Packaging"
   local -r resources_path="./NvimServer/Resources"
@@ -59,8 +56,8 @@ main() {
 
     local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
     local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
+
     local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
-    local -r arm64_target="arm64-apple-macos${arm64_deployment_target}"
 
     ./NvimServer/bin/clean_all.sh
 
@@ -69,11 +66,11 @@ main() {
 
     rm -rf "${nvim_build_dir_path}"
     make distclean
-    rm -rf "${nvimserver_build_dir_prefix}/x86_64"
+    rm -rf "${nvimserver_build_dir_prefix}"
 
-    local -x target="x86_64"
     local -r -x build_deps=true
-    local -r -x build_dir="${nvimserver_build_dir_prefix}/${target}"
+    local -r -x build_libnvim=true
+    local -r -x build_dir="${nvimserver_build_dir_prefix}"
     ./NvimServer/bin/build_nvimserver.sh
 
     package "${nvimserver_build_dir_prefix}" "${nvim_install_path}"

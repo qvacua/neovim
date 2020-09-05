@@ -1,6 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+readonly build_libnvim=${build_libnvim:?"true or false"}
 readonly build_deps=${build_deps:?"true or false"}
 readonly build_dir=${build_dir:?"where to put the resuling binary"}
 
@@ -10,7 +11,10 @@ main() {
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
     mkdir -p "${build_dir}"
 
-    ./NvimServer/bin/build_libnvim.sh
+    if "${build_libnvim}" ; then
+      ./NvimServer/bin/build_libnvim.sh
+    fi
+
     xcodebuild -derivedDataPath "${build_dir}" -configuration Release -scheme NvimServer build
 
   popd >/dev/null
