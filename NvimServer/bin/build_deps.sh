@@ -102,7 +102,7 @@ main() {
       "arm-apple-macos"
 
   target="x86_64"
-  local deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
+  deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
   extract_gettext "${working_directory}" "${target}"
   build_gettext \
       "${deployment_target}" \
