@@ -82,6 +82,17 @@ end
 function module.ok(res, msg, logfile)
   return dumplog(logfile, assert.is_true, res, msg)
 end
+
+-- TODO(bfredl): this should "failure" not "error" (issue with dumplog() )
+local function epicfail(state, arguments, _)
+  state.failure_message = arguments[1]
+  return false
+end
+assert:register("assertion", "epicfail", epicfail)
+function module.fail(msg, logfile)
+  return dumplog(logfile, assert.epicfail, msg)
+end
+
 function module.matches(pat, actual)
   if nil ~= string.match(actual, pat) then
     return true
@@ -200,14 +211,25 @@ function module.check_logs()
           end
         end
         fd:close()
-        os.remove(file)
         if #lines > 0 then
+          local status, f
           local out = io.stdout
+          if os.getenv('SYMBOLIZER') then
+            status, f = pcall(module.popen_r, os.getenv('SYMBOLIZER'), '-l', file)
+          end
           out:write(start_msg .. '\n')
-          out:write('= ' .. table.concat(lines, '\n= ') .. '\n')
+          if status then
+            for line in f:lines() do
+              out:write('= '..line..'\n')
+            end
+            f:close()
+          else
+            out:write('= ' .. table.concat(lines, '\n= ') .. '\n')
+          end
           out:write(select(1, start_msg:gsub('.', '=')) .. '\n')
           table.insert(runtime_errors, file)
         end
+        os.remove(file)
       end
     end
   end

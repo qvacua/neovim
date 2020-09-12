@@ -1395,8 +1395,7 @@ call_func(
     if (is_luafunc(partial)) {
       if (len > 0) {
         error = ERROR_NONE;
-        executor_call_lua((const char *)funcname, len,
-                          argvars, argcount, rettv);
+        nlua_typval_call((const char *)funcname, len, argvars, argcount, rettv);
       }
     } else if (!builtin_function((const char *)rfname, -1)) {
       // User defined function.
@@ -2886,7 +2885,7 @@ void ex_call(exarg_T *eap)
   if (!failed || eap->cstack->cs_trylevel > 0) {
     // Check for trailing illegal characters and a following command.
     if (!ends_excmd(*arg)) {
-      emsg_severe = TRUE;
+      emsg_severe = true;
       EMSG(_(e_trailing));
     } else {
       eap->nextcmd = check_nextcmd(arg);

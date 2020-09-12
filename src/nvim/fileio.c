@@ -1797,6 +1797,7 @@ failed:
       linecnt--;
     }
     curbuf->deleted_bytes = 0;
+    curbuf->deleted_bytes2 = 0;
     curbuf->deleted_codepoints = 0;
     curbuf->deleted_codeunits = 0;
     linecnt = curbuf->b_ml.ml_line_count - linecnt;
@@ -5553,7 +5554,6 @@ static void au_del_cmd(AutoCmd *ac)
 static void au_cleanup(void)
 {
   AutoPat     *ap, **prev_ap;
-  AutoCmd     *ac, **prev_ac;
   event_T event;
 
   if (autocmd_busy || !au_need_clean) {
@@ -5566,11 +5566,11 @@ static void au_cleanup(void)
     // Loop over all autocommand patterns.
     prev_ap = &(first_autopat[(int)event]);
     for (ap = *prev_ap; ap != NULL; ap = *prev_ap) {
-      // Loop over all commands for this pattern.
-      prev_ac = &(ap->cmds);
       bool has_cmd = false;
 
-      for (ac = *prev_ac; ac != NULL; ac = *prev_ac) {
+      // Loop over all commands for this pattern.
+      AutoCmd **prev_ac = &(ap->cmds);
+      for (AutoCmd *ac = *prev_ac; ac != NULL; ac = *prev_ac) {
         // Remove the command if the pattern is to be deleted or when
         // the command has been marked for deletion.
         if (ap->pat == NULL || ac->cmd == NULL) {

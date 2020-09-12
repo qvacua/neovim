@@ -60,14 +60,11 @@ function TSHighlighter.new(query, bufnr, ft)
     ft,
     {
       on_changedtree = function(...) self:on_changedtree(...) end,
-      on_lines = function() self.root = self.parser:parse():root() end
+      on_bytes = function() self.parser:parse() end
     }
   )
 
   self.buf = self.parser.bufnr
-
-  local tree = self.parser:parse()
-  self.root = tree:root()
   self:set_query(query)
   self.edit_count = 0
   self.redraw_count = 0
@@ -98,7 +95,8 @@ function TSHighlighter:get_hl_from_capture(capture)
     return vim.split(name, '.', true)[1]
   else
     -- Default to false to avoid recomputing
-    return TSHighlighter.hl_map[name]
+    local hl = TSHighlighter.hl_map[name]
+    return hl and a.nvim_get_hl_id_by_name(hl) or 0
   end
 end
 
@@ -125,27 +123,25 @@ function TSHighlighter:set_query(query)
     end
   })
 
-  self:on_changedtree({{self.root:range()}})
+  self:on_changedtree({{self.parser:parse():root():range()}})
 end
 
 function TSHighlighter:on_changedtree(changes)
   -- Get a fresh root
-  self.root = self.parser.tree:root()
+  local root = self.parser:parse():root()
 
   for _, ch in ipairs(changes or {}) do
-    -- Try to be as exact as possible
-    local changed_node = self.root:descendant_for_range(ch[1], ch[2], ch[3], ch[4])
+    a.nvim_buf_clear_namespace(self.buf, ts_hs_ns, ch[1], ch[3]+1)
 
-    a.nvim_buf_clear_namespace(self.buf, ts_hs_ns, ch[1], ch[3])
-
-    for capture, node in self.query:iter_captures(changed_node, self.buf, ch[1], ch[3] + 1) do
+    for capture, node in self.query:iter_captures(root, self.buf, ch[1], ch[3] + 1) do
       local start_row, start_col, end_row, end_col = node:range()
       local hl = self.hl_cache[capture]
       if hl then
-        a.nvim__buf_add_decoration(self.buf, ts_hs_ns, hl,
-          start_row, start_col,
-          end_row, end_col,
-          {})
+        a.nvim_buf_set_extmark(self.buf, ts_hs_ns, start_row, start_col, {
+          end_col = end_col,
+          end_line = end_row,
+          hl_group = hl
+        })
       end
     end
   end

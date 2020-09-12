@@ -1,12 +1,16 @@
 -- Test suite for testing interactions with API bindings
 local helpers = require('test.functional.helpers')(after_each)
 
+local inspect = require'vim.inspect'
+
 local command = helpers.command
 local meths = helpers.meths
 local clear = helpers.clear
 local eq = helpers.eq
+local fail = helpers.fail
 local exec_lua = helpers.exec_lua
 local feed = helpers.feed
+local deepcopy = helpers.deepcopy
 
 local origlines = {"original line 1",
                    "original line 2",
@@ -16,32 +20,37 @@ local origlines = {"original line 1",
                    "original line 6",
                    "    indented line"}
 
-describe('lua: buffer event callbacks', function()
+local function attach_buffer(evname)
+  exec_lua([[
+    local evname = ...
+    local events = {}
+
+    function test_register(bufnr, id, changedtick, utf_sizes)
+      local function callback(...)
+        table.insert(events, {id, ...})
+        if test_unreg == id then
+          return true
+        end
+      end
+      local opts = {[evname]=callback, on_detach=callback, utf_sizes=utf_sizes}
+      if changedtick then
+        opts.on_changedtick = callback
+      end
+      vim.api.nvim_buf_attach(bufnr, false, opts)
+    end
+
+    function get_events()
+      local ret_events = events
+      events = {}
+      return ret_events
+    end
+  ]], evname)
+end
+
+describe('lua buffer event callbacks: on_lines', function()
   before_each(function()
     clear()
-    exec_lua([[
-      local events = {}
-
-      function test_register(bufnr, id, changedtick, utf_sizes)
-        local function callback(...)
-          table.insert(events, {id, ...})
-          if test_unreg == id then
-            return true
-          end
-        end
-        local opts = {on_lines=callback, on_detach=callback, utf_sizes=utf_sizes}
-        if changedtick then
-          opts.on_changedtick = callback
-        end
-        vim.api.nvim_buf_attach(bufnr, false, opts)
-      end
-
-      function get_events()
-        local ret_events = events
-        events = {}
-        return ret_events
-      end
-    ]])
+    attach_buffer('on_lines')
   end)
 
 
@@ -62,7 +71,7 @@ describe('lua: buffer event callbacks', function()
     local function check_events(expected)
       local events = exec_lua("return get_events(...)" )
       if utf_sizes then
-        -- this test case uses ASCII only, so sizes sshould be the same.
+        -- this test case uses ASCII only, so sizes should be the same.
         -- Unicode is tested below.
         for _, event in ipairs(expected) do
           event[9] = event[8]
@@ -216,4 +225,144 @@ describe('lua: buffer event callbacks', function()
     eq(1, meths.get_var('listener_cursor_line'))
   end)
 
+  it('does not SEGFAULT when calling win_findbuf in on_detach', function()
+
+    exec_lua[[
+      local buf = vim.api.nvim_create_buf(false, false)
+
+      vim.cmd"split"
+      vim.api.nvim_win_set_buf(0, buf)
+
+      vim.api.nvim_buf_attach(buf, false, {
+        on_detach = function(_, buf)
+          vim.fn.win_findbuf(buf)
+        end
+      })
+    ]]
+
+    command("q!")
+    helpers.assert_alive()
+  end)
+
 end)
+
+describe('lua: nvim_buf_attach on_bytes', function()
+  before_each(function()
+    clear()
+    attach_buffer('on_bytes')
+  end)
+
+  -- verifying the sizes with nvim_buf_get_offset is nice (checks we cannot
+  -- assert the wrong thing), but masks errors with unflushed lines (as
+  -- nvim_buf_get_offset forces a flush of the memline). To be safe run the
+  -- test both ways.
+  local function setup_eventcheck(verify)
+    meths.buf_set_lines(0, 0, -1, true, origlines)
+    local shadow = deepcopy(origlines)
+    local shadowbytes = table.concat(shadow, '\n') .. '\n'
+    -- TODO: while we are brewing the real strong coffe,
+    -- verify should check buf_get_offset after every check_events
+    if verify then
+      meths.buf_get_offset(0, meths.buf_line_count(0))
+    end
+    exec_lua("return test_register(...)", 0, "test1",false, nil)
+    meths.buf_get_changedtick(0)
+
+    local verify_name = "test1"
+    local function check_events(expected)
+      local events = exec_lua("return get_events(...)" )
+
+      if not pcall(eq, expected, events) then
+        local msg = 'unexpected byte updates received.\n\nBABBLA MER \n\n'
+
+        msg = msg .. 'received events:\n'
+        for _, e in ipairs(events) do
+          msg = msg .. '  ' .. inspect(e) .. ';\n'
+        end
+        msg = msg .. '\nexpected events:\n'
+        for _, e in ipairs(expected) do
+          msg = msg .. '  ' .. inspect(e) .. ';\n'
+        end
+        fail(msg)
+      end
+
+      if verify then
+        for _, event in ipairs(events) do
+          if event[1] == verify_name and event[2] == "bytes" then
+            local _, _, _, _, _, _, start_byte, _, _, old_byte, _, _, new_byte = unpack(event)
+            local before = string.sub(shadowbytes, 1, start_byte)
+            -- no text in the tests will contain 0xff bytes (invalid UTF-8)
+            -- so we can use it as marker for unknown bytes
+            local unknown = string.rep('\255', new_byte)
+            local after = string.sub(shadowbytes, start_byte + old_byte + 1)
+            shadowbytes = before .. unknown .. after
+          end
+        end
+        local text = meths.buf_get_lines(0, 0, -1, true)
+        local bytes = table.concat(text, '\n') .. '\n'
+        eq(string.len(bytes), string.len(shadowbytes), shadowbytes)
+        for i = 1, string.len(shadowbytes) do
+          local shadowbyte = string.sub(shadowbytes, i, i)
+          if shadowbyte ~= '\255' then
+            eq(string.sub(bytes, i, i), shadowbyte, i)
+          end
+        end
+      end
+    end
+
+    return check_events
+  end
+
+  -- Yes, we can do both
+  local function do_both(verify)
+    it('single and multiple join', function()
+        local check_events = setup_eventcheck(verify)
+        feed 'ggJ'
+        check_events {
+          {'test1', 'bytes', 1, 3, 0, 15, 15, 1, 0, 1, 0, 1, 1};
+        }
+
+        feed '3J'
+        check_events {
+          {'test1', 'bytes', 1, 5, 0, 31, 31, 1, 0, 1, 0, 1, 1};
+          {'test1', 'bytes', 1, 5, 0, 47, 47, 1, 0, 1, 0, 1, 1};
+        }
+    end)
+
+    it('opening lines', function()
+        local check_events = setup_eventcheck(verify)
+        -- meths.buf_set_option(0, 'autoindent', true)
+        feed 'Go'
+        check_events {
+          { "test1", "bytes", 1, 4, 7, 0, 114, 0, 0, 0, 1, 0, 1 };
+        }
+        feed '<cr>'
+        check_events {
+          { "test1", "bytes", 1, 5, 7, 0, 114, 0, 0, 0, 1, 0, 1 };
+        }
+    end)
+
+    it('opening lines with autoindent', function()
+        local check_events = setup_eventcheck(verify)
+        meths.buf_set_option(0, 'autoindent', true)
+        feed 'Go'
+        check_events {
+          { "test1", "bytes", 1, 4, 7, 0, 114, 0, 0, 0, 1, 0, 5 };
+        }
+        feed '<cr>'
+        check_events {
+          { "test1", "bytes", 1, 4, 8, 0, 115, 0, 4, 4, 0, 0, 0 };
+          { "test1", "bytes", 1, 5, 7, 4, 118, 0, 0, 0, 1, 4, 5 };
+        }
+    end)
+  end
+
+  describe('(with verify) handles', function()
+    do_both(true)
+  end)
+
+  describe('(without verify) handles', function()
+    do_both(false)
+  end)
+end)
+

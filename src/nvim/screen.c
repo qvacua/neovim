@@ -513,7 +513,7 @@ int update_screen(int type)
         FIXED_TEMP_ARRAY(args, 2);
         args.items[0] = BUFFER_OBJ(buf->handle);
         args.items[1] = INTEGER_OBJ(display_tick);
-        executor_exec_lua_cb(buf->b_luahl_start, "start", args, false, &err);
+        nlua_call_ref(buf->b_luahl_start, "start", args, false, &err);
         if (ERROR_SET(&err)) {
           ELOG("error in luahl start: %s", err.msg);
           api_clear_error(&err);
@@ -1251,7 +1251,7 @@ static void win_update(win_T *wp)
     args.items[3] = INTEGER_OBJ(knownmax);
     // TODO(bfredl): we could allow this callback to change mod_top, mod_bot.
     // For now the "start" callback is expected to use nvim__buf_redraw_range.
-    executor_exec_lua_cb(buf->b_luahl_window, "window", args, false, &err);
+    nlua_call_ref(buf->b_luahl_window, "window", args, false, &err);
     if (ERROR_SET(&err)) {
       ELOG("error in luahl window: %s", err.msg);
       api_clear_error(&err);
@@ -2356,8 +2356,7 @@ win_line (
         args.items[2] = INTEGER_OBJ(lnum-1);
         lua_attr_active = true;
         extra_check = true;
-        Object o = executor_exec_lua_cb(buf->b_luahl_line, "line",
-                                        args, true, &err);
+        Object o = nlua_call_ref(buf->b_luahl_line, "line", args, true, &err);
         lua_attr_active = false;
         if (o.type == kObjectTypeString) {
           // TODO(bfredl): this is a bit of a hack. A final API should use an
@@ -2554,6 +2553,7 @@ win_line (
   }
 
   // If this line has a sign with line highlighting set line_attr.
+  // TODO(bfredl, vigoux): this should not take priority over decorations!
   v = buf_getsigntype(wp->w_buffer, lnum, SIGN_LINEHL, 0, 1);
   if (v != 0) {
     line_attr = sign_get_attr((int)v, SIGN_LINEHL);
@@ -5918,6 +5918,12 @@ next_search_hl (
   long nmatched = 0;
   int save_called_emsg = called_emsg;
 
+  // for :{range}s/pat only highlight inside the range
+  if (lnum < search_first_line || lnum > search_last_line) {
+    shl->lnum = 0;
+    return;
+  }
+
   if (shl->lnum != 0) {
     // Check for three situations:
     // 1. If the "lnum" is below a previous match, start a new search.
@@ -6210,7 +6216,7 @@ void win_grid_alloc(win_T *wp)
       || grid->Rows != rows
       || grid->Columns != cols) {
     if (want_allocation) {
-      grid_alloc(grid, rows, cols, wp->w_grid.valid, wp->w_grid.valid);
+      grid_alloc(grid, rows, cols, wp->w_grid.valid, false);
       grid->valid = true;
     } else {
       // Single grid mode, all rendering will be redirected to default_grid.

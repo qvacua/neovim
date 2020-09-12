@@ -204,10 +204,10 @@ Integer nvim_get_hl_id_by_name(String name)
 /// flags. This is a blocking call, unlike |nvim_input()|.
 ///
 /// On execution error: does not fail, but updates v:errmsg.
-//
-//  If you need to input sequences like <C-o> use nvim_replace_termcodes
-//  to replace the termcodes and then pass the resulting string to
-//  nvim_feedkeys. You'll also want to enable escape_csi.
+///
+/// If you need to input sequences like <C-o> use |nvim_replace_termcodes| to
+/// replace the termcodes and then pass the resulting string to nvim_feedkeys.
+/// You'll also want to enable escape_csi.
 ///
 /// Example:
 /// <pre>
@@ -476,7 +476,7 @@ Object nvim_execute_lua(String code, Array args, Error *err)
   FUNC_API_DEPRECATED_SINCE(7)
   FUNC_API_REMOTE_ONLY
 {
-  return executor_exec_lua_api(code, args, err);
+  return nlua_exec(code, args, err);
 }
 
 /// Execute Lua code. Parameters (if any) are available as `...` inside the
@@ -495,7 +495,7 @@ Object nvim_exec_lua(String code, Array args, Error *err)
   FUNC_API_SINCE(7)
   FUNC_API_REMOTE_ONLY
 {
-  return executor_exec_lua_api(code, args, err);
+  return nlua_exec(code, args, err);
 }
 
 /// Calls a VimL function.
@@ -2484,7 +2484,7 @@ Array nvim_get_proc_children(Integer pid, Error *err)
     Array a = ARRAY_DICT_INIT;
     ADD(a, INTEGER_OBJ(pid));
     String s = cstr_to_string("return vim._os_proc_children(select(1, ...))");
-    Object o = nvim_exec_lua(s, a, err);
+    Object o = nlua_exec(s, a, err);
     api_free_string(s);
     api_free_array(a);
     if (o.type == kObjectTypeArray) {
@@ -2530,7 +2530,7 @@ Object nvim_get_proc(Integer pid, Error *err)
   Array a = ARRAY_DICT_INIT;
   ADD(a, INTEGER_OBJ(pid));
   String s = cstr_to_string("return vim._os_proc_info(select(1, ...))");
-  Object o = nvim_exec_lua(s, a, err);
+  Object o = nlua_exec(s, a, err);
   api_free_string(s);
   api_free_array(a);
   if (o.type == kObjectTypeArray && o.data.array.size == 0) {
@@ -2647,4 +2647,10 @@ Boolean nvim_get_dirty_status(void)
   }
 
   return false;
+}
+
+void nvim__screenshot(String path)
+  FUNC_API_FAST
+{
+  ui_call_screenshot(path);
 }

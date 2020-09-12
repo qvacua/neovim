@@ -62,6 +62,7 @@ static struct luaL_Reg node_meta[] = {
   { "end_", node_end },
   { "type", node_type },
   { "symbol", node_symbol },
+  { "field", node_field },
   { "named", node_named },
   { "missing", node_missing },
   { "has_error", node_has_error },
@@ -73,6 +74,7 @@ static struct luaL_Reg node_meta[] = {
   { "descendant_for_range", node_descendant_for_range },
   { "named_descendant_for_range", node_named_descendant_for_range },
   { "parent", node_parent },
+  { "iter_children", node_iter_children },
   { "_rawquery", node_rawquery },
   { NULL, NULL }
 };
@@ -84,9 +86,14 @@ static struct luaL_Reg query_meta[] = {
   { NULL, NULL }
 };
 
-// cursor is not exposed, but still needs garbage collection
+// cursors are not exposed, but still needs garbage collection
 static struct luaL_Reg querycursor_meta[] = {
   { "__gc", querycursor_gc },
+  { NULL, NULL }
+};
+
+static struct luaL_Reg treecursor_meta[] = {
+  { "__gc", treecursor_gc },
   { NULL, NULL }
 };
 
@@ -116,6 +123,7 @@ void tslua_init(lua_State *L)
   build_meta(L, "treesitter_node", node_meta);
   build_meta(L, "treesitter_query", query_meta);
   build_meta(L, "treesitter_querycursor", querycursor_meta);
+  build_meta(L, "treesitter_treecursor", treecursor_meta);
 }
 
 int tslua_has_language(lua_State *L)
@@ -278,22 +286,21 @@ static const char *input_cb(void *payload, uint32_t byte_index,
   }
   char_u *line = ml_get_buf(bp, position.row+1, false);
   size_t len = STRLEN(line);
-
   if (position.column > len) {
     *bytes_read = 0;
-  } else {
-    size_t tocopy = MIN(len-position.column, BUFSIZE);
+    return "";
+  }
+  size_t tocopy = MIN(len-position.column, BUFSIZE);
 
-    memcpy(buf, line+position.column, tocopy);
-    // Translate embedded \n to NUL
-    memchrsub(buf, '\n', '\0', tocopy);
-    *bytes_read = (uint32_t)tocopy;
-    if (tocopy < BUFSIZE) {
-      // now add the final \n. If it didn't fit, input_cb will be called again
-      // on the same line with advanced column.
-      buf[tocopy] = '\n';
-      (*bytes_read)++;
-    }
+  memcpy(buf, line+position.column, tocopy);
+  // Translate embedded \n to NUL
+  memchrsub(buf, '\n', '\0', tocopy);
+  *bytes_read = (uint32_t)tocopy;
+  if (tocopy < BUFSIZE) {
+    // now add the final \n. If it didn't fit, input_cb will be called again
+    // on the same line with advanced column.
+    buf[tocopy] = '\n';
+    (*bytes_read)++;
   }
   return buf;
 #undef BUFSIZE
@@ -646,6 +653,34 @@ static int node_symbol(lua_State *L)
   return 1;
 }
 
+static int node_field(lua_State *L)
+{
+  TSNode node;
+  if (!node_check(L, 1, &node)) {
+    return 0;
+  }
+
+  size_t name_len;
+  const char *field_name = luaL_checklstring(L, 2, &name_len);
+
+  TSTreeCursor cursor = ts_tree_cursor_new(node);
+
+  lua_newtable(L);  // [table]
+  unsigned int curr_index = 0;
+
+  if (ts_tree_cursor_goto_first_child(&cursor)) {
+    do {
+      if (!STRCMP(field_name, ts_tree_cursor_current_field_name(&cursor))) {
+        push_node(L, ts_tree_cursor_current_node(&cursor), 1);  // [table, node]
+        lua_rawseti(L, -2, ++curr_index);
+      }
+    } while (ts_tree_cursor_goto_next_sibling(&cursor));
+  }
+
+  ts_tree_cursor_delete(&cursor);
+  return 1;
+}
+
 static int node_named(lua_State *L)
 {
   TSNode node;
@@ -744,6 +779,74 @@ static int node_named_descendant_for_range(lua_State *L)
 
   push_node(L, child, 1);
   return 1;
+}
+
+static int node_next_child(lua_State *L)
+{
+  TSTreeCursor *ud = luaL_checkudata(
+      L, lua_upvalueindex(1), "treesitter_treecursor");
+  if (!ud) {
+    return 0;
+  }
+
+  TSNode source;
+  if (!node_check(L, lua_upvalueindex(2), &source)) {
+    return 0;
+  }
+
+  // First call should return first child
+  if (ts_node_eq(source, ts_tree_cursor_current_node(ud))) {
+    if (ts_tree_cursor_goto_first_child(ud)) {
+      goto push;
+    } else {
+      goto end;
+    }
+  }
+
+  if (ts_tree_cursor_goto_next_sibling(ud)) {
+push:
+      push_node(
+          L,
+          ts_tree_cursor_current_node(ud),
+          lua_upvalueindex(2));  // [node]
+
+      const char * field = ts_tree_cursor_current_field_name(ud);
+
+      if (field != NULL) {
+        lua_pushstring(L, ts_tree_cursor_current_field_name(ud));
+      } else {
+        lua_pushnil(L);
+      }  // [node, field_name_or_nil]
+      return 2;
+  }
+
+end:
+  return 0;
+}
+
+static int node_iter_children(lua_State *L)
+{
+  TSNode source;
+  if (!node_check(L, 1, &source)) {
+    return 0;
+  }
+
+  TSTreeCursor *ud = lua_newuserdata(L, sizeof(TSTreeCursor));  // [udata]
+  *ud = ts_tree_cursor_new(source);
+
+  lua_getfield(L, LUA_REGISTRYINDEX, "treesitter_treecursor");  // [udata, mt]
+  lua_setmetatable(L, -2);  // [udata]
+  lua_pushvalue(L, 1);  // [udata, source_node]
+  lua_pushcclosure(L, node_next_child, 2);
+
+  return 1;
+}
+
+static int treecursor_gc(lua_State *L)
+{
+  TSTreeCursor *ud = luaL_checkudata(L, 1, "treesitter_treecursor");
+  ts_tree_cursor_delete(ud);
+  return 0;
 }
 
 static int node_parent(lua_State *L)

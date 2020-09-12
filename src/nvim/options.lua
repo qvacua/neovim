@@ -1023,15 +1023,6 @@ return {
       defaults={if_true={vi=""}}
     },
     {
-      full_name='guifontset', abbreviation='gfs',
-      type='string', list='onecomma', scope={'global'},
-      deny_duplicates=true,
-      vi_def=true,
-      varname='p_guifontset',
-      redraw={'ui_option'},
-      defaults={if_true={vi=""}}
-    },
-    {
       full_name='guifontwide', abbreviation='gfw',
       type='string', list='onecomma', scope={'global'},
       deny_duplicates=true,
@@ -1599,7 +1590,8 @@ return {
       full_name='mousefocus', abbreviation='mousef',
       type='bool', scope={'global'},
       vi_def=true,
-      enable_if=false,
+      redraw={'ui_option'},
+      varname='p_mousef',
       defaults={if_true={vi=false}}
     },
     {

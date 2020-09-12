@@ -1679,7 +1679,7 @@ static const char *list_arg_vars(exarg_T *eap, const char *arg, int *first)
       arg = (const char *)find_name_end((char_u *)arg, NULL, NULL,
                                         FNE_INCL_BR | FNE_CHECK_START);
       if (!ascii_iswhite(*arg) && !ends_excmd(*arg)) {
-        emsg_severe = TRUE;
+        emsg_severe = true;
         EMSG(_(e_trailing));
         break;
       }
@@ -1692,7 +1692,7 @@ static const char *list_arg_vars(exarg_T *eap, const char *arg, int *first)
         /* This is mainly to keep test 49 working: when expanding
          * curly braces fails overrule the exception error message. */
         if (len < 0 && !aborting()) {
-          emsg_severe = TRUE;
+          emsg_severe = true;
           EMSG2(_(e_invarg2), arg);
           break;
         }
@@ -2007,7 +2007,7 @@ char_u *get_lval(char_u *const name, typval_T *const rettv,
        * expression evaluation has been cancelled due to an
        * aborting error, an interrupt, or an exception. */
       if (!aborting() && !quiet) {
-        emsg_severe = TRUE;
+        emsg_severe = true;
         EMSG2(_(e_invarg2), name);
         return NULL;
       }
@@ -2675,6 +2675,7 @@ void ex_lockvar(exarg_T *eap)
 static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep)
 {
   char_u      *arg = argstart;
+  char_u *name_end;
   bool error = false;
   lval_T lv;
 
@@ -2687,43 +2688,43 @@ static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep)
         return;
       }
       os_unsetenv(name);
-      arg = skipwhite(arg);
-      continue;
-    }
-
-    // Parse the name and find the end.
-    char_u *const name_end = (char_u *)get_lval(arg, NULL, &lv, true,
-                                                eap->skip || error,
-                                                0, FNE_CHECK_START);
-    if (lv.ll_name == NULL) {
-      error = true;  // error, but continue parsing.
-    }
-    if (name_end == NULL || (!ascii_iswhite(*name_end)
-                             && !ends_excmd(*name_end))) {
-      if (name_end != NULL) {
-        emsg_severe = TRUE;
-        EMSG(_(e_trailing));
+      name_end = arg;
+    } else {
+      // Parse the name and find the end.
+      name_end = get_lval(arg, NULL, &lv, true, eap->skip || error,
+                          0, FNE_CHECK_START);
+      if (lv.ll_name == NULL) {
+        error = true;  // error, but continue parsing.
       }
-      if (!(eap->skip || error))
-        clear_lval(&lv);
-      break;
-    }
+      if (name_end == NULL
+          || (!ascii_iswhite(*name_end) && !ends_excmd(*name_end))) {
+        if (name_end != NULL) {
+          emsg_severe = true;
+          EMSG(_(e_trailing));
+        }
+        if (!(eap->skip || error)) {
+          clear_lval(&lv);
+        }
+        break;
+      }
 
-    if (!error && !eap->skip) {
-      if (eap->cmdidx == CMD_unlet) {
-        if (do_unlet_var(&lv, name_end, eap->forceit) == FAIL)
-          error = TRUE;
-      } else {
-        if (do_lock_var(&lv, name_end, deep,
-                        eap->cmdidx == CMD_lockvar) == FAIL) {
-          error = true;
+      if (!error && !eap->skip) {
+        if (eap->cmdidx == CMD_unlet) {
+          if (do_unlet_var(&lv, name_end, eap->forceit) == FAIL) {
+            error = true;
+          }
+        } else {
+          if (do_lock_var(&lv, name_end, deep,
+                          eap->cmdidx == CMD_lockvar) == FAIL) {
+            error = true;
+          }
         }
       }
+
+      if (!eap->skip) {
+        clear_lval(&lv);
+      }
     }
-
-    if (!eap->skip)
-      clear_lval(&lv);
-
     arg = skipwhite(name_end);
   } while (!ends_excmd(*arg));
 
@@ -7074,7 +7075,7 @@ void get_xdg_var_list(const XDGVarType xdg, typval_T *rettv)
   do {
     size_t dir_len;
     const char *dir;
-    iter = vim_env_iter(':', dirs, iter, &dir, &dir_len);
+    iter = vim_env_iter(ENV_SEPCHAR, dirs, iter, &dir, &dir_len);
     if (dir != NULL && dir_len > 0) {
       char *dir_with_nvim = xmemdupz(dir, dir_len);
       dir_with_nvim = concat_fnames_realloc(dir_with_nvim, "nvim", true);
@@ -10382,10 +10383,13 @@ void script_host_eval(char *name, typval_T *argvars, typval_T *rettv)
 
   list_T *args = tv_list_alloc(1);
   tv_list_append_string(args, (const char *)argvars[0].vval.v_string, -1);
-  *rettv = eval_call_provider(name, "eval", args);
+  *rettv = eval_call_provider(name, "eval", args, false);
 }
 
-typval_T eval_call_provider(char *provider, char *method, list_T *arguments)
+/// @param discard  Clears the value returned by the provider and returns
+///                 an empty typval_T.
+typval_T eval_call_provider(char *provider, char *method, list_T *arguments,
+                            bool discard)
 {
   if (!eval_has_provider(provider)) {
     emsgf("E319: No \"%s\" provider found. Run \":checkhealth provider\"",
@@ -10443,6 +10447,10 @@ typval_T eval_call_provider(char *provider, char *method, list_T *arguments)
   provider_caller_scope = saved_provider_caller_scope;
   provider_call_nesting--;
   assert(provider_call_nesting >= 0);
+
+  if (discard) {
+    tv_clear(&rettv);
+  }
 
   return rettv;
 }

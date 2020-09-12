@@ -32,6 +32,7 @@
 #include "nvim/indent.h"
 #include "nvim/indent_c.h"
 #include "nvim/lua/executor.h"
+#include "nvim/macros.h"
 #include "nvim/mark.h"
 #include "nvim/math.h"
 #include "nvim/memline.h"
@@ -86,7 +87,9 @@ KHASH_MAP_INIT_STR(functions, VimLFuncDef)
 #endif
 
 PRAGMA_DIAG_PUSH_IGNORE_MISSING_PROTOTYPES
+PRAGMA_DIAG_PUSH_IGNORE_IMPLICIT_FALLTHROUGH
 #include "funcs.generated.h"
+PRAGMA_DIAG_POP
 PRAGMA_DIAG_POP
 #endif
 
@@ -2407,9 +2410,9 @@ static void f_float2nr(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   float_T f;
 
   if (tv_get_float_chk(argvars, &f)) {
-    if (f <= -VARNUMBER_MAX + DBL_EPSILON) {
+    if (f <= (float_T)-VARNUMBER_MAX + DBL_EPSILON) {
       rettv->vval.v_number = -VARNUMBER_MAX;
-    } else if (f >= VARNUMBER_MAX - DBL_EPSILON) {
+    } else if (f >= (float_T)VARNUMBER_MAX - DBL_EPSILON) {
       rettv->vval.v_number = VARNUMBER_MAX;
     } else {
       rettv->vval.v_number = (varnumber_T)f;
@@ -5483,7 +5486,7 @@ static void f_luaeval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     return;
   }
 
-  executor_eval_lua(cstr_as_string((char *)str), &argvars[1], rettv);
+  nlua_typval_eval(cstr_as_string((char *)str), &argvars[1], rettv);
 }
 
 /*
@@ -6373,6 +6376,14 @@ static void f_pyxeval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   } else {
     f_py3eval(argvars, rettv, NULL);
   }
+}
+
+///
+/// "perleval()" function
+///
+static void f_perleval(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  script_host_eval("perl", argvars, rettv);
 }
 
 /*
@@ -9948,6 +9959,16 @@ static void f_strpart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     len = 0;
   } else if (n + len > (varnumber_T)slen) {
     len = slen - n;
+  }
+
+  if (argvars[2].v_type != VAR_UNKNOWN && argvars[3].v_type != VAR_UNKNOWN) {
+    int off;
+
+    // length in characters
+    for (off = n; off < (int)slen && len > 0; len--) {
+      off += utfc_ptr2len((char_u *)p + off);
+    }
+    len = off - n;
   }
 
   rettv->v_type = VAR_STRING;
