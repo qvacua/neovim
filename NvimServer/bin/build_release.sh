@@ -32,7 +32,7 @@ package() {
   local -r resources_path="./NvimServer/Resources"
   local -r package_name="NvimServer"
   local -r package_dir_path="${nvimserver_build_dir_prefix}/NvimServer"
-  rm -rf "${package_dir_path}"
+  rm -rf "${package_dir_path}" && mkdir -p "${package_dir_path}"
 
   cp -r "${nvim_install_path}/share/nvim/runtime" "${package_dir_path}"
   cp -r "${nvimserver_path}" "${package_dir_path}"
@@ -60,6 +60,7 @@ main() {
     local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
 
     ./NvimServer/bin/clean_all.sh
+    ./NvimServer/bin/build_deps.sh
 
     # Build only *once* with x86_64 target; no arm64 build necessary.
     build_runtime "${x86_64_deployment_target}" "${nvim_install_path}" "${x86_64_target}"
@@ -68,7 +69,7 @@ main() {
     make distclean
     rm -rf "${nvimserver_build_dir_prefix}"
 
-    local -r -x build_deps=true
+    local -r -x build_deps=false
     local -r -x build_libnvim=true
     local -r -x build_dir="${nvimserver_build_dir_prefix}"
     ./NvimServer/bin/build_nvimserver.sh

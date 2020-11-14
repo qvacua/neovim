@@ -10,7 +10,7 @@ build_libnvim() {
   local -r target_option="--target=${target}-apple-macos${deployment_target}"
 
   # Brew's gettext does not get sym-linked to PATH
-  export PATH="/usr/local/opt/gettext/bin:${PATH}"
+  export PATH="/opt/homebrew/opt/gettext/bin:/usr/local/opt/gettext/bin:${PATH}"
 
   make \
     SDKROOT="$(xcrun --show-sdk-path)" \
