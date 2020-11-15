@@ -12,16 +12,15 @@ Then, build `libnvim` once with dependencies
 $ target=x86_64 build_deps=true ./bin/build_libnvim.sh
 ```
 
-After editing the code of neovim or NvimServer, you build NvimServer in Xcode
-or by executing the following:
+After editing the code of neovim or NvimServer, you build NvimServer in Xcode or by executing
+the following:
 
 ```
-$ target=x86_64 \
-  build_deps=false \
-  build_dir="${PROJECT_ROOT}/NvimServer/build" \
+$ target="${ARCH}" build_deps=false build_dir="${PROJECT_ROOT}/NvimServer/build" \
   ./bin/build_nvimserver.sh
 ```
 
+where `${ARCH}` is either `arm64` or `x86_64`.
 We use `${PROJECT_ROOT}/NvimServer/build` as the NvimServer target assumes that location.
 
 ## How to release
@@ -30,7 +29,7 @@ We use `${PROJECT_ROOT}/NvimServer/build` as the NvimServer target assumes that 
 $ ./bin/build_release.sh 
 ```
 
-The resulting packge will be in `${PROJECT_ROOT}/NvimServer/build/NvimServer.tar.bz2`.
+The resulting package will be in `${PROJECT_ROOT}/NvimServer/build/NvimServer.tar.bz2`.
 
 ## Individual steps
 
@@ -39,7 +38,7 @@ In the following the `target` variable can be either `x86_64` or `arm64`.
 ### How to build `libintl`
 
 ```
-$ target=x86_64 ./bin/build_deps.sh
+$ ./bin/build_deps.sh
 ```
 
 which will result in
@@ -71,7 +70,7 @@ Files, e.g. `lib` and `include`, in `${PROJECT_ROOT}/NvimServer/third-party` are
 ### How to build `libnvim`
 
 ```
-$ target=x86_64 build_deps=true ./bin/build_libnvim.sh
+$ build_deps=true ./bin/build_libnvim.sh
 ```
 
 When `build_deps` is `true`, then the `build_deps.sh` is executed. The resuling library will be
@@ -80,7 +79,7 @@ located in `/build/lib/libnvim.a`.
 ### how to build NvimServer
 
 ```
-$ target=x86_64 build_dir="${some_dir}" build_deps=true ./bin/build_nvimserver.sh
+$ build_dir="${some_dir}" build_libnvim=true build_deps=true ./bin/build_nvimserver.sh
 ```
 
 The `build_libnvim.sh` script is executed automatically with the given parameters. The resulting
