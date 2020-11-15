@@ -1,24 +1,10 @@
 #ifndef NVIM_EXTMARK_DEFS_H
 #define NVIM_EXTMARK_DEFS_H
 
-#include "nvim/pos.h"  // for colnr_T
+#include "nvim/types.h"
 #include "nvim/lib/kvec.h"
 
-typedef struct {
-  char *text;
-  int hl_id;
-} VirtTextChunk;
-
-typedef kvec_t(VirtTextChunk) VirtText;
-#define VIRTTEXT_EMPTY ((VirtText)KV_INITIAL_VALUE)
-
-typedef struct
-{
-  int hl_id;  // highlight group
-  VirtText virt_text;
-  // TODO(bfredl): style, signs, etc
-  bool shared;  // shared decoration, don't free
-} Decoration;
+typedef struct Decoration Decoration;
 
 typedef struct
 {

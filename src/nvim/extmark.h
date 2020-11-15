@@ -1,6 +1,7 @@
 #ifndef NVIM_EXTMARK_H
 #define NVIM_EXTMARK_H
 
+#include "nvim/pos.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/extmark_defs.h"
 #include "nvim/marktree.h"
@@ -76,26 +77,6 @@ struct undo_object {
     ExtmarkSavePos savepos;
   } data;
 };
-
-
-typedef struct {
-  int start_row;
-  int start_col;
-  int end_row;
-  int end_col;
-  int attr_id;
-  VirtText *virt_text;
-} HlRange;
-
-typedef struct {
-  MarkTreeIter itr[1];
-  kvec_t(HlRange) active;
-  int top_row;
-  int row;
-  int col_until;
-  int current;
-  VirtText *virt_text;
-} DecorationRedrawState;
 
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS

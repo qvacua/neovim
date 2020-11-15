@@ -1,5 +1,8 @@
 " Tests for editing the command line.
 
+source check.vim
+source screendump.vim
+
 func Test_complete_tab()
   call writefile(['testfile'], 'Xtestfile')
   call feedkeys(":e Xtestf\t\r", "tx")
@@ -718,6 +721,27 @@ func Test_verbosefile()
   call delete('Xlog')
 endfunc
 
+func Test_verbose_option()
+  " See test/functional/legacy/cmdline_spec.lua
+  CheckScreendump
+
+  let lines =<< trim [SCRIPT]
+    command DoSomething echo 'hello' |set ts=4 |let v = '123' |echo v
+    call feedkeys("\r", 't') " for the hit-enter prompt
+    set verbose=20
+  [SCRIPT]
+  call writefile(lines, 'XTest_verbose')
+
+  let buf = RunVimInTerminal('-S XTest_verbose', {'rows': 12})
+  call term_wait(buf, 100)
+  call term_sendkeys(buf, ":DoSomething\<CR>")
+  call VerifyScreenDump(buf, 'Test_verbose_option_1', {})
+
+  " clean up
+  call StopVimInTerminal(buf)
+  call delete('XTest_verbose')
+endfunc
+
 func Test_setcmdpos()
   func InsertTextAtPos(text, pos)
     call assert_equal(0, setcmdpos(a:pos))
@@ -816,6 +840,25 @@ func Test_buffers_lastused()
   bwipeout bufa
   bwipeout bufb
   bwipeout bufc
+endfunc
+
+func Test_cmdlineclear_tabenter()
+  " See test/functional/legacy/cmdline_spec.lua
+  CheckScreendump
+
+  let lines =<< trim [SCRIPT]
+    call setline(1, range(30))
+  [SCRIPT]
+
+  call writefile(lines, 'XtestCmdlineClearTabenter')
+  let buf = RunVimInTerminal('-S XtestCmdlineClearTabenter', #{rows: 10})
+  call term_wait(buf, 50)
+  " in one tab make the command line higher with CTRL-W -
+  call term_sendkeys(buf, ":tabnew\<cr>\<C-w>-\<C-w>-gtgt")
+  call VerifyScreenDump(buf, 'Test_cmdlineclear_tabenter', {})
+
+  call StopVimInTerminal(buf)
+  call delete('XtestCmdlineClearTabenter')
 endfunc
 
 " test that ";" works to find a match at the start of the first line

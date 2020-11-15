@@ -475,6 +475,9 @@ created for extmark changes.
 ==============================================================================
 Global Functions                                                  *api-global*
 
+nvim__get_hl_defs({ns_id})                               *nvim__get_hl_defs()*
+                TODO: Documentation
+
 nvim__get_lib_dir()                                      *nvim__get_lib_dir()*
                 TODO: Documentation
 
@@ -528,14 +531,6 @@ nvim__id_float({flt})                                       *nvim__id_float()*
 
 nvim__inspect_cell({grid}, {row}, {col})                *nvim__inspect_cell()*
                 TODO: Documentation
-
-                                                            *nvim__put_attr()*
-nvim__put_attr({id}, {start_row}, {start_col}, {end_row}, {end_col})
-                Set attrs in nvim__buf_set_lua_hl callbacks
-
-                TODO(bfredl): This is rather pedestrian. The final interface
-                should probably be derived from a reformed bufhl/virttext
-                interface with full support for multi-line ranges etc
 
 nvim__screenshot({path})                                  *nvim__screenshot()*
                 TODO: Documentation
@@ -960,6 +955,9 @@ nvim_get_runtime_file({name}, {all})                 *nvim_get_runtime_file()*
                 It is not an error to not find any files. An empty array is
                 returned then.
 
+                Attributes: ~
+                    {fast}
+
                 Parameters: ~
                     {name}  pattern of files to search for
                     {all}   whether to return all matches or only the first
@@ -995,6 +993,7 @@ nvim_input({keys})                                              *nvim_input()*
                 Note:
                     |keycodes| like <CR> are translated, so "<" is special. To
                     input a literal "<", send <LT>.
+
                 Note:
                     For mouse events use |nvim_input_mouse()|. The pseudokey
                     form "<LeftMouse><col,row>" is deprecated since
@@ -1386,8 +1385,7 @@ nvim_select_popupmenu_item({item}, {insert}, {finish}, {opts})
                     {opts}    Optional parameters. Reserved for future use.
 
                                                       *nvim_set_client_info()*
-nvim_set_client_info({name}, {version}, {type}, {methods},
-                     {attributes})
+nvim_set_client_info({name}, {version}, {type}, {methods}, {attributes})
                 Self-identifies the client.
 
                 The client/plugin/application should call this after
@@ -1479,6 +1477,80 @@ nvim_set_current_win({window})                        *nvim_set_current_win()*
 
                 Parameters: ~
                     {window}  Window handle
+
+                                              *nvim_set_decoration_provider()*
+nvim_set_decoration_provider({ns_id}, {opts})
+                Set or change decoration provider for a namespace
+
+                This is a very general purpose interface for having lua
+                callbacks being triggered during the redraw code.
+
+                The expected usage is to set extmarks for the currently
+                redrawn buffer. |nvim_buf_set_extmark| can be called to add
+                marks on a per-window or per-lines basis. Use the `ephemeral`
+                key to only use the mark for the current screen redraw (the
+                callback will be called again for the next redraw ).
+
+                Note: this function should not be called often. Rather, the
+                callbacks themselves can be used to throttle unneeded
+                callbacks. the `on_start` callback can return `false` to
+                disable the provider until the next redraw. Similarily, return
+                `false` in `on_win` will skip the `on_lines` calls for that
+                window (but any extmarks set in `on_win` will still be used).
+                A plugin managing multiple sources of decoration should
+                ideally only set one provider, and merge the sources
+                internally. You can use multiple `ns_id` for the extmarks
+                set/modified inside the callback anyway.
+
+                Note: doing anything other than setting extmarks is considered
+                experimental. Doing things like changing options are not
+                expliticly forbidden, but is likely to have unexpected
+                consequences (such as 100% CPU consumption). doing
+                `vim.rpcnotify` should be OK, but `vim.rpcrequest` is quite
+                dubious for the moment.
+
+                Parameters: ~
+                    {ns_id}  Namespace id from |nvim_create_namespace()|
+                    {opts}   Callbacks invoked during redraw:
+                             • on_start: called first on each screen redraw
+                               ["start", tick]
+                             • on_buf: called for each buffer being redrawn
+                               (before window callbacks) ["buf", bufnr, tick]
+                             • on_win: called when starting to redraw a
+                               specific window. ["win", winid, bufnr, topline,
+                               botline_guess]
+                             • on_line: called for each buffer line being
+                               redrawn. (The interation with fold lines is
+                               subject to change) ["win", winid, bufnr, row]
+                             • on_end: called at the end of a redraw cycle
+                               ["end", tick]
+
+nvim_set_hl({ns_id}, {name}, {val})                            *nvim_set_hl()*
+                Set a highlight group.
+
+                TODO: ns_id = 0, should modify :highlight namespace TODO val
+                should take update vs reset flag
+
+                Parameters: ~
+                    {ns_id}  number of namespace for this highlight
+                    {name}   highlight group name, like ErrorMsg
+                    {val}    highlight definiton map, like
+                             |nvim_get_hl_by_name|.
+
+nvim_set_hl_ns({ns_id})                                     *nvim_set_hl_ns()*
+                Set active namespace for highlights.
+
+                NB: this function can be called from async contexts, but the
+                semantics are not yet well-defined. To start with
+                |nvim_set_decoration_provider| on_win and on_line callbacks
+                are explicitly allowed to change the namespace during a redraw
+                cycle.
+
+                Attributes: ~
+                    {fast}
+
+                Parameters: ~
+                    {ns_id}  the namespace to activate
 
 nvim_set_keymap({mode}, {lhs}, {rhs}, {opts})              *nvim_set_keymap()*
                 Sets a global |mapping| for the given mode.
@@ -1575,24 +1647,12 @@ to check whether a buffer is loaded.
 nvim__buf_redraw_range({buffer}, {first}, {last})
                 TODO: Documentation
 
-nvim__buf_set_luahl({buffer}, {opts})                  *nvim__buf_set_luahl()*
-                Unstabilized interface for defining syntax hl in lua.
-
-                This is not yet safe for general use, lua callbacks will need
-                to be restricted, like textlock and probably other stuff.
-
-                The API on_line/nvim__put_attr is quite raw and not intended
-                to be the final shape. Ideally this should operate on chunks
-                larger than a single line to reduce interpreter overhead, and
-                generate annotation objects (bufhl/virttext) on the fly but
-                using the same representation.
-
 nvim__buf_stats({buffer})                                  *nvim__buf_stats()*
                 TODO: Documentation
 
                                                     *nvim_buf_add_highlight()*
-nvim_buf_add_highlight({buffer}, {src_id}, {hl_group}, {line},
-                       {col_start}, {col_end})
+nvim_buf_add_highlight({buffer}, {src_id}, {hl_group}, {line}, {col_start},
+                       {col_end})
                 Adds a highlight to buffer.
 
                 Useful for plugins that dynamically generate highlights to a
@@ -1690,6 +1750,29 @@ nvim_buf_attach({buffer}, {send_buffer}, {opts})           *nvim_buf_attach()*
                     |nvim_buf_detach()|
                     |api-buffer-updates-lua|
 
+nvim_buf_call({buffer}, {fun})                               *nvim_buf_call()*
+                call a function with buffer as temporary current buffer
+
+                This temporarily switches current buffer to "buffer". If the
+                current window already shows "buffer", the window is not
+                switched If a window inside the current tabpage (including a
+                float) already shows the buffer One of these windows will be
+                set as current window temporarily. Otherwise a temporary
+                scratch window (calleed the "autocmd window" for historical
+                reasons) will be used.
+
+                This is useful e.g. to call vimL functions that only work with
+                the current buffer/window currently, like |termopen()|.
+
+                Parameters: ~
+                    {buffer}  Buffer handle, or 0 for current buffer
+                    {fun}     Function to call inside the buffer (currently
+                              lua callable only)
+
+                Return: ~
+                    Return value of function. NB: will deepcopy lua values
+                    currently, use upvalues to send lua references in and out.
+
                                                   *nvim_buf_clear_namespace()*
 nvim_buf_clear_namespace({buffer}, {ns_id}, {line_start}, {line_end})
                 Clears namespaced objects (highlights, extmarks, virtual text)
@@ -1732,6 +1815,17 @@ nvim_buf_del_var({buffer}, {name})                        *nvim_buf_del_var()*
                 Parameters: ~
                     {buffer}  Buffer handle, or 0 for current buffer
                     {name}    Variable name
+
+nvim_buf_delete({buffer}, {opts})                          *nvim_buf_delete()*
+                Deletes the buffer. See |:bwipeout|
+
+                Parameters: ~
+                    {buffer}  Buffer handle, or 0 for current buffer
+                    {opts}    Optional parameters. Keys:
+                              • force: Force deletion and ignore unsaved
+                                changes.
+                              • unload: Unloaded only, do not delete. See
+                                |:bunload|
 
 nvim_buf_detach({buffer})                                  *nvim_buf_detach()*
                 Deactivates buffer-update events on the channel.
@@ -1986,6 +2080,11 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {opts})
                               • hl_group : name of the highlight group used to
                                 highlight this mark.
                               • virt_text : virtual text to link to this mark.
+                              • ephemeral : for use with
+                                |nvim_set_decoration_provider| callbacks. The
+                                mark will only be used for the current redraw
+                                cycle, and not be permantently stored in the
+                                buffer.
 
                 Return: ~
                     Id of the created/updated extmark
@@ -2001,8 +2100,7 @@ nvim_buf_set_keymap({buffer}, {mode}, {lhs}, {rhs}, {opts})
                     |nvim_set_keymap()|
 
                                                         *nvim_buf_set_lines()*
-nvim_buf_set_lines({buffer}, {start}, {end}, {strict_indexing},
-                   {replacement})
+nvim_buf_set_lines({buffer}, {start}, {end}, {strict_indexing}, {replacement})
                 Sets (replaces) a line-range in the buffer.
 
                 Indexing is zero-based, end-exclusive. Negative indices are
@@ -2050,8 +2148,7 @@ nvim_buf_set_var({buffer}, {name}, {value})               *nvim_buf_set_var()*
                     {value}   Variable value
 
                                                  *nvim_buf_set_virtual_text()*
-nvim_buf_set_virtual_text({buffer}, {src_id}, {line}, {chunks},
-                          {opts})
+nvim_buf_set_virtual_text({buffer}, {src_id}, {line}, {chunks}, {opts})
                 Set the virtual text (annotation) for a buffer line.
 
                 By default (and currently the only option) the text will be
@@ -2383,8 +2480,8 @@ nvim_ui_pum_set_bounds({width}, {height}, {row}, {col})
                 Note that this method is not to be confused with
                 |nvim_ui_pum_set_height()|, which sets the number of visible
                 items in the popup menu, while this function sets the bounding
-                box of the popup menu, including visual decorations such as
-                boarders and sliders. Floats need not use the same font size,
+                box of the popup menu, including visual elements such as
+                borders and sliders. Floats need not use the same font size,
                 nor be anchored to exact grid corners, so one can set
                 floating-point numbers to the popup menu geometry.
 

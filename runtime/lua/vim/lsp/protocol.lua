@@ -1,17 +1,8 @@
 -- Protocol for the Microsoft Language Server Protocol (mslsp)
 
+local if_nil = vim.F.if_nil
+
 local protocol = {}
-
---@private
---- Returns {a} if it is not nil, otherwise returns {b}.
----
---@param a
---@param b
-local function ifnil(a, b)
-  if a == nil then return b end
-  return a
-end
-
 
 --[=[
 --@private
@@ -632,15 +623,18 @@ function protocol.make_client_capabilities()
 
         codeActionLiteralSupport = {
           codeActionKind = {
-            valueSet = {};
+            valueSet = vim.tbl_values(protocol.CodeActionKind);
           };
         };
       };
       completion = {
         dynamicRegistration = false;
         completionItem = {
+          -- Until we can actually expand snippet, move cursor and allow for true snippet experience,
+          -- this should be disabled out of the box.
+          -- However, users can turn this back on if they have a snippet plugin.
+          snippetSupport = false;
 
-          snippetSupport = true;
           commitCharactersSupport = false;
           preselectSupport = false;
           deprecatedSupport = false;
@@ -702,6 +696,10 @@ function protocol.make_client_capabilities()
           end)();
         };
         hierarchicalDocumentSymbolSupport = true;
+      };
+      rename = {
+        dynamicRegistration = false;
+        prepareSupport = true;
       };
     };
     workspace = {
@@ -902,18 +900,19 @@ function protocol.resolve_capabilities(server_capabilities)
       }
     elseif type(textDocumentSync) == 'table' then
       text_document_sync_properties = {
-        text_document_open_close = ifnil(textDocumentSync.openClose, false);
-        text_document_did_change = ifnil(textDocumentSync.change, TextDocumentSyncKind.None);
-        text_document_will_save = ifnil(textDocumentSync.willSave, false);
-        text_document_will_save_wait_until = ifnil(textDocumentSync.willSaveWaitUntil, false);
-        text_document_save = ifnil(textDocumentSync.save, false);
-        text_document_save_include_text = ifnil(type(textDocumentSync.save) == 'table'
+        text_document_open_close = if_nil(textDocumentSync.openClose, false);
+        text_document_did_change = if_nil(textDocumentSync.change, TextDocumentSyncKind.None);
+        text_document_will_save = if_nil(textDocumentSync.willSave, false);
+        text_document_will_save_wait_until = if_nil(textDocumentSync.willSaveWaitUntil, false);
+        text_document_save = if_nil(textDocumentSync.save, false);
+        text_document_save_include_text = if_nil(type(textDocumentSync.save) == 'table'
                                                 and textDocumentSync.save.includeText, false);
       }
     else
       return nil, string.format("Invalid type for textDocumentSync: %q", type(textDocumentSync))
     end
   end
+  general_properties.completion = server_capabilities.completionProvider ~= nil
   general_properties.hover = server_capabilities.hoverProvider or false
   general_properties.goto_definition = server_capabilities.definitionProvider or false
   general_properties.find_references = server_capabilities.referencesProvider or false
@@ -923,14 +922,21 @@ function protocol.resolve_capabilities(server_capabilities)
   general_properties.document_formatting = server_capabilities.documentFormattingProvider or false
   general_properties.document_range_formatting = server_capabilities.documentRangeFormattingProvider or false
   general_properties.call_hierarchy = server_capabilities.callHierarchyProvider or false
+  general_properties.execute_command = server_capabilities.executeCommandProvider ~= nil
+
+  if server_capabilities.renameProvider == nil then
+    general_properties.rename = false
+  elseif type(server_capabilities.renameProvider) == 'boolean' then
+    general_properties.rename = server_capabilities.renameProvider
+  else
+    general_properties.rename = true
+  end
 
   if server_capabilities.codeActionProvider == nil then
     general_properties.code_action = false
-  elseif type(server_capabilities.codeActionProvider) == 'boolean' then
+  elseif type(server_capabilities.codeActionProvider) == 'boolean'
+    or type(server_capabilities.codeActionProvider) == 'table' then
     general_properties.code_action = server_capabilities.codeActionProvider
-  elseif type(server_capabilities.codeActionProvider) == 'table' then
-    -- TODO(ashkan) support CodeActionKind
-    general_properties.code_action = false
   else
     error("The server sent invalid codeActionProvider")
   end

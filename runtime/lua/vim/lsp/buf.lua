@@ -1,9 +1,7 @@
 local vim = vim
 local validate = vim.validate
-local api = vim.api
 local vfn = vim.fn
 local util = require 'vim.lsp.util'
-local list_extend = vim.list_extend
 
 local M = {}
 
@@ -32,9 +30,7 @@ end
 ---
 --@param method (string) LSP method name
 --@param params (optional, table) Parameters to send to the server
---@param callback (optional, functionnil) Handler
---  `function(err, method, params, client_id)` for this request. Defaults
---  to the client callback in `client.callbacks`. See |lsp-callbacks|.
+--@param handler (optional, functionnil) See |lsp-handler|. Follows |lsp-handler-resolution|
 --
 --@returns 2-tuple:
 ---  - Map of client-id:request-id pairs for all successful requests.
@@ -42,12 +38,12 @@ end
 ---    iterate all clients and call their `cancel_request()` methods.
 ---
 --@see |vim.lsp.buf_request()|
-local function request(method, params, callback)
+local function request(method, params, handler)
   validate {
     method = {method, 's'};
-    callback = {callback, 'f', true};
+    handler = {handler, 'f', true};
   }
-  return vim.lsp.buf_request(0, method, params, callback)
+  return vim.lsp.buf_request(0, method, params, handler)
 end
 
 --- Checks whether the language servers attached to the current buffer are
@@ -66,6 +62,7 @@ function M.hover()
 end
 
 --- Jumps to the declaration of the symbol under the cursor.
+--@note Many servers do not implement this method. Generally, see |vim.lsp.buf.definition()| instead.
 ---
 function M.declaration()
   local params = util.make_position_params()
@@ -140,8 +137,9 @@ end
 function M.formatting_sync(options, timeout_ms)
   local params = util.make_formatting_params(options)
   local result = vim.lsp.buf_request_sync(0, "textDocument/formatting", params, timeout_ms)
-  if not result then return end
-  result = result[1].result
+  if not result or vim.tbl_isempty(result) then return end
+  local _, formatting_result = next(result)
+  result = formatting_result.result
   if not result then return end
   vim.lsp.util.apply_text_edits(result)
 end
@@ -154,36 +152,14 @@ end
 --@param start_pos ({number, number}, optional) mark-indexed position.
 ---Defaults to the end of the last visual selection.
 function M.range_formatting(options, start_pos, end_pos)
-  validate {
-    options = {options, 't', true};
-    start_pos = {start_pos, 't', true};
-    end_pos = {end_pos, 't', true};
-  }
+  validate { options = {options, 't', true} }
   local sts = vim.bo.softtabstop;
   options = vim.tbl_extend('keep', options or {}, {
     tabSize = (sts > 0 and sts) or (sts < 0 and vim.bo.shiftwidth) or vim.bo.tabstop;
     insertSpaces = vim.bo.expandtab;
   })
-  local A = list_extend({}, start_pos or api.nvim_buf_get_mark(0, '<'))
-  local B = list_extend({}, end_pos or api.nvim_buf_get_mark(0, '>'))
-  -- convert to 0-index
-  A[1] = A[1] - 1
-  B[1] = B[1] - 1
-  -- account for encoding.
-  if A[2] > 0 then
-    A = {A[1], util.character_offset(0, A[1], A[2])}
-  end
-  if B[2] > 0 then
-    B = {B[1], util.character_offset(0, B[1], B[2])}
-  end
-  local params = {
-    textDocument = { uri = vim.uri_from_bufnr(0) };
-    range = {
-      start = { line = A[1]; character = A[2]; };
-      ["end"] = { line = B[1]; character = B[2]; };
-    };
-    options = options;
-  }
+  local params = util.make_given_range_params(start_pos, end_pos)
+  params.options = options
   return request('textDocument/rangeFormatting', params)
 end
 
@@ -302,8 +278,23 @@ end
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_codeAction
 function M.code_action(context)
   validate { context = { context, 't', true } }
-  context = context or { diagnostics = util.get_line_diagnostics() }
+  context = context or { diagnostics = vim.lsp.diagnostic.get_line_diagnostics() }
   local params = util.make_range_params()
+  params.context = context
+  request('textDocument/codeAction', params)
+end
+
+--- Performs |vim.lsp.buf.code_action()| for a given range.
+---
+--@param context: (table, optional) Valid `CodeActionContext` object
+--@param start_pos ({number, number}, optional) mark-indexed position.
+---Defaults to the start of the last visual selection.
+--@param end_pos ({number, number}, optional) mark-indexed position.
+---Defaults to the end of the last visual selection.
+function M.range_code_action(context, start_pos, end_pos)
+  validate { context = { context, 't', true } }
+  context = context or { diagnostics = vim.lsp.diagnostic.get_line_diagnostics() }
+  local params = util.make_given_range_params(start_pos, end_pos)
   params.context = context
   request('textDocument/codeAction', params)
 end

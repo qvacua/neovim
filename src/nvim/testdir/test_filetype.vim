@@ -109,7 +109,7 @@ let s:filename_checks = {
     \ 'conaryrecipe': ['file.recipe'],
     \ 'conf': ['auto.master'],
     \ 'config': ['configure.in', 'configure.ac', 'Pipfile'],
-    \ 'context': ['tex/context/any/file.tex', 'file.mkii', 'file.mkiv', 'file.mkvi'],
+    \ 'context': ['tex/context/any/file.tex', 'file.mkii', 'file.mkiv', 'file.mkvi', 'file.mkxl', 'file.mklx'],
     \ 'cpp': ['file.cxx', 'file.c++', 'file.hh', 'file.hxx', 'file.hpp', 'file.ipp', 'file.moc', 'file.tcc', 'file.inl', 'file.tlh'],
     \ 'crm': ['file.crm'],
     \ 'cs': ['file.cs'],
@@ -128,6 +128,7 @@ let s:filename_checks = {
     \ 'dart': ['file.dart', 'file.drt'],
     \ 'datascript': ['file.ds'],
     \ 'dcd': ['file.dcd'],
+    \ 'debchangelog': ['changelog.Debian', 'changelog.dch', 'NEWS.Debian', 'NEWS.dch', '/debian/changelog'],
     \ 'debcontrol': ['/debian/control'],
     \ 'debsources': ['/etc/apt/sources.list', '/etc/apt/sources.list.d/file.list'],
     \ 'def': ['file.def'],
@@ -326,7 +327,7 @@ let s:filename_checks = {
     \ 'pamconf': ['/etc/pam.conf'],
     \ 'pamenv': ['/etc/security/pam_env.conf', '/home/user/.pam_environment'],
     \ 'papp': ['file.papp', 'file.pxml', 'file.pxsl'],
-    \ 'pascal': ['file.pas', 'file.dpr'],
+    \ 'pascal': ['file.pas', 'file.pp', 'file.dpr', 'file.lpr'],
     \ 'passwd': ['any/etc/passwd', 'any/etc/passwd-', 'any/etc/passwd.edit', 'any/etc/shadow', 'any/etc/shadow-', 'any/etc/shadow.edit', 'any/var/backups/passwd.bak', 'any/var/backups/shadow.bak'],
     \ 'pccts': ['file.g'],
     \ 'pdf': ['file.pdf'],
@@ -455,7 +456,7 @@ let s:filename_checks = {
     \ 'texmf': ['texmf.cnf'],
     \ 'text': ['file.text', 'README'],
     \ 'tf': ['file.tf', '.tfrc', 'tfrc'],
-    \ 'tidy': ['.tidyrc', 'tidyrc'],
+    \ 'tidy': ['.tidyrc', 'tidyrc', 'tidy.conf'],
     \ 'tilde': ['file.t.html'],
     \ 'tli': ['file.tli'],
     \ 'tmux': ['tmuxfile.conf', '.tmuxfile.conf'],
@@ -531,6 +532,7 @@ let s:filename_case_checks = {
     \ }
 
 func CheckItems(checks)
+  set noswapfile
   for [ft, names] in items(a:checks)
     for i in range(0, len(names) - 1)
       new
@@ -547,6 +549,7 @@ func CheckItems(checks)
       bwipe!
     endfor
   endfor
+  set swapfile&
 endfunc
 
 func Test_filetype_detection()

@@ -38,7 +38,9 @@ List		An ordered sequence of items |List|.
 
 Dictionary	An associative, unordered array: Each entry has a key and a
 		value. |Dictionary|
-		Example: {'blue': "#0000ff", 'red': "#ff0000"}
+		Examples:
+			{'blue': "#0000ff", 'red': "#ff0000"}
+			#{blue: "#0000ff", red: "#ff0000"}
 
 The Number and String types are converted automatically, depending on how they
 are used.
@@ -436,8 +438,14 @@ only appear once.  Examples: >
 A key is always a String.  You can use a Number, it will be converted to a
 String automatically.  Thus the String '4' and the number 4 will find the same
 entry.  Note that the String '04' and the Number 04 are different, since the
-Number will be converted to the String '4'.  The empty string can be used as a
-key.
+Number will be converted to the String '4'.  The empty string can also be used
+as a key.
+						*literal-Dict*
+To avoid having to put quotes around every key the #{} form can be used.  This
+does require the key to consist only of ASCII letters, digits, '-' and '_'.
+Example: >
+	let mydict = #{zero: 0, one_key: 1, two-key: 2, 333: 3}
+Note that 333 here is the string "333".  Empty keys are not possible with #{}.
 
 A value can be any expression.  Using a Dictionary for a value creates a
 nested Dictionary: >
@@ -1606,6 +1614,8 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 					|CompleteChanged|.
 			scrollbar 	Is |v:true| if popup menu have scrollbar, or
 					|v:false| if not.
+			changed_window 	Is |v:true| if the the event fired
+					while changing window (or tab) on |DirChanged|.
 
 					*v:exception* *exception-variable*
 v:exception	The value of the exception most recently caught and not
@@ -2328,6 +2338,7 @@ repeat({expr}, {count})		String	repeat {expr} {count} times
 resolve({filename})		String	get filename a shortcut points to
 reverse({list})			List	reverse {list} in-place
 round({expr})			Float	round off {expr}
+rubyeval({expr})		any	evaluate |Ruby| expression
 rpcnotify({channel}, {event}[, {args}...])
 				Sends an |RPC| notification to {channel}
 rpcrequest({channel}, {method}[, {args}...])
@@ -2460,7 +2471,8 @@ tolower({expr})			String	the String {expr} switched to lowercase
 toupper({expr})			String	the String {expr} switched to uppercase
 tr({src}, {fromstr}, {tostr})	String	translate chars of {src} in {fromstr}
 					to chars in {tostr}
-trim({text} [, {mask}])		String	trim characters in {mask} from {text}
+trim({text} [, {mask} [, {dir}]])
+				String	trim characters in {mask} from {text}
 trunc({expr})			Float	truncate Float {expr}
 type({name})			Number	type of variable {name}
 undofile({name})		String	undo file name for {name}
@@ -3831,7 +3843,7 @@ feedkeys({string} [, {mode}])				*feedkeys()*
 			stuck, waiting for a character to be typed before the
 			script continues.
 			Note that if you manage to call feedkeys() while
-			executing commands, thus calling it recursively, the
+			executing commands, thus calling it recursively, then
 			all typehead will be consumed by the last call.
 		'!'	When used with 'x' will not end Insert mode. Can be
 			used in a test when a timer is set to exit Insert mode
@@ -4634,7 +4646,7 @@ getloclist({nr},[, {what}])				*getloclist()*
 		If {what} contains 'filewinid', then returns the id of the
 		window used to display files from the location list. This
 		field is applicable only when called from a location list
-		window.
+		window. See |location-list-file-window| for more details.
 
 getmatches([{win}])					*getmatches()*
 		Returns a |List| with all matches previously defined for the
@@ -4725,7 +4737,9 @@ getqflist([{what}])					*getqflist()*
 			id	get information for the quickfix list with
 				|quickfix-ID|; zero means the id for the
 				current list or the list specified by "nr"
-			idx	index of the current entry in the list
+			idx	index of the current entry in the quickfix
+				list specified by 'id' or 'nr'.
+				See |quickfix-index|
 			items	quickfix list entries
 			lines	parse a list of lines using 'efm' and return
 				the resulting entries.  Only a |List| type is
@@ -4918,6 +4932,19 @@ getwinpos([{timeout}])					*getwinpos()*
 		{timeout} can be used to specify how long to wait in msec for
 		a response from the terminal.  When omitted 100 msec is used.
 
+		Use a longer time for a remote terminal.
+		When using a value less than 10 and no response is received
+		within that time, a previously reported position is returned,
+		if available.  This can be used to poll for the position and
+		do some work in the meantime: >
+			while 1
+			  let res = getwinpos(1)
+			  if res[0] >= 0
+			    break
+			  endif
+			  " Do some work here
+			endwhile
+<
 							*getwinposx()*
 getwinposx()	The result is a Number, which is the X coordinate in pixels of
 		the left hand side of the GUI Vim window.  The result will be
@@ -5671,7 +5698,6 @@ libcall({libname}, {funcname}, {argument})
 		If {argument} is a number, it is passed to the function as an
 		int; if {argument} is a string, it is passed as a
 		null-terminated string.
-		This function will fail in |restricted-mode|.
 
 		libcall() allows you to write your own 'plug-in' extensions to
 		Vim without having to recompile the program.  It is NOT a
@@ -6255,6 +6281,7 @@ mode([expr])	Return a string that indicates the current mode.
 		   nov	    Operator-pending (forced charwise |o_v|)
 		   noV	    Operator-pending (forced linewise |o_V|)
 		   noCTRL-V Operator-pending (forced blockwise |o_CTRL-V|)
+				CTRL-V is one character
 		   niI	    Normal using |i_CTRL-O| in |Insert-mode|
 		   niR	    Normal using |i_CTRL-O| in |Replace-mode|
 		   niV	    Normal using |i_CTRL-O| in |Virtual-Replace-mode|
@@ -7045,6 +7072,17 @@ rpcstart({prog}[, {argv}])					*rpcstart()*
 <		with >
 			:let id = jobstart(['prog', 'arg1', 'arg2'], {'rpc': v:true})
 
+rubyeval({expr})					*rubyeval()*
+		Evaluate Ruby expression {expr} and return its result
+		converted to Vim data structures.
+		Numbers, floats and strings are returned as they are (strings
+		are copied though).
+		Arrays are represented as Vim |List| type.
+		Hashes are represented as Vim |Dictionary| type.
+		Other objects are represented as strings resulted from their
+		"Object#to_s" method.
+		{only available when compiled with the |+ruby| feature}
+
 screenattr({row}, {col})					*screenattr()*
 		Like |screenchar()|, but return the attribute.  This is a rather
 		arbitrary number that can only be used to compare to the
@@ -7614,16 +7652,22 @@ setqflist({list} [, {action}[, {what}]])		*setqflist()*
 		    efm		errorformat to use when parsing text from
 				"lines". If this is not present, then the
 				'errorformat' option value is used.
+				See |quickfix-parse|
 		    id		quickfix list identifier |quickfix-ID|
+		    idx		index of the current entry in the quickfix
+				list specified by 'id' or 'nr'. If set to '$',
+				then the last entry in the list is set as the
+				current entry.  See |quickfix-index|
 		    items	list of quickfix entries. Same as the {list}
 				argument.
 		    lines	use 'errorformat' to parse a list of lines and
 				add the resulting entries to the quickfix list
 				{nr} or {id}.  Only a |List| value is supported.
+				See |quickfix-parse|
 		    nr		list number in the quickfix stack; zero
 				means the current quickfix list and "$" means
-				the last quickfix list
-		    title	quickfix list title text
+				the last quickfix list.
+		    title	quickfix list title text. See |quickfix-title|
 		Unsupported keys in {what} are ignored.
 		If the "nr" item is not present, then the current quickfix list
 		is modified. When creating a new quickfix list, "nr" can be
@@ -8759,7 +8803,6 @@ system({cmd} [, {input}])				*system()* *E677*
 		{cmd} is a string: 'shell' 'shellcmdflag' {cmd}
 
 		The resulting error code can be found in |v:shell_error|.
-		This function will fail in |restricted-mode|.
 
 		Note that any wrong value in the options mentioned above may
 		make the function fail.  It has also been reported to fail
@@ -9007,21 +9050,28 @@ tr({src}, {fromstr}, {tostr})				*tr()*
 			echo tr("<blob>", "<>", "{}")
 <		returns "{blob}"
 
-trim({text} [, {mask}])						*trim()*
+trim({text} [, {mask} [, {dir}]])				*trim()*
 		Return {text} as a String where any character in {mask} is
-		removed from the beginning and  end of {text}.
+		removed from the beginning and/or end of {text}.
 		If {mask} is not given, {mask} is all characters up to 0x20,
 		which includes Tab, space, NL and CR, plus the non-breaking
 		space character 0xa0.
-		This code deals with multibyte characters properly.
-
+		The optional {dir} argument specifies where to remove the
+		characters:
+			0	remove from the beginning and end of {text}
+			1	remove only at the beginning of {text}
+			2	remove only at the end of {text}
+		When omitted both ends are trimmed.
+		This function deals with multibyte characters properly.
 		Examples: >
 			echo trim("   some text ")
 <		returns "some text" >
 			echo trim("  \r\t\t\r RESERVE \t\n\x0B\xA0") . "_TAIL"
 <		returns "RESERVE_TAIL" >
 			echo trim("rm<Xrm<>X>rrm", "rm<>")
-<		returns "Xrm<>X" (characters in the middle are not removed)
+<		returns "Xrm<>X" (characters in the middle are not removed) >
+			echo trim("  vim  ", " ", 2)
+<		returns "  vim"
 
 trunc({expr})							*trunc()*
 		Return the largest integral value with magnitude less than or

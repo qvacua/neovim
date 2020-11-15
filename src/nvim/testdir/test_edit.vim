@@ -1,8 +1,10 @@
 " Test for edit functions
-"
+
 if exists("+t_kD")
   let &t_kD="[3;*~"
 endif
+
+source check.vim
 
 " Needed for testing basic rightleft: Test_edit_rightleft
 source view_util.vim
@@ -733,17 +735,16 @@ func! Test_edit_CTRL_O()
 endfunc
 
 func! Test_edit_CTRL_R()
-  throw 'skipped: Nvim does not support test_override()'
   " Insert Register
   new
-  call test_override("ALL", 1)
+  " call test_override("ALL", 1)
   set showcmd
   call feedkeys("AFOOBAR eins zwei\<esc>", 'tnix')
   call feedkeys("O\<c-r>.", 'tnix')
   call feedkeys("O\<c-r>=10*500\<cr>\<esc>", 'tnix')
   call feedkeys("O\<c-r>=getreg('=', 1)\<cr>\<esc>", 'tnix')
   call assert_equal(["getreg('=', 1)", '5000', "FOOBAR eins zwei", "FOOBAR eins zwei"], getline(1, '$'))
-  call test_override("ALL", 0)
+  " call test_override("ALL", 0)
   set noshowcmd
   bw!
 endfunc
@@ -955,7 +956,6 @@ func! Test_edit_DROP()
 endfunc
 
 func! Test_edit_CTRL_V()
-  throw 'skipped: Nvim does not support test_override()'
   if has("ebcdic")
     return
   endif
@@ -965,7 +965,7 @@ func! Test_edit_CTRL_V()
   " force some redraws
   set showmode showcmd
   "call test_override_char_avail(1)
-  call test_override('ALL', 1)
+  " call test_override('ALL', 1)
   call feedkeys("A\<c-v>\<c-n>\<c-v>\<c-l>\<c-v>\<c-b>\<esc>", 'tnix')
   call assert_equal(["abc\x0e\x0c\x02"], getline(1, '$'))
 
@@ -978,7 +978,7 @@ func! Test_edit_CTRL_V()
     set norl
   endif
 
-  call test_override('ALL', 0)
+  " call test_override('ALL', 0)
   set noshowmode showcmd
   bw!
 endfunc
@@ -1441,31 +1441,40 @@ endfunc
 
 func Test_edit_InsertLeave()
   new
+  au InsertLeavePre * let g:did_au_pre = 1
   au InsertLeave * let g:did_au = 1
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("afoo\<Esc>", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(1, g:did_au)
   call assert_equal('foo', getline(1))
 
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Sbar\<C-C>", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(0, g:did_au)
   call assert_equal('bar', getline(1))
 
   inoremap x xx<Esc>
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Saax", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(1, g:did_au)
   call assert_equal('aaxx', getline(1))
 
   inoremap x xx<C-C>
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Sbbx", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(0, g:did_au)
   call assert_equal('bbxx', getline(1))
 
   bwipe!
-  au! InsertLeave
+  au! InsertLeave InsertLeavePre
   iunmap x
 endfunc
 
@@ -1514,3 +1523,75 @@ func Test_edit_startinsert()
   set backspace&
   bwipe!
 endfunc
+
+func Test_edit_noesckeys()
+  CheckNotGui
+  new
+
+  " <Left> moves cursor when 'esckeys' is set
+  exe "set t_kl=\<Esc>OD"
+  " set esckeys
+  call feedkeys("axyz\<Esc>ODX", "xt")
+  " call assert_equal("xyXz", getline(1))
+
+  " <Left> exits Insert mode when 'esckeys' is off
+  " set noesckeys
+  call setline(1, '')
+  call feedkeys("axyz\<Esc>ODX", "xt")
+  call assert_equal(["DX", "xyz"], getline(1, 2))
+
+  bwipe!
+  " set esckeys
+endfunc
+
+" Test for editing a directory
+func Test_edit_is_a_directory()
+  CheckEnglish
+  let dirname = getcwd() . "/Xdir"
+  call mkdir(dirname, 'p')
+
+  new
+  redir => msg
+  exe 'edit' dirname
+  redir END
+  call assert_match("is a directory$", split(msg, "\n")[0])
+  bwipe!
+
+  let dirname .= '/'
+
+  new
+  redir => msg
+  exe 'edit' dirname
+  redir END
+  call assert_match("is a directory$", split(msg, "\n")[0])
+  bwipe!
+
+  call delete(dirname, 'rf')
+endfunc
+
+func Test_edit_browse()
+  " in the GUI this opens a file picker, we only test the terminal behavior
+  CheckNotGui
+
+  " ":browse xxx" checks for the FileExplorer augroup and assumes editing "."
+  " works then.
+  augroup FileExplorer
+    au!
+  augroup END
+
+  " When the USE_FNAME_CASE is defined this used to cause a crash.
+  browse enew
+  bwipe!
+
+  browse split
+  bwipe!
+endfunc
+
+func Test_read_invalid()
+  " set encoding=latin1
+  " This was not properly checking for going past the end.
+  call assert_fails('r`=', 'E484')
+  set encoding=utf-8
+endfunc
+
+" vim: shiftwidth=2 sts=2 expandtab

@@ -174,6 +174,7 @@ static char_u   *p_syn;
 static char_u   *p_spc;
 static char_u   *p_spf;
 static char_u   *p_spl;
+static char_u   *p_spo;
 static long p_ts;
 static long p_tw;
 static int p_udf;
@@ -311,6 +312,9 @@ static char *(p_fdm_values[]) =       { "manual", "expr", "marker", "indent",
 static char *(p_fcl_values[]) =       { "all", NULL };
 static char *(p_cot_values[]) =       { "menu", "menuone", "longest", "preview",
                                         "noinsert", "noselect", NULL };
+#ifdef BACKSLASH_IN_FILENAME
+static char *(p_csl_values[]) =       { "slash", "backslash", NULL };
+#endif
 static char *(p_icm_values[]) =       { "nosplit", "split", NULL };
 static char *(p_scl_values[]) =       { "yes", "no", "auto", "auto:1", "auto:2",
   "auto:3", "auto:4", "auto:5", "auto:6", "auto:7", "auto:8", "auto:9",
@@ -1721,14 +1725,15 @@ int do_set(
 #endif
                     )
                   arg++;                        // remove backslash
-                if (has_mbyte
-                    && (i = (*mb_ptr2len)(arg)) > 1) {
+                i = utfc_ptr2len(arg);
+                if (i > 1) {
                   // copy multibyte char
                   memmove(s, arg, (size_t)i);
                   arg += i;
                   s += i;
-                } else
+                } else {
                   *s++ = *arg++;
+                }
               }
               *s = NUL;
 
@@ -2285,6 +2290,7 @@ void check_buf_options(buf_T *buf)
   check_string_option(&buf->b_s.b_p_spc);
   check_string_option(&buf->b_s.b_p_spf);
   check_string_option(&buf->b_s.b_p_spl);
+  check_string_option(&buf->b_s.b_p_spo);
   check_string_option(&buf->b_p_sua);
   check_string_option(&buf->b_p_cink);
   check_string_option(&buf->b_p_cino);
@@ -2561,7 +2567,7 @@ static bool valid_spellfile(const char_u *val)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
   for (const char_u *s = val; *s != NUL; s++) {
-    if (!vim_isfilec(*s) && *s != ',') {
+    if (!vim_isfilec(*s) && *s != ',' && *s != ' ') {
       return false;
     }
   }
@@ -2859,39 +2865,26 @@ ambw_end:
       errmsg = e_invarg;
     }
   } else if (gvarp == &p_mps) {  // 'matchpairs'
-    if (has_mbyte) {
-      for (p = *varp; *p != NUL; p++) {
-        int x2 = -1;
-        int x3 = -1;
+    for (p = *varp; *p != NUL; p++) {
+      int x2 = -1;
+      int x3 = -1;
 
-        if (*p != NUL) {
-          p += mb_ptr2len(p);
-        }
-        if (*p != NUL) {
-          x2 = *p++;
-        }
-        if (*p != NUL) {
-          x3 = utf_ptr2char(p);
-          p += mb_ptr2len(p);
-        }
-        if (x2 != ':' || x3 == -1 || (*p != NUL && *p != ',')) {
-          errmsg = e_invarg;
-          break;
-        }
-        if (*p == NUL) {
-          break;
-        }
+      if (*p != NUL) {
+        p += utfc_ptr2len(p);
       }
-    } else {
-      // Check for "x:y,x:y"
-      for (p = *varp; *p != NUL; p += 4) {
-        if (p[1] != ':' || p[2] == NUL || (p[3] != NUL && p[3] != ',')) {
-          errmsg = e_invarg;
-          break;
-        }
-        if (p[3] == NUL) {
-          break;
-        }
+      if (*p != NUL) {
+        x2 = *p++;
+      }
+      if (*p != NUL) {
+        x3 = utf_ptr2char(p);
+        p += utfc_ptr2len(p);
+      }
+      if (x2 != ':' || x3 == -1 || (*p != NUL && *p != ',')) {
+        errmsg = e_invarg;
+        break;
+      }
+      if (*p == NUL) {
+        break;
       }
     }
   } else if (gvarp == &p_com) {  // 'comments'
@@ -3090,6 +3083,10 @@ ambw_end:
   } else if (varp == &(curwin->w_s->b_p_spc)) {
     // When 'spellcapcheck' is set compile the regexp program.
     errmsg = compile_cap_prog(curwin->w_s);
+  } else if (varp == &(curwin->w_s->b_p_spo)) {  // 'spelloptions'
+    if (**varp != NUL && STRCMP("camel", *varp) != 0) {
+      errmsg = e_invarg;
+    }
   } else if (varp == &p_sps) {  // 'spellsuggest'
     if (spell_check_sps() != OK) {
       errmsg = e_invarg;
@@ -3112,7 +3109,7 @@ ambw_end:
     } else {
       if (curwin->w_status_height) {
         curwin->w_redr_status = true;
-        redraw_later(VALID);
+        redraw_later(curwin, VALID);
       }
       curbuf->b_help = (curbuf->b_p_bt[0] == 'h');
       redraw_titles();
@@ -3182,6 +3179,13 @@ ambw_end:
     } else {
       completeopt_was_set();
     }
+#ifdef BACKSLASH_IN_FILENAME
+  } else if (gvarp == &p_csl) {  // 'completeslash'
+    if (check_opt_strings(p_csl, p_csl_values, false) != OK
+        || check_opt_strings(curbuf->b_p_csl, p_csl_values, false) != OK) {
+      errmsg = e_invarg;
+    }
+#endif
   } else if (varp == &curwin->w_p_scl) {
     // 'signcolumn'
     if (check_opt_strings(*varp, p_scl_values, false) != OK) {
@@ -3348,10 +3352,6 @@ ambw_end:
     if (!parse_winhl_opt(curwin)) {
       errmsg = e_invarg;
     }
-  } else if (varp == &p_rtp) {  // 'runtimepath'
-    if (!nlua_update_package_path()) {
-      errmsg = (char_u *)N_("E970: Failed to initialize lua interpreter");
-    }
   } else {
     // Options that are a list of flags.
     p = NULL;
@@ -3432,6 +3432,7 @@ ambw_end:
       // recursively, to avoid endless recurrence.
       apply_autocmds(EVENT_SYNTAX, curbuf->b_p_syn, curbuf->b_fname,
                      value_changed || syn_recursive == 1, curbuf);
+      curbuf->b_flags |= BF_SYN_SET;
       syn_recursive--;
     } else if (varp == &(curbuf->b_p_ft)) {
       // 'filetype' is set, trigger the FileType autocommand
@@ -3734,11 +3735,10 @@ static char_u *set_chars_option(win_T *wp, char_u **varp, bool set)
 /// Return error message or NULL.
 char_u *check_stl_option(char_u *s)
 {
-  int itemcnt = 0;
   int groupdepth = 0;
   static char_u errbuf[80];
 
-  while (*s && itemcnt < STL_MAX_ITEM) {
+  while (*s) {
     // Check for valid keys after % sequences
     while (*s && *s != '%') {
       s++;
@@ -3747,9 +3747,6 @@ char_u *check_stl_option(char_u *s)
       break;
     }
     s++;
-    if (*s != '%' && *s != ')') {
-      itemcnt++;
-    }
     if (*s == '%' || *s == STL_TRUNCMARK || *s == STL_SEPARATE) {
       s++;
       continue;
@@ -3790,9 +3787,6 @@ char_u *check_stl_option(char_u *s)
         return (char_u *)N_("E540: Unclosed expression sequence");
       }
     }
-  }
-  if (itemcnt >= STL_MAX_ITEM) {
-    return (char_u *)N_("E541: too many items");
   }
   if (groupdepth != 0) {
     return (char_u *)N_("E542: unbalanced groups");
@@ -4685,7 +4679,7 @@ static void check_redraw(uint32_t flags)
     redraw_curbuf_later(NOT_VALID);
   }
   if (flags & P_RWINONLY) {
-    redraw_later(NOT_VALID);
+    redraw_later(curwin, NOT_VALID);
   }
   if (doclear) {
     redraw_all_later(CLEAR);
@@ -5699,12 +5693,12 @@ void unset_global_local_option(char *name, void *from)
     case PV_LCS:
       clear_string_option(&((win_T *)from)->w_p_lcs);
       set_chars_option((win_T *)from, &((win_T *)from)->w_p_lcs, true);
-      redraw_win_later((win_T *)from, NOT_VALID);
+      redraw_later((win_T *)from, NOT_VALID);
       break;
     case PV_FCS:
       clear_string_option(&((win_T *)from)->w_p_fcs);
       set_chars_option((win_T *)from, &((win_T *)from)->w_p_fcs, true);
-      redraw_win_later((win_T *)from, NOT_VALID);
+      redraw_later((win_T *)from, NOT_VALID);
       break;
   }
 }
@@ -5859,6 +5853,9 @@ static char_u *get_varp(vimoption_T *p)
   case PV_COM:    return (char_u *)&(curbuf->b_p_com);
   case PV_CMS:    return (char_u *)&(curbuf->b_p_cms);
   case PV_CPT:    return (char_u *)&(curbuf->b_p_cpt);
+# ifdef BACKSLASH_IN_FILENAME
+  case PV_CSL:    return (char_u *)&(curbuf->b_p_csl);
+# endif
   case PV_CFU:    return (char_u *)&(curbuf->b_p_cfu);
   case PV_OFU:    return (char_u *)&(curbuf->b_p_ofu);
   case PV_EOL:    return (char_u *)&(curbuf->b_p_eol);
@@ -5896,6 +5893,7 @@ static char_u *get_varp(vimoption_T *p)
   case PV_SPC:    return (char_u *)&(curwin->w_s->b_p_spc);
   case PV_SPF:    return (char_u *)&(curwin->w_s->b_p_spf);
   case PV_SPL:    return (char_u *)&(curwin->w_s->b_p_spl);
+  case PV_SPO:    return (char_u *)&(curwin->w_s->b_p_spo);
   case PV_SW:     return (char_u *)&(curbuf->b_p_sw);
   case PV_TFU:    return (char_u *)&(curbuf->b_p_tfu);
   case PV_TS:     return (char_u *)&(curbuf->b_p_ts);
@@ -6145,6 +6143,9 @@ void buf_copy_options(buf_T *buf, int flags)
       buf->b_p_inf = p_inf;
       buf->b_p_swf = cmdmod.noswapfile ? false : p_swf;
       buf->b_p_cpt = vim_strsave(p_cpt);
+# ifdef BACKSLASH_IN_FILENAME
+      buf->b_p_csl = vim_strsave(p_csl);
+# endif
       buf->b_p_cfu = vim_strsave(p_cfu);
       buf->b_p_ofu = vim_strsave(p_ofu);
       buf->b_p_tfu = vim_strsave(p_tfu);
@@ -6175,6 +6176,7 @@ void buf_copy_options(buf_T *buf, int flags)
       (void)compile_cap_prog(&buf->b_s);
       buf->b_s.b_p_spf = vim_strsave(p_spf);
       buf->b_s.b_p_spl = vim_strsave(p_spl);
+      buf->b_s.b_p_spo = vim_strsave(p_spo);
       buf->b_p_inde = vim_strsave(p_inde);
       buf->b_p_indk = vim_strsave(p_indk);
       buf->b_p_fp = empty_option;
@@ -6794,7 +6796,8 @@ static void langmap_set(void)
 
 /// Return true if format option 'x' is in effect.
 /// Take care of no formatting when 'paste' is set.
-int has_format_option(int x)
+bool has_format_option(int x)
+  FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
   if (p_paste) {
     return false;
@@ -7261,7 +7264,8 @@ unsigned int get_bkc_value(buf_T *buf)
 }
 
 /// Return the current end-of-line type: EOL_DOS, EOL_UNIX or EOL_MAC.
-int get_fileformat(buf_T *buf)
+int get_fileformat(const buf_T *buf)
+  FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
 {
   int c = *buf->b_p_ff;
 

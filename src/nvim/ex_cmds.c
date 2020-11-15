@@ -41,6 +41,7 @@
 #include "nvim/main.h"
 #include "nvim/mark.h"
 #include "nvim/extmark.h"
+#include "nvim/decoration.h"
 #include "nvim/mbyte.h"
 #include "nvim/memline.h"
 #include "nvim/message.h"
@@ -135,7 +136,7 @@ void do_ascii(const exarg_T *const eap)
     char buf1[20];
     if (vim_isprintc_strict(c) && (c < ' ' || c > '~')) {
       char_u buf3[7];
-      transchar_nonprint(buf3, c);
+      transchar_nonprint(curbuf, buf3, c);
       vim_snprintf(buf1, sizeof(buf1), "  <%s>", (char *)buf3);
     } else {
       buf1[0] = NUL;
@@ -794,10 +795,7 @@ void ex_retab(exarg_T *eap)
       if (ptr[col] == NUL)
         break;
       vcol += chartabsize(ptr + col, (colnr_T)vcol);
-      if (has_mbyte)
-        col += (*mb_ptr2len)(ptr + col);
-      else
-        ++col;
+      col += utfc_ptr2len(ptr + col);
     }
     if (new_line == NULL)                   /* out of memory */
       break;
@@ -1048,13 +1046,13 @@ void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
   int len;
   int scroll_save = msg_scroll;
 
-  /*
-   * Disallow shell commands in restricted mode (-Z)
-   * Disallow shell commands from .exrc and .vimrc in current directory for
-   * security reasons.
-   */
-  if (check_restricted() || check_secure())
+  //
+  // Disallow shell commands from .exrc and .vimrc in current directory for
+  // security reasons.
+  //
+  if (check_secure()) {
     return;
+  }
 
   if (addr_count == 0) {                /* :! */
     msg_scroll = FALSE;             /* don't scroll here */
@@ -1382,10 +1380,9 @@ do_shell(
     int flags             // may be SHELL_DOOUT when output is redirected
 )
 {
-  // Disallow shell commands in restricted mode (-Z)
   // Disallow shell commands from .exrc and .vimrc in current directory for
   // security reasons.
-  if (check_restricted() || check_secure()) {
+  if (check_secure()) {
     msg_end();
     return;
   }
@@ -2240,11 +2237,9 @@ int do_ecmd(
     goto theend;
   }
 
-  /*
-   * if the file was changed we may not be allowed to abandon it
-   * - if we are going to re-edit the same file
-   * - or if we are the only window on this file and if ECMD_HIDE is FALSE
-   */
+  // If the file was changed we may not be allowed to abandon it:
+  // - if we are going to re-edit the same file
+  // - or if we are the only window on this file and if ECMD_HIDE is FALSE
   if (  ((!other_file && !(flags & ECMD_OLDBUF))
          || (curbuf->b_nwindows == 1
              && !(flags & (ECMD_HIDE | ECMD_ADDBUF))))
@@ -2497,8 +2492,12 @@ int do_ecmd(
       new_name = NULL;
     }
     set_bufref(&bufref, buf);
-    if (p_ur < 0 || curbuf->b_ml.ml_line_count <= p_ur) {
-      // Save all the text, so that the reload can be undone.
+
+    // If the buffer was used before, store the current contents so that
+    // the reload can be undone.  Do not do this if the (empty) buffer is
+    // being re-used for another file.
+    if (!(curbuf->b_flags & BF_NEVERLOADED)
+        && (p_ur < 0 || curbuf->b_ml.ml_line_count <= p_ur)) {
       // Sync first so that this is a separate undo-able action.
       u_sync(false);
       if (u_savecommon(0, curbuf->b_ml.ml_line_count + 1, 0, true)
@@ -3027,20 +3026,6 @@ void ex_z(exarg_T *eap)
   ex_no_reprint = true;
 }
 
-// Check if the restricted flag is set.
-// If so, give an error message and return true.
-// Otherwise, return false.
-bool check_restricted(void)
-  FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
-{
-  if (restricted) {
-    EMSG(_("E145: Shell commands and some functionality not allowed"
-           " in restricted mode"));
-    return true;
-  }
-  return false;
-}
-
 /*
  * Check if the secure flag is set (.exrc or .vimrc in current directory).
  * If so, give an error message and return TRUE.
@@ -3448,13 +3433,13 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
 
   sub_firstline = NULL;
 
-  /*
-   * ~ in the substitute pattern is replaced with the old pattern.
-   * We do it here once to avoid it to be replaced over and over again.
-   * But don't do it when it starts with "\=", then it's an expression.
-   */
-  if (!(sub[0] == '\\' && sub[1] == '='))
+  // ~ in the substitute pattern is replaced with the old pattern.
+  // We do it here once to avoid it to be replaced over and over again.
+  // But don't do it when it starts with "\=", then it's an expression.
+  assert(sub != NULL);
+  if (!(sub[0] == '\\' && sub[1] == '=')) {
     sub = regtilde(sub, p_magic);
+  }
 
   // Check for a match on each line.
   // If preview: limit to max('cmdwinheight', viewport).
@@ -3477,7 +3462,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
       int lastone;
       long nmatch_tl = 0;               // nr of lines matched below lnum
       int do_again;                     // do it again after joining lines
-      int skip_match = false;
+      bool skip_match = false;
       linenr_T sub_firstlnum;           // nr of first sub line
 
       /*
@@ -3588,16 +3573,13 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
         if (matchcol == prev_matchcol
             && regmatch.endpos[0].lnum == 0
             && matchcol == regmatch.endpos[0].col) {
-          if (sub_firstline[matchcol] == NUL)
-            /* We already were at the end of the line.  Don't look
-             * for a match in this line again. */
-            skip_match = TRUE;
-          else {
-            /* search for a match at next column */
-            if (has_mbyte)
-              matchcol += mb_ptr2len(sub_firstline + matchcol);
-            else
-              ++matchcol;
+          if (sub_firstline[matchcol] == NUL) {
+            // We already were at the end of the line.  Don't look
+            // for a match in this line again.
+            skip_match = true;
+          } else {
+            // search for a match at next column
+            matchcol += mb_ptr2len(sub_firstline + matchcol);
           }
           // match will be pushed to preview_lines, bring it into a proper state
           current_match.start.col = matchcol;
@@ -3621,7 +3603,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
           if (nmatch > 1) {
             matchcol = (colnr_T)STRLEN(sub_firstline);
             nmatch = 1;
-            skip_match = TRUE;
+            skip_match = true;
           }
           sub_nsubs++;
           did_sub = TRUE;
@@ -3719,8 +3701,8 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               update_topline();
               validate_cursor();
               update_screen(SOME_VALID);
-              highlight_match = FALSE;
-              redraw_later(SOME_VALID);
+              highlight_match = false;
+              redraw_later(curwin, SOME_VALID);
 
               curwin->w_p_fen = save_p_fen;
               if (msg_row == Rows - 1)
@@ -3791,7 +3773,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
              * get stuck when pressing 'n'. */
             if (nmatch > 1) {
               matchcol = (colnr_T)STRLEN(sub_firstline);
-              skip_match = TRUE;
+              skip_match = true;
             }
             goto skip;
           }
@@ -3968,8 +3950,8 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
                 STRMOVE(new_start, p1 + 1);
                 p1 = new_start - 1;
               }
-            } else if (has_mbyte) {
-              p1 += (*mb_ptr2len)(p1) - 1;
+            } else {
+              p1 += utfc_ptr2len(p1) - 1;
             }
           }
           size_t new_endcol = STRLEN(new_start);
@@ -5749,7 +5731,7 @@ static buf_T *show_sub(exarg_T *eap, pos_T old_cusr,
   }
   xfree(str);
 
-  redraw_later(SOME_VALID);
+  redraw_later(curwin, SOME_VALID);
   win_enter(save_curwin, false);  // Return to original window
   update_topline();
 

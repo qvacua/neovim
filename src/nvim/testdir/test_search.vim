@@ -244,6 +244,10 @@ func Test_search_cmdline2()
   " go to previous match (on line 2)
   call feedkeys("/the\<C-G>\<C-G>\<C-G>\<C-T>\<C-T>\<C-T>\<cr>", 'tx')
   call assert_equal('  2 these', getline('.'))
+  1
+  " go to previous match (on line 2)
+  call feedkeys("/the\<C-G>\<C-R>\<C-W>\<cr>", 'tx')
+  call assert_equal('theother', @/)
 
   " Test 2: keep the view,
   " after deleting a character from the search cmd
@@ -255,7 +259,7 @@ func Test_search_cmdline2()
   call assert_equal({'lnum': 10, 'leftcol': 0, 'col': 4, 'topfill': 0, 'topline': 6, 'coladd': 0, 'skipcol': 0, 'curswant': 4}, winsaveview())
 
   " remove all history entries
-  for i in range(10)
+  for i in range(11)
       call histdel('/')
   endfor
 
@@ -489,14 +493,14 @@ func Test_search_cmdline5()
   " Do not call test_override("char_avail", 1) so that <C-g> and <C-t> work
   " regardless char_avail.
   new
-  call setline(1, ['  1 the first', '  2 the second', '  3 the third'])
+  call setline(1, ['  1 the first', '  2 the second', '  3 the third', ''])
   set incsearch
   1
   call feedkeys("/the\<c-g>\<c-g>\<cr>", 'tx')
   call assert_equal('  3 the third', getline('.'))
   $
   call feedkeys("?the\<c-t>\<c-t>\<c-t>\<cr>", 'tx')
-  call assert_equal('  2 the second', getline('.'))
+  call assert_equal('  1 the first', getline('.'))
   " clean up
   set noincsearch
   bw!
@@ -704,6 +708,19 @@ func Test_incsearch_substitute_dump()
   call VerifyScreenDump(buf, 'Test_incsearch_substitute_12', {})
   call term_sendkeys(buf, "\<Esc>")
   call VerifyScreenDump(buf, 'Test_incsearch_substitute_13', {})
+  call term_sendkeys(buf, ":%bwipe!\<CR>")
+  call term_sendkeys(buf, ":only!\<CR>")
+
+  "  get :'<,'>s command in history
+  call term_sendkeys(buf, ":set cmdheight=2\<CR>")
+  call term_sendkeys(buf, "aasdfasdf\<Esc>")
+  call term_sendkeys(buf, "V:s/a/b/g\<CR>")
+  " Using '<,'> does not give E20
+  call term_sendkeys(buf, ":new\<CR>")
+  call term_sendkeys(buf, "aasdfasdf\<Esc>")
+  call term_sendkeys(buf, ":\<Up>\<Up>")
+  call VerifyScreenDump(buf, 'Test_incsearch_substitute_14', {})
+  call term_sendkeys(buf, "<Esc>")
 
   call StopVimInTerminal(buf)
   call delete('Xis_subst_script')
@@ -726,9 +743,12 @@ func Test_incsearch_sort_dump()
   " the 'ambiwidth' check.
   sleep 100m
 
-  " Need to send one key at a time to force a redraw.
   call term_sendkeys(buf, ':sort ni u /on')
   call VerifyScreenDump(buf, 'Test_incsearch_sort_01', {})
+  call term_sendkeys(buf, "\<Esc>")
+
+  call term_sendkeys(buf, ':sort! /on')
+  call VerifyScreenDump(buf, 'Test_incsearch_sort_02', {})
   call term_sendkeys(buf, "\<Esc>")
 
   call StopVimInTerminal(buf)
@@ -861,6 +881,21 @@ func Test_incsearch_with_change()
   call delete('Xis_change_script')
 endfunc
 
+func Test_incsearch_cmdline_modifier()
+  throw 'skipped: Nvim does not support test_override()'
+  if !exists('+incsearch')
+    return
+  endif
+  call test_override("char_avail", 1)
+  new
+  call setline(1, ['foo'])
+  set incsearch
+  " Test that error E14 does not occur in parsing command modifier.
+  call feedkeys("V:tab", 'tx')
+
+  call Incsearch_cleanup()
+endfunc
+
 func Test_incsearch_scrolling()
   if !CanRunVimInTerminal()
     return
@@ -946,6 +981,21 @@ func Test_incsearch_substitute()
   call Incsearch_cleanup()
 endfunc
 
+func Test_incsearch_substitute_long_line()
+  throw 'skipped: Nvim does not support test_override()'
+  new
+  call test_override("char_avail", 1)
+  set incsearch
+
+  call repeat('x', 100000)->setline(1)
+  call feedkeys(':s/\%c', 'xt')
+  redraw
+  call feedkeys("\<Esc>", 'xt')
+
+  call Incsearch_cleanup()
+  bwipe!
+endfunc
+
 func Test_search_undefined_behaviour()
   if !has("terminal")
     return
@@ -980,6 +1030,40 @@ func Test_search_sentence()
   call assert_fails("/", 'E486')
   /\%'(
   /
+endfunc
+
+" Test that there is no crash when there is a last search pattern but no last
+" substitute pattern.
+func Test_no_last_substitute_pat()
+  " Use viminfo to set the last search pattern to a string and make the last
+  " substitute pattern the most recent used and make it empty (NULL).
+  call writefile(['~MSle0/bar', '~MSle0~&'], 'Xviminfo')
+  rviminfo! Xviminfo
+  call assert_fails('normal n', 'E35:')
+
+  call delete('Xviminfo')
+endfunc
+
+func Test_search_Ctrl_L_combining()
+  " Make sure, that Ctrl-L works correctly with combining characters.
+  " It uses an artificial example of an 'a' with 4 combining chars:
+    " 'a' U+0061 Dec:97 LATIN SMALL LETTER A &#x61; /\%u61\Z "\u0061" 
+    " ' ̀' U+0300 Dec:768 COMBINING GRAVE ACCENT &#x300; /\%u300\Z "\u0300"
+    " ' ́' U+0301 Dec:769 COMBINING ACUTE ACCENT &#x301; /\%u301\Z "\u0301"
+    " ' ̇' U+0307 Dec:775 COMBINING DOT ABOVE &#x307; /\%u307\Z "\u0307"
+    " ' ̣' U+0323 Dec:803 COMBINING DOT BELOW &#x323; /\%u323 "\u0323" 
+  " Those should also appear on the commandline
+  if !exists('+incsearch')
+    return
+  endif
+  call Cmdline3_prep()
+  1
+  let bufcontent = ['', 'Miạ̀́̇m']
+  call append('$', bufcontent)
+  call feedkeys("/Mi\<c-l>\<c-l>\<cr>", 'tx')
+  call assert_equal(5, line('.'))
+  call assert_equal(bufcontent[1], @/)
+  call Incsearch_cleanup()
 endfunc
 
 func Test_large_hex_chars1()
@@ -1017,6 +1101,24 @@ endfunc
 func Test_one_error_msg()
   " This  was also giving an internal error
   call assert_fails('call search(" \\((\\v[[=P=]]){185}+             ")', 'E871:')
+endfunc
+
+func Test_incsearch_add_char_under_cursor()
+  throw 'skipped: Nvim does not support test_override()'
+  if !exists('+incsearch')
+    return
+  endif
+  set incsearch
+  new
+  call setline(1, ['find match', 'anything'])
+  1
+  call test_override('char_avail', 1)
+  call feedkeys("fc/m\<C-L>\<C-L>\<C-L>\<C-L>\<C-L>\<CR>", 'tx')
+  call assert_equal('match', @/)
+  call test_override('char_avail', 0)
+
+  set incsearch&
+  bwipe!
 endfunc
 
 " Test for the search() function with match at the cursor position

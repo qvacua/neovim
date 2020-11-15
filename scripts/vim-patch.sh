@@ -211,6 +211,18 @@ preprocess_patch() {
   LC_ALL=C sed -e 's/\( [ab]\/src\)/\1\/nvim/g' \
     "$file" > "$file".tmp && mv "$file".tmp "$file"
 
+  # Rename evalfunc.c to eval/funcs.c
+  LC_ALL=C sed -e 's/\( [ab]\/src\/nvim\)\/evalfunc\.c/\1\/eval\/funcs\.c/g' \
+    "$file" > "$file".tmp && mv "$file".tmp "$file"
+
+  # Rename userfunc.c to eval/userfunc.c
+  LC_ALL=C sed -e 's/\( [ab]\/src\/nvim\)\/userfunc\.c/\1\/eval\/userfunc\.c/g' \
+    "$file" > "$file".tmp && mv "$file".tmp "$file"
+
+  # Rename session.c to ex_session.c
+  LC_ALL=C sed -e 's/\( [ab]\/src\/nvim\)\/session\(\.[ch]\)/\1\/ex_session\2/g' \
+    "$file" > "$file".tmp && mv "$file".tmp "$file"
+
   # Rename test_urls.vim to check_urls.vim
   LC_ALL=C sed -e 's@\( [ab]\)/runtime/doc/test\(_urls.vim\)@\1/scripts/check\2@g' \
     "$file" > "$file".tmp && mv "$file".tmp "$file"
@@ -597,8 +609,11 @@ list_missing_previous_vimpatches_for_patch() {
   set -u
 
   local -a missing_unique
+  local stat
   while IFS= read -r line; do
-    missing_unique+=("$line")
+    local commit="${line%%:*}"
+    stat="$(git -C "${VIM_SOURCE_DIR}" show --format= --shortstat "${commit}")"
+    missing_unique+=("$(printf '%s\n  %s' "$line" "$stat")")
   done < <(printf '%s\n' "${missing_list[@]}" | sort -u)
 
   msg_err "$(printf '%d missing previous Vim patches:' ${#missing_unique[@]})"

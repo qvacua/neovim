@@ -736,7 +736,7 @@ int eval_expr_typval(const typval_T *expr, typval_T *argv,
     if (s == NULL || *s == NUL) {
       return FAIL;
     }
-    if (call_func(s, (int)STRLEN(s), rettv, argc, argv, NULL,
+    if (call_func(s, -1, rettv, argc, argv, NULL,
                   0L, 0L, &dummy, true, NULL, NULL) == FAIL) {
       return FAIL;
     }
@@ -746,7 +746,7 @@ int eval_expr_typval(const typval_T *expr, typval_T *argv,
     if (s == NULL || *s == NUL) {
       return FAIL;
     }
-    if (call_func(s, (int)STRLEN(s), rettv, argc, argv, NULL,
+    if (call_func(s, -1, rettv, argc, argv, NULL,
                   0L, 0L, &dummy, true, partial, NULL) == FAIL) {
       return FAIL;
     }
@@ -2994,7 +2994,6 @@ char_u *get_user_var_name(expand_T *xp, int idx)
   static size_t tdone;
   static size_t vidx;
   static hashitem_T   *hi;
-  hashtab_T           *ht;
 
   if (idx == 0) {
     gdone = bdone = wdone = vidx = 0;
@@ -3015,7 +3014,10 @@ char_u *get_user_var_name(expand_T *xp, int idx)
   }
 
   // b: variables
-  ht = &curbuf->b_vars->dv_hashtab;
+  // In cmdwin, the alternative buffer should be used.
+  hashtab_T *ht = (cmdwin_type != 0 && get_cmdline_type() == NUL)
+    ? &prevwin->w_buffer->b_vars->dv_hashtab
+    : &curbuf->b_vars->dv_hashtab;
   if (bdone < ht->ht_used) {
     if (bdone++ == 0)
       hi = ht->ht_array;
@@ -3027,7 +3029,10 @@ char_u *get_user_var_name(expand_T *xp, int idx)
   }
 
   // w: variables
-  ht = &curwin->w_vars->dv_hashtab;
+  // In cmdwin, the alternative window should be used.
+  ht = (cmdwin_type != 0 && get_cmdline_type() == NUL)
+    ? &prevwin->w_vars->dv_hashtab
+    : &curwin->w_vars->dv_hashtab;
   if (wdone < ht->ht_used) {
     if (wdone++ == 0)
       hi = ht->ht_array;
@@ -3802,8 +3807,9 @@ static int eval6(char_u **arg, typval_T *rettv, int evaluate, int want_string)
    */
   for (;; ) {
     op = **arg;
-    if (op != '*' && op != '/' && op != '%')
+    if (op != '*' && op != '/' && op != '%') {
       break;
+    }
 
     if (evaluate) {
       if (rettv->v_type == VAR_FLOAT) {
@@ -3905,6 +3911,7 @@ static int eval6(char_u **arg, typval_T *rettv, int evaluate, int want_string)
 //  (expression) nested expression
 //  [expr, expr] List
 //  {key: val, key: val}  Dictionary
+//  #{key: val, key: val}  Dictionary with literal keys
 //
 //  Also handle:
 //  ! in front  logical NOT
@@ -4012,11 +4019,21 @@ static int eval7(
   case '[':   ret = get_list_tv(arg, rettv, evaluate);
     break;
 
+  // Dictionary: #{key: val, key: val}
+  case '#':
+    if ((*arg)[1] == '{') {
+      (*arg)++;
+      ret = dict_get_tv(arg, rettv, evaluate, true);
+    } else {
+      ret = NOTDONE;
+    }
+    break;
+
   // Lambda: {arg, arg -> expr}
-  // Dictionary: {key: val, key: val}
+  // Dictionary: {'key': val, 'key': val}
   case '{':   ret = get_lambda_tv(arg, rettv, evaluate);
               if (ret == NOTDONE) {
-                ret = dict_get_tv(arg, rettv, evaluate);
+                ret = dict_get_tv(arg, rettv, evaluate, false);
               }
     break;
 
@@ -4518,7 +4535,6 @@ int get_option_tv(const char **const arg, typval_T *const rettv,
 static int get_string_tv(char_u **arg, typval_T *rettv, int evaluate)
 {
   char_u      *p;
-  char_u      *name;
   unsigned int extra = 0;
 
   /*
@@ -4526,11 +4542,14 @@ static int get_string_tv(char_u **arg, typval_T *rettv, int evaluate)
    */
   for (p = *arg + 1; *p != NUL && *p != '"'; MB_PTR_ADV(p)) {
     if (*p == '\\' && p[1] != NUL) {
-      ++p;
-      /* A "\<x>" form occupies at least 4 characters, and produces up
-       * to 6 characters: reserve space for 2 extra */
-      if (*p == '<')
-        extra += 2;
+      p++;
+      // A "\<x>" form occupies at least 4 characters, and produces up
+      // to 21 characters (3 * 6 for the char and 3 for a modifier):
+      // reserve space for 18 extra.
+      // Each byte in the char could be encoded as K_SPECIAL K_EXTRA x.
+      if (*p == '<') {
+        extra += 18;
+      }
     }
   }
 
@@ -4549,7 +4568,8 @@ static int get_string_tv(char_u **arg, typval_T *rettv, int evaluate)
    * Copy the string into allocated memory, handling backslashed
    * characters.
    */
-  name = xmalloc(p - *arg + extra);
+  const int len = (int)(p - *arg + extra);
+  char_u *name = xmalloc(len);
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = name;
 
@@ -4616,6 +4636,9 @@ static int get_string_tv(char_u **arg, typval_T *rettv, int evaluate)
         extra = trans_special((const char_u **)&p, STRLEN(p), name, true, true);
         if (extra != 0) {
           name += extra;
+          if (name >= rettv->vval.v_string + len) {
+            iemsg("get_string_tv() used more space than allocated");
+          }
           break;
         }
         FALLTHROUGH;
@@ -5341,11 +5364,31 @@ static inline bool set_ref_dict(dict_T *dict, int copyID)
   return false;
 }
 
-/*
- * Allocate a variable for a Dictionary and fill it from "*arg".
- * Return OK or FAIL.  Returns NOTDONE for {expr}.
- */
-static int dict_get_tv(char_u **arg, typval_T *rettv, int evaluate)
+
+// Get the key for *{key: val} into "tv" and advance "arg".
+// Return FAIL when there is no valid key.
+static int get_literal_key(char_u **arg, typval_T *tv)
+  FUNC_ATTR_NONNULL_ALL
+{
+  char_u *p;
+
+  if (!ASCII_ISALNUM(**arg) && **arg != '_' && **arg != '-') {
+    return FAIL;
+  }
+  for (p = *arg; ASCII_ISALNUM(*p) || *p == '_' || *p == '-'; p++) {
+  }
+  tv->v_type = VAR_STRING;
+  tv->vval.v_string = vim_strnsave(*arg, (int)(p - *arg));
+
+  *arg = skipwhite(p);
+  return OK;
+}
+
+// Allocate a variable for a Dictionary and fill it from "*arg".
+// "literal" is true for *{key: val}
+// Return OK or FAIL.  Returns NOTDONE for {expr}.
+static int dict_get_tv(char_u **arg, typval_T *rettv, int evaluate,
+                       bool literal)
 {
   dict_T      *d = NULL;
   typval_T tvkey;
@@ -5379,7 +5422,9 @@ static int dict_get_tv(char_u **arg, typval_T *rettv, int evaluate)
 
   *arg = skipwhite(*arg + 1);
   while (**arg != '}' && **arg != NUL) {
-    if (eval1(arg, &tvkey, evaluate) == FAIL) {         // recursive!
+    if ((literal
+         ? get_literal_key(arg, &tvkey)
+         : eval1(arg, &tvkey, evaluate)) == FAIL) {  // recursive!
       goto failret;
     }
     if (**arg != ':') {
@@ -6962,9 +7007,10 @@ void set_buffer_lines(buf_T *buf, linenr_T lnum_arg, bool append,
 
     if (!append && lnum <= curbuf->b_ml.ml_line_count) {
       // Existing line, replace it.
+      int old_len = (int)STRLEN(ml_get(lnum));
       if (u_savesub(lnum) == OK
           && ml_replace(lnum, (char_u *)line, true) == OK) {
-        changed_bytes(lnum, 0);
+        inserted_bytes(lnum, 0, old_len, STRLEN(line));
         if (is_curbuf && lnum == curwin->w_cursor.lnum) {
           check_cursor_col();
         }
@@ -7106,7 +7152,7 @@ void get_system_output_as_rettv(typval_T *argvars, typval_T *rettv,
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;
 
-  if (check_restricted() || check_secure()) {
+  if (check_secure()) {
     return;
   }
 
@@ -7263,7 +7309,7 @@ bool callback_call(Callback *const callback, const int argcount_in,
   }
 
   int dummy;
-  return call_func(name, (int)STRLEN(name), rettv, argcount_in, argvars_in,
+  return call_func(name, -1, rettv, argcount_in, argvars_in,
                    NULL, curwin->w_cursor.lnum, curwin->w_cursor.lnum, &dummy,
                    true, partial, NULL);
 }
@@ -8485,7 +8531,7 @@ handle_subscript(
       } else {
         s = (char_u *)"";
       }
-      ret = get_func_tv(s, lua ? slen : (int)STRLEN(s), rettv, (char_u **)arg,
+      ret = get_func_tv(s, lua ? slen : -1, rettv, (char_u **)arg,
                         curwin->w_cursor.lnum, curwin->w_cursor.lnum,
                         &len, evaluate, pt, selfdict);
 
@@ -10372,7 +10418,7 @@ Channel *find_job(uint64_t id, bool show_error)
 
 void script_host_eval(char *name, typval_T *argvars, typval_T *rettv)
 {
-  if (check_restricted() || check_secure()) {
+  if (check_secure()) {
     return;
   }
 

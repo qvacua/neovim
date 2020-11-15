@@ -129,6 +129,7 @@ void changed(void)
 void changed_internal(void)
 {
   curbuf->b_changed = true;
+  curbuf->b_changed_invalid = true;
   ml_setflags(curbuf);
   check_status(curbuf);
   redraw_tabline = true;
@@ -142,7 +143,6 @@ static void changed_common(linenr_T lnum, colnr_T col, linenr_T lnume,
                            long xtra)
 {
   int i;
-  int cols;
   pos_T       *p;
   int add;
 
@@ -170,7 +170,7 @@ static void changed_common(linenr_T lnum, colnr_T col, linenr_T lnume,
         if (p->lnum != lnum) {
             add = true;
         } else {
-          cols = comp_textwidth(false);
+          int cols = comp_textwidth(false);
           if (cols == 0) {
               cols = 79;
           }
@@ -295,7 +295,7 @@ static void changed_common(linenr_T lnum, colnr_T col, linenr_T lnume,
       // change.
       if (wp->w_p_rnu
           || (wp->w_p_cul && lnum <= wp->w_last_cursorline)) {
-        redraw_win_later(wp, SOME_VALID);
+        redraw_later(wp, SOME_VALID);
       }
     }
   }
@@ -349,7 +349,7 @@ void changed_bytes(linenr_T lnum, colnr_T col)
 
     FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
       if (wp->w_p_diff && wp != curwin) {
-        redraw_win_later(wp, VALID);
+        redraw_later(wp, VALID);
         wlnum = diff_lnum_win(lnum, wp);
         if (wlnum > 0) {
             changedOneline(wp->w_buffer, wlnum);
@@ -362,8 +362,7 @@ void changed_bytes(linenr_T lnum, colnr_T col)
 /// insert/delete bytes at column
 ///
 /// Like changed_bytes() but also adjust extmark for "new" bytes.
-/// When "new" is negative text was deleted.
-static void inserted_bytes(linenr_T lnum, colnr_T col, int old, int new)
+void inserted_bytes(linenr_T lnum, colnr_T col, int old, int new)
 {
   if (curbuf_splice_pending == 0) {
     extmark_splice_cols(curbuf, (int)lnum-1, col, old, new, kExtmarkUndo);
@@ -477,7 +476,7 @@ changed_lines(
 
     FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
       if (wp->w_p_diff && wp != curwin) {
-        redraw_win_later(wp, VALID);
+        redraw_later(wp, VALID);
         wlnum = diff_lnum_win(lnum, wp);
         if (wlnum > 0) {
           changed_lines_buf(wp->w_buffer, wlnum,
@@ -504,6 +503,7 @@ void unchanged(buf_T *buf, int ff, bool always_inc_changedtick)
 {
   if (buf->b_changed || (ff && file_ff_differs(buf, false))) {
     buf->b_changed = false;
+    buf->b_changed_invalid = true;
     ml_setflags(buf);
     if (ff) {
       save_file_ff(buf);
@@ -1677,9 +1677,16 @@ int open_line(
         truncate_spaces(saved_line);
       }
       ml_replace(curwin->w_cursor.lnum, saved_line, false);
-      extmark_splice_cols(
-          curbuf, (int)curwin->w_cursor.lnum,
-          0, curwin->w_cursor.col, (int)STRLEN(saved_line), kExtmarkUndo);
+
+      int new_len = (int)STRLEN(saved_line);
+
+      // TODO(vigoux): maybe there is issues there with expandtabs ?
+      if (new_len < curwin->w_cursor.col) {
+        extmark_splice_cols(
+            curbuf, (int)curwin->w_cursor.lnum,
+            new_len, curwin->w_cursor.col - new_len, 0, kExtmarkUndo);
+      }
+
       saved_line = NULL;
       if (did_append) {
         changed_lines(curwin->w_cursor.lnum, curwin->w_cursor.col,

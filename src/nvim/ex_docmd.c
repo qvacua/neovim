@@ -258,6 +258,27 @@ void do_exmode(int improved)
   msg_scroll = save_msg_scroll;
 }
 
+// Print the executed command for when 'verbose' is set.
+// When "lnum" is 0 only print the command.
+static void msg_verbose_cmd(linenr_T lnum, char_u *cmd)
+  FUNC_ATTR_NONNULL_ALL
+{
+  no_wait_return++;
+  verbose_enter_scroll();
+
+  if (lnum == 0) {
+    smsg(_("Executing: %s"), cmd);
+  } else {
+    smsg(_("line %" PRIdLINENR ": %s"), lnum, cmd);
+  }
+  if (msg_silent == 0) {
+    msg_puts("\n");   // don't overwrite this
+  }
+
+  verbose_leave_scroll();
+  no_wait_return--;
+}
+
 /*
  * Execute a simple command line.  Used for translated commands like "*".
  */
@@ -567,17 +588,8 @@ int do_cmdline(char_u *cmdline, LineGetter fgetline,
       }
     }
 
-    if (p_verbose >= 15 && sourcing_name != NULL) {
-      ++no_wait_return;
-      verbose_enter_scroll();
-
-      smsg(_("line %" PRIdLINENR ": %s"), sourcing_lnum, cmdline_copy);
-      if (msg_silent == 0) {
-        msg_puts("\n");  // don't overwrite this either
-      }
-
-      verbose_leave_scroll();
-      --no_wait_return;
+    if ((p_verbose >= 15 && sourcing_name != NULL) || p_verbose >= 16) {
+      msg_verbose_cmd(sourcing_lnum, cmdline_copy);
     }
 
     /*
@@ -1239,7 +1251,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
   char_u              *errormsg = NULL;  // error message
   char_u              *after_modifier = NULL;
   exarg_T ea;
-  int save_msg_scroll = msg_scroll;
+  const int save_msg_scroll = msg_scroll;
   cmdmod_T save_cmdmod;
   const int save_reg_executing = reg_executing;
   char_u              *cmd;
@@ -1489,10 +1501,6 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     if (sandbox != 0 && !(ea.argt & SBOXOK)) {
       // Command not allowed in sandbox.
       errormsg = (char_u *)_(e_sandbox);
-      goto doend;
-    }
-    if (restricted != 0 && (ea.argt & RESTRICT)) {
-      errormsg = (char_u *)_("E981: Command not allowed in restricted mode");
       goto doend;
     }
     if (!MODIFIABLE(curbuf) && (ea.argt & MODIFY)
@@ -1991,33 +1999,9 @@ doend:
       ? cmdnames[(int)ea.cmdidx].cmd_name
       : (char_u *)NULL);
 
-  if (ea.verbose_save >= 0) {
-    p_verbose = ea.verbose_save;
-  }
-  free_cmdmod();
-
+  undo_cmdmod(&ea, save_msg_scroll);
   cmdmod = save_cmdmod;
   reg_executing = save_reg_executing;
-
-  if (ea.save_msg_silent != -1) {
-    // messages could be enabled for a serious error, need to check if the
-    // counters don't become negative
-    if (!did_emsg || msg_silent > ea.save_msg_silent) {
-      msg_silent = ea.save_msg_silent;
-    }
-    emsg_silent -= ea.did_esilent;
-    if (emsg_silent < 0) {
-      emsg_silent = 0;
-    }
-    // Restore msg_scroll, it's set by file I/O commands, even when no
-    // message is actually displayed.
-    msg_scroll = save_msg_scroll;
-
-    /* "silent reg" or "silent echo x" inside "redir" leaves msg_col
-     * somewhere in the line.  Put it back in the first column. */
-    if (redirecting())
-      msg_col = 0;
-  }
 
   if (ea.did_sandbox) {
     sandbox--;
@@ -2228,17 +2212,19 @@ int parse_command_modifiers(exarg_T *eap, char_u **errormsg, bool skip_only)
       continue;
 
     case 't':   if (checkforcmd(&p, "tab", 3)) {
-      long tabnr = get_address(
-          eap, &eap->cmd, ADDR_TABS, eap->skip, skip_only, false, 1);
+      if (!skip_only) {
+        long tabnr = get_address(
+            eap, &eap->cmd, ADDR_TABS, eap->skip, skip_only, false, 1);
 
-      if (tabnr == MAXLNUM) {
-        cmdmod.tab = tabpage_index(curtab) + 1;
-      } else {
-        if (tabnr < 0 || tabnr > LAST_TAB_NR) {
-          *errormsg = (char_u *)_(e_invrange);
-          return false;
+        if (tabnr == MAXLNUM) {
+          cmdmod.tab = tabpage_index(curtab) + 1;
+        } else {
+          if (tabnr < 0 || tabnr > LAST_TAB_NR) {
+            *errormsg = (char_u *)_(e_invrange);
+            return false;
+          }
+          cmdmod.tab = tabnr + 1;
         }
-        cmdmod.tab = tabnr + 1;
       }
       eap->cmd = p;
       continue;
@@ -2284,9 +2270,14 @@ int parse_command_modifiers(exarg_T *eap, char_u **errormsg, bool skip_only)
   return OK;
 }
 
-// Free contents of "cmdmod".
-static void free_cmdmod(void)
+// Undo and free contents of "cmdmod".
+static void undo_cmdmod(const exarg_T *eap, int save_msg_scroll)
+  FUNC_ATTR_NONNULL_ALL
 {
+  if (eap->verbose_save >= 0) {
+    p_verbose = eap->verbose_save;
+  }
+
   if (cmdmod.save_ei != NULL) {
     /* Restore 'eventignore' to the value before ":noautocmd". */
     set_string_option_direct((char_u *)"ei", -1, cmdmod.save_ei,
@@ -2294,8 +2285,27 @@ static void free_cmdmod(void)
     free_string_option(cmdmod.save_ei);
   }
 
-  if (cmdmod.filter_regmatch.regprog != NULL) {
-    vim_regfree(cmdmod.filter_regmatch.regprog);
+  vim_regfree(cmdmod.filter_regmatch.regprog);
+
+  if (eap->save_msg_silent != -1) {
+    // messages could be enabled for a serious error, need to check if the
+    // counters don't become negative
+    if (!did_emsg || msg_silent > eap->save_msg_silent) {
+      msg_silent = eap->save_msg_silent;
+    }
+    emsg_silent -= eap->did_esilent;
+    if (emsg_silent < 0) {
+      emsg_silent = 0;
+    }
+    // Restore msg_scroll, it's set by file I/O commands, even when no
+    // message is actually displayed.
+    msg_scroll = save_msg_scroll;
+
+    // "silent reg" or "silent echo x" inside "redir" leaves msg_col
+    // somewhere in the line.  Put it back in the first column.
+    if (redirecting()) {
+      msg_col = 0;
+    }
   }
 }
 
@@ -2386,6 +2396,7 @@ int parse_cmd_address(exarg_T *eap, char_u **errormsg, bool silent)
             }
             break;
           case ADDR_TABS_RELATIVE:
+          case ADDR_OTHER:
             *errormsg = (char_u *)_(e_invrange);
             return FAIL;
           case ADDR_ARGUMENTS:
@@ -2494,12 +2505,8 @@ static void append_command(char_u *cmd)
   STRCAT(IObuff, ": ");
   d = IObuff + STRLEN(IObuff);
   while (*s != NUL && d - IObuff < IOSIZE - 7) {
-    if (
-      enc_utf8 ? (s[0] == 0xc2 && s[1] == 0xa0) :
-      *s == 0xa0) {
-      s +=
-        enc_utf8 ? 2 :
-        1;
+    if (s[0] == 0xc2 && s[1] == 0xa0) {
+      s += 2;
       STRCPY(d, "<a0>");
       d += 4;
     } else
@@ -4431,6 +4438,9 @@ void separate_nextcmd(exarg_T *eap)
     else if (p[0] == '`' && p[1] == '=' && (eap->argt & XFILE)) {
       p += 2;
       (void)skip_expr(&p);
+      if (*p == NUL) {  // stop at NUL after CTRL-V
+        break;
+      }
     }
     /* Check for '"': start of comment or '|': next command */
     /* :@" does not start a comment!
@@ -5043,16 +5053,18 @@ fail:
 static struct {
   int expand;
   char *name;
+  char *shortname;
 } addr_type_complete[] =
 {
-  { ADDR_ARGUMENTS, "arguments" },
-  { ADDR_LINES, "lines" },
-  { ADDR_LOADED_BUFFERS, "loaded_buffers" },
-  { ADDR_TABS, "tabs" },
-  { ADDR_BUFFERS, "buffers" },
-  { ADDR_WINDOWS, "windows" },
-  { ADDR_QUICKFIX, "quickfix" },
-  { -1, NULL }
+  { ADDR_ARGUMENTS, "arguments", "arg" },
+  { ADDR_LINES, "lines", "line" },
+  { ADDR_LOADED_BUFFERS, "loaded_buffers", "load" },
+  { ADDR_TABS, "tabs", "tab" },
+  { ADDR_BUFFERS, "buffers", "buf" },
+  { ADDR_WINDOWS, "windows", "win" },
+  { ADDR_QUICKFIX, "quickfix", "qf" },
+  { ADDR_OTHER, "other", "?" },
+  { -1, NULL, NULL }
 };
 
 /*
@@ -5137,7 +5149,7 @@ static void uc_list(char_u *name, size_t name_len)
       // Put out the title first time
       if (!found) {
         MSG_PUTS_TITLE(_("\n    Name              Args Address "
-                         "Complete   Definition"));
+                         "Complete    Definition"));
       }
       found = true;
       msg_putchar('\n');
@@ -5223,13 +5235,13 @@ static void uc_list(char_u *name, size_t name_len)
 
       do {
         IObuff[len++] = ' ';
-      } while (len < 9 - over);
+      } while (len < 8 - over);
 
       // Address Type
       for (j = 0; addr_type_complete[j].expand != -1; j++) {
         if (addr_type_complete[j].expand != ADDR_LINES
             && addr_type_complete[j].expand == cmd->uc_addr_type) {
-          STRCPY(IObuff + len, addr_type_complete[j].name);
+          STRCPY(IObuff + len, addr_type_complete[j].shortname);
           len += (int)STRLEN(IObuff + len);
           break;
         }
@@ -5248,13 +5260,13 @@ static void uc_list(char_u *name, size_t name_len)
 
       do {
         IObuff[len++] = ' ';
-      } while (len < 24 - over);
+      } while (len < 25 - over);
 
       IObuff[len] = '\0';
       msg_outtrans(IObuff);
 
       msg_outtrans_special(cmd->uc_rep, false,
-                           name_len == 0 ? Columns - 46 : 0);
+                           name_len == 0 ? Columns - 47 : 0);
       if (p_verbose > 0) {
         last_set_msg(cmd->uc_script_ctx);
       }
@@ -5383,7 +5395,7 @@ invalid_count:
       if (parse_addr_type_arg(val, (int)vallen, argt, addr_type_arg) == FAIL) {
         return FAIL;
       }
-      if (addr_type_arg != ADDR_LINES) {
+      if (*addr_type_arg != ADDR_LINES) {
         *argt |= (ZEROR | NOTADR);
       }
     } else {
@@ -5548,7 +5560,8 @@ static char_u *uc_split_args(char_u *arg, size_t *lenp)
         break;
       len += 3;       /* "," */
     } else {
-      int charlen = (*mb_ptr2len)(p);
+      const int charlen = utfc_ptr2len(p);
+
       len += charlen;
       p += charlen;
     }
@@ -6607,26 +6620,23 @@ static void ex_stop(exarg_T *eap)
 #ifdef CUSTOM_UI
   return;
 #endif
-  
-  // Disallow suspending in restricted mode (-Z)
-  if (!check_restricted()) {
-    if (!eap->forceit) {
-      autowrite_all();
-    }
-    apply_autocmds(EVENT_VIMSUSPEND, NULL, NULL, false, NULL);
 
-    // TODO(bfredl): the TUI should do this on suspend
-    ui_cursor_goto(Rows - 1, 0);
-    ui_call_grid_scroll(1, 0, Rows, 0, Columns, 1, 0);
-    ui_flush();
-    ui_call_suspend();  // call machine specific function
-
-    ui_flush();
-    maketitle();
-    resettitle();  // force updating the title
-    ui_refresh();  // may have resized window
-    apply_autocmds(EVENT_VIMRESUME, NULL, NULL, false, NULL);
+  if (!eap->forceit) {
+    autowrite_all();
   }
+  apply_autocmds(EVENT_VIMSUSPEND, NULL, NULL, false, NULL);
+
+  // TODO(bfredl): the TUI should do this on suspend
+  ui_cursor_goto(Rows - 1, 0);
+  ui_call_grid_scroll(1, 0, Rows, 0, Columns, 1, 0);
+  ui_flush();
+  ui_call_suspend();  // call machine specific function
+
+  ui_flush();
+  maketitle();
+  resettitle();  // force updating the title
+  ui_refresh();  // may have resized window
+  apply_autocmds(EVENT_VIMRESUME, NULL, NULL, false, NULL);
 }
 
 // ":exit", ":xit" and ":wq": Write file and quite the current window.
@@ -6916,8 +6926,9 @@ void ex_splitview(exarg_T *eap)
 {
   win_T       *old_curwin = curwin;
   char_u      *fname = NULL;
-
-
+  const bool use_tab = eap->cmdidx == CMD_tabedit
+    || eap->cmdidx == CMD_tabfind
+    || eap->cmdidx == CMD_tabnew;
 
   /* A ":split" in the quickfix window works like ":new".  Don't want two
    * quickfix windows.  But it's OK when doing ":tab split". */
@@ -6939,9 +6950,7 @@ void ex_splitview(exarg_T *eap)
   /*
    * Either open new tab page or split the window.
    */
-  if (eap->cmdidx == CMD_tabedit
-      || eap->cmdidx == CMD_tabfind
-      || eap->cmdidx == CMD_tabnew) {
+  if (use_tab) {
     if (win_new_tabpage(cmdmod.tab != 0 ? cmdmod.tab : eap->addr_count == 0
                         ? 0 : (int)eap->line2 + 1, eap->arg) != FAIL) {
       do_exedit(eap, old_curwin);
@@ -7126,14 +7135,14 @@ static void ex_resize(exarg_T *eap)
   n = atol((char *)eap->arg);
   if (cmdmod.split & WSP_VERT) {
     if (*eap->arg == '-' || *eap->arg == '+') {
-      n += curwin->w_width;
+      n += wp->w_width;
     } else if (n == 0 && eap->arg[0] == NUL) {  // default is very wide
       n = Columns;
     }
     win_setwidth_win(n, wp);
   } else {
     if (*eap->arg == '-' || *eap->arg == '+') {
-      n += curwin->w_height;
+      n += wp->w_height;
     } else if (n == 0 && eap->arg[0] == NUL) {  // default is very high
       n = Rows-1;
     }
@@ -7367,7 +7376,7 @@ static void ex_syncbind(exarg_T *eap)
       else
         scrolldown(-y, TRUE);
       curwin->w_scbind_pos = topline;
-      redraw_later(VALID);
+      redraw_later(curwin, VALID);
       cursor_correct();
       curwin->w_redr_status = TRUE;
     }
@@ -7491,7 +7500,7 @@ void post_chdir(CdScope scope, bool trigger_dirchanged)
   shorten_fnames(true);
 
   if (trigger_dirchanged) {
-    do_autocmd_dirchanged(cwd, scope);
+    do_autocmd_dirchanged(cwd, scope, false);
   }
 }
 
@@ -8260,12 +8269,10 @@ static void ex_normal(exarg_T *eap)
     return;
   }
 
-  /*
-   * vgetc() expects a CSI and K_SPECIAL to have been escaped.  Don't do
-   * this for the K_SPECIAL leading byte, otherwise special keys will not
-   * work.
-   */
-  if (has_mbyte) {
+  // vgetc() expects a CSI and K_SPECIAL to have been escaped.  Don't do
+  // this for the K_SPECIAL leading byte, otherwise special keys will not
+  // work.
+  {
     int len = 0;
 
     /* Count the number of characters to be escaped. */
@@ -8304,9 +8311,8 @@ static void ex_normal(exarg_T *eap)
         check_cursor_moved(curwin);
       }
 
-      exec_normal_cmd(
-          arg != NULL ? arg :
-          eap->arg, eap->forceit ? REMAP_NONE : REMAP_YES, FALSE);
+      exec_normal_cmd(arg != NULL ? arg : eap->arg,
+                      eap->forceit ? REMAP_NONE : REMAP_YES, false);
     } while (eap->addr_count > 0 && eap->line1 <= eap->line2 && !got_int);
   }
 
@@ -8494,7 +8500,7 @@ static void ex_pedit(exarg_T *eap)
   if (curwin != curwin_save && win_valid(curwin_save)) {
     // Return cursor to where we were
     validate_cursor();
-    redraw_later(VALID);
+    redraw_later(curwin, VALID);
     win_enter(curwin_save, true);
   }
   g_do_tagpreview = 0;
@@ -9301,14 +9307,17 @@ static void ex_match(exarg_T *eap)
 static void ex_fold(exarg_T *eap)
 {
   if (foldManualAllowed(true)) {
-    foldCreate(curwin, eap->line1, eap->line2);
+    pos_T start = { eap->line1, 1, 0 };
+    pos_T end = { eap->line2, 1, 0 };
+    foldCreate(curwin, start, end);
   }
 }
 
 static void ex_foldopen(exarg_T *eap)
 {
-  opFoldRange(eap->line1, eap->line2, eap->cmdidx == CMD_foldopen,
-      eap->forceit, FALSE);
+  pos_T start = { eap->line1, 1, 0 };
+  pos_T end = { eap->line2, 1, 0 };
+  opFoldRange(start, end, eap->cmdidx == CMD_foldopen, eap->forceit, false);
 }
 
 static void ex_folddo(exarg_T *eap)

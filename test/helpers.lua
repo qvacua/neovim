@@ -116,8 +116,12 @@ function module.assert_log(pat, logfile)
     pat, nrlines, logfile, logtail))
 end
 
--- Invokes `fn` and returns the error string (may truncate full paths), or
--- raises an error if `fn` succeeds.
+-- Invokes `fn` and returns the error string (with truncated paths), or raises
+-- an error if `fn` succeeds.
+--
+-- Replaces line/column numbers with zero:
+--     shared.lua:0: in function 'gsplit'
+--     shared.lua:0: in function <shared.lua:0>'
 --
 -- Usage:
 --    -- Match exact string.
@@ -125,27 +129,36 @@ end
 --    -- Match Lua pattern.
 --    matches('e[or]+$', pcall_err(function(a, b) error('some error') end, 'arg1', 'arg2'))
 --
-function module.pcall_err(fn, ...)
+function module.pcall_err_withfile(fn, ...)
   assert(type(fn) == 'function')
   local status, rv = pcall(fn, ...)
   if status == true then
     error('expected failure, but got success')
   end
-  -- From this:
-  --    /home/foo/neovim/runtime/lua/vim/shared.lua:186: Expected string, got number
-  -- to this:
-  --     Expected string, got number
-  local errmsg = tostring(rv):gsub('^[^:]+:%d+: ', '')
-  -- From this:
-  --    Error executing lua: /very/long/foo.lua:186: Expected string, got number
-  -- to this:
-  --    Error executing lua: .../foo.lua:186: Expected string, got number
-  errmsg = errmsg:gsub([[lua: [a-zA-Z]?:?[^:]-[/\]([^:/\]+):%d+: ]], 'lua: .../%1: ')
-  -- Compiled modules will not have a path and will just be a name like
-  -- shared.lua:186, so strip the number.
-  errmsg = errmsg:gsub([[lua: ([^:/\ ]+):%d+: ]], 'lua: .../%1: ')
-  --                          ^ Windows drive-letter (C:)
+  -- From:
+  --    C:/long/path/foo.lua:186: Expected string, got number
+  -- to:
+  --    .../foo.lua:0: Expected string, got number
+  local errmsg = tostring(rv):gsub('([%s<])vim[/\\]([^%s:/\\]+):%d+', '%1\xffvim\xff%2:0')
+                             :gsub('[^%s<]-[/\\]([^%s:/\\]+):%d+', '.../%1:0')
+                             :gsub('\xffvim\xff', 'vim/')
+  -- Scrub numbers in paths/stacktraces:
+  --    shared.lua:0: in function 'gsplit'
+  --    shared.lua:0: in function <shared.lua:0>'
+  errmsg = errmsg:gsub('([^%s]):%d+', '%1:0')
+  -- Scrub tab chars:
+  errmsg = errmsg:gsub('\t', '    ')
+  -- In Lua 5.1, we sometimes get a "(tail call): ?" on the last line.
+  --    We remove this so that the tests are not lua dependent.
+  errmsg = errmsg:gsub('%s*%(tail call%): %?', '')
+
   return errmsg
+end
+
+function module.pcall_err(fn, ...)
+  local errmsg = module.pcall_err_withfile(fn, ...)
+
+  return errmsg:gsub('.../helpers.lua:0: ', '')
 end
 
 -- initial_path:  directory to recurse into
@@ -345,7 +358,7 @@ function module.check_cores(app, force)
     exc_re = { os.getenv('NVIM_TEST_CORE_EXC_RE'), local_tmpdir }
     db_cmd = os.getenv('NVIM_TEST_CORE_DB_CMD') or gdb_db_cmd
     random_skip = os.getenv('NVIM_TEST_CORE_RANDOM_SKIP')
-  elseif os.getenv('TRAVIS_OS_NAME') == 'osx' then
+  elseif 'darwin' == module.uname() then
     initial_path = '/cores'
     re = nil
     exc_re = { local_tmpdir }

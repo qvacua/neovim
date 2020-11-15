@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+
 #include <lauxlib.h>
 
 #include "nvim/api/buffer.h"
@@ -27,6 +28,7 @@
 #include "nvim/map.h"
 #include "nvim/mark.h"
 #include "nvim/extmark.h"
+#include "nvim/decoration.h"
 #include "nvim/fileio.h"
 #include "nvim/move.h"
 #include "nvim/syntax.h"
@@ -242,78 +244,6 @@ Boolean nvim_buf_detach(uint64_t channel_id,
 
   buf_updates_unregister(buf, channel_id);
   return true;
-}
-
-static void buf_clear_luahl(buf_T *buf, bool force)
-{
-  if (buf->b_luahl || force) {
-    api_free_luaref(buf->b_luahl_start);
-    api_free_luaref(buf->b_luahl_window);
-    api_free_luaref(buf->b_luahl_line);
-    api_free_luaref(buf->b_luahl_end);
-  }
-  buf->b_luahl_start = LUA_NOREF;
-  buf->b_luahl_window = LUA_NOREF;
-  buf->b_luahl_line = LUA_NOREF;
-  buf->b_luahl_end = LUA_NOREF;
-}
-
-/// Unstabilized interface for defining syntax hl in lua.
-///
-/// This is not yet safe for general use, lua callbacks will need to
-/// be restricted, like textlock and probably other stuff.
-///
-/// The API on_line/nvim__put_attr is quite raw and not intended to be the
-/// final shape. Ideally this should operate on chunks larger than a single
-/// line to reduce interpreter overhead, and generate annotation objects
-/// (bufhl/virttext) on the fly but using the same representation.
-void nvim__buf_set_luahl(uint64_t channel_id, Buffer buffer,
-                         DictionaryOf(LuaRef) opts, Error *err)
-  FUNC_API_LUA_ONLY
-{
-  buf_T *buf = find_buffer_by_handle(buffer, err);
-
-  if (!buf) {
-    return;
-  }
-
-  redraw_buf_later(buf, NOT_VALID);
-  buf_clear_luahl(buf, false);
-
-  for (size_t i = 0; i < opts.size; i++) {
-    String k = opts.items[i].key;
-    Object *v = &opts.items[i].value;
-    if (strequal("on_start", k.data)) {
-      if (v->type != kObjectTypeLuaRef) {
-        api_set_error(err, kErrorTypeValidation, "callback is not a function");
-        goto error;
-      }
-      buf->b_luahl_start = v->data.luaref;
-      v->data.luaref = LUA_NOREF;
-    } else if (strequal("on_window", k.data)) {
-      if (v->type != kObjectTypeLuaRef) {
-        api_set_error(err, kErrorTypeValidation, "callback is not a function");
-        goto error;
-      }
-      buf->b_luahl_window = v->data.luaref;
-      v->data.luaref = LUA_NOREF;
-    } else if (strequal("on_line", k.data)) {
-      if (v->type != kObjectTypeLuaRef) {
-        api_set_error(err, kErrorTypeValidation, "callback is not a function");
-        goto error;
-      }
-      buf->b_luahl_line = v->data.luaref;
-      v->data.luaref = LUA_NOREF;
-    } else {
-      api_set_error(err, kErrorTypeValidation, "unexpected key: %s", k.data);
-      goto error;
-    }
-  }
-  buf->b_luahl = true;
-  return;
-error:
-  buf_clear_luahl(buf, true);
-  buf->b_luahl = false;
 }
 
 void nvim__buf_redraw_range(Buffer buffer, Integer first, Integer last,
@@ -1024,6 +954,53 @@ Boolean nvim_buf_is_loaded(Buffer buffer)
   return buf && buf->b_ml.ml_mfp != NULL;
 }
 
+/// Deletes the buffer. See |:bwipeout|
+///
+/// @param buffer Buffer handle, or 0 for current buffer
+/// @param opts  Optional parameters. Keys:
+///          - force:  Force deletion and ignore unsaved changes.
+///          - unload: Unloaded only, do not delete. See |:bunload|
+void nvim_buf_delete(Buffer buffer, Dictionary opts, Error *err)
+  FUNC_API_SINCE(7)
+{
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+
+  if (ERROR_SET(err)) {
+    return;
+  }
+
+  bool force = false;
+  bool unload = false;
+  for (size_t i = 0; i < opts.size; i++) {
+    String k = opts.items[i].key;
+    Object v = opts.items[i].value;
+    if (strequal("force", k.data)) {
+      force = api_object_to_bool(v, "force", false, err);
+    } else if (strequal("unload", k.data)) {
+      unload = api_object_to_bool(v, "unload", false, err);
+    } else {
+      api_set_error(err, kErrorTypeValidation, "unexpected key: %s", k.data);
+      return;
+    }
+  }
+
+  if (ERROR_SET(err)) {
+    return;
+  }
+
+  int result = do_buffer(
+      unload ? DOBUF_UNLOAD : DOBUF_WIPE,
+      DOBUF_FIRST,
+      FORWARD,
+      buf->handle,
+      force);
+
+  if (result == FAIL) {
+    api_set_error(err, kErrorTypeException, "Failed to unload buffer.");
+    return;
+  }
+}
+
 /// Checks if a buffer is valid.
 ///
 /// @note Even if a buffer is valid it may have been unloaded. See |api-buffer|
@@ -1357,6 +1334,10 @@ Array nvim_buf_get_extmarks(Buffer buffer, Integer ns_id,
 ///               - hl_group : name of the highlight group used to highlight
 ///                   this mark.
 ///               - virt_text : virtual text to link to this mark.
+///               - ephemeral : for use with |nvim_set_decoration_provider|
+///                   callbacks. The mark will only be used for the current
+///                   redraw cycle, and not be permantently stored in the
+///                   buffer.
 /// @param[out]  err   Error details, if any
 /// @return Id of the created/updated extmark
 Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
@@ -1389,6 +1370,8 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
     api_set_error(err, kErrorTypeValidation, "col value outside range");
     return 0;
   }
+
+  bool ephemeral = false;
 
   uint64_t id = 0;
   int line2 = -1, hl_id = 0;
@@ -1458,6 +1441,11 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
       if (ERROR_SET(err)) {
         goto error;
       }
+    } else if (strequal("ephemeral", k.data)) {
+      ephemeral = api_object_to_bool(*v, "ephemeral", false, err);
+      if (ERROR_SET(err)) {
+        goto error;
+      }
     } else {
       api_set_error(err, kErrorTypeValidation, "unexpected key: %s", k.data);
       goto error;
@@ -1465,32 +1453,50 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
   }
 
   if (col2 >= 0) {
-    if (line2 >= 0) {
-      len = STRLEN(ml_get_buf(buf, (linenr_T)line2+1, false));
+    if (line2 >= 0 && line2 < buf->b_ml.ml_line_count) {
+      len = STRLEN(ml_get_buf(buf, (linenr_T)line2 + 1, false));
+    } else if (line2 == buf->b_ml.ml_line_count) {
+      // We are trying to add an extmark past final newline
+      len = 0;
     } else {
       // reuse len from before
       line2 = (int)line;
     }
     if (col2 > (Integer)len) {
-      api_set_error(err, kErrorTypeValidation,
-                    "end_col value outside range");
+      api_set_error(err, kErrorTypeValidation, "end_col value outside range");
       goto error;
     }
   } else if (line2 >= 0) {
     col2 = 0;
   }
 
-  Decoration *decor = NULL;
-  if (kv_size(virt_text)) {
-    decor = xcalloc(1, sizeof(*decor));
-    decor->hl_id = hl_id;
-    decor->virt_text = virt_text;
-  } else if (hl_id) {
-    decor = decoration_hl(hl_id);
-  }
+  // TODO(bfredl): synergize these two branches even more
+  if (ephemeral && decor_state.buf == buf) {
+    int attr_id = hl_id > 0 ? syn_id2attr(hl_id) : 0;
+    VirtText *vt_allocated = NULL;
+    if (kv_size(virt_text)) {
+      vt_allocated = xmalloc(sizeof *vt_allocated);
+      *vt_allocated = virt_text;
+    }
+    decor_add_ephemeral(attr_id, (int)line, (colnr_T)col,
+                        (int)line2, (colnr_T)col2, vt_allocated);
+  } else {
+    if (ephemeral) {
+      api_set_error(err, kErrorTypeException, "not yet implemented");
+      goto error;
+    }
+    Decoration *decor = NULL;
+    if (kv_size(virt_text)) {
+      decor = xcalloc(1, sizeof(*decor));
+      decor->hl_id = hl_id;
+      decor->virt_text = virt_text;
+    } else if (hl_id) {
+      decor = decor_hl(hl_id);
+    }
 
-  id = extmark_set(buf, (uint64_t)ns_id, id,
-                   (int)line, (colnr_T)col, line2, col2, decor, kExtmarkUndo);
+    id = extmark_set(buf, (uint64_t)ns_id, id, (int)line, (colnr_T)col,
+                     line2, col2, decor, kExtmarkNoUndo);
+  }
 
   return (Integer)id;
 
@@ -1601,10 +1607,10 @@ Integer nvim_buf_add_highlight(Buffer buffer,
     end_line++;
   }
 
-  ns_id = extmark_set(buf, ns_id, 0,
-                      (int)line, (colnr_T)col_start,
-                      end_line, (colnr_T)col_end,
-                      decoration_hl(hl_id), kExtmarkUndo);
+  extmark_set(buf, ns_id, 0,
+              (int)line, (colnr_T)col_start,
+              end_line, (colnr_T)col_end,
+              decor_hl(hl_id), kExtmarkNoUndo);
   return src_id;
 }
 
@@ -1662,43 +1668,6 @@ void nvim_buf_clear_highlight(Buffer buffer,
   FUNC_API_SINCE(1)
 {
   nvim_buf_clear_namespace(buffer, ns_id, line_start, line_end, err);
-}
-
-static VirtText parse_virt_text(Array chunks, Error *err)
-{
-  VirtText virt_text = KV_INITIAL_VALUE;
-  for (size_t i = 0; i < chunks.size; i++) {
-    if (chunks.items[i].type != kObjectTypeArray) {
-      api_set_error(err, kErrorTypeValidation, "Chunk is not an array");
-      goto free_exit;
-    }
-    Array chunk = chunks.items[i].data.array;
-    if (chunk.size == 0 || chunk.size > 2
-        || chunk.items[0].type != kObjectTypeString
-        || (chunk.size == 2 && chunk.items[1].type != kObjectTypeString)) {
-      api_set_error(err, kErrorTypeValidation,
-                    "Chunk is not an array with one or two strings");
-      goto free_exit;
-    }
-
-    String str = chunk.items[0].data.string;
-    char *text = transstr(str.size > 0 ? str.data : "");  // allocates
-
-    int hl_id = 0;
-    if (chunk.size == 2) {
-      String hl = chunk.items[1].data.string;
-      if (hl.size > 0) {
-        hl_id = syn_check_group((char_u *)hl.data, (int)hl.size);
-      }
-    }
-    kv_push(virt_text, ((VirtTextChunk){ .text = text, .hl_id = hl_id }));
-  }
-
-  return virt_text;
-
-free_exit:
-  clear_virttext(&virt_text);
-  return virt_text;
 }
 
 
@@ -1760,7 +1729,7 @@ Integer nvim_buf_set_virtual_text(Buffer buffer,
   }
 
 
-  VirtText *existing = extmark_find_virttext(buf, (int)line, ns_id);
+  VirtText *existing = decor_find_virttext(buf, (int)line, ns_id);
 
   if (existing) {
     clear_virttext(existing);
@@ -1771,8 +1740,46 @@ Integer nvim_buf_set_virtual_text(Buffer buffer,
   Decoration *decor = xcalloc(1, sizeof(*decor));
   decor->virt_text = virt_text;
 
-  extmark_set(buf, ns_id, 0, (int)line, 0, -1, -1, decor, kExtmarkUndo);
+  extmark_set(buf, ns_id, 0, (int)line, 0, -1, -1, decor, kExtmarkNoUndo);
   return src_id;
+}
+
+/// call a function with buffer as temporary current buffer
+///
+/// This temporarily switches current buffer to "buffer".
+/// If the current window already shows "buffer", the window is not switched
+/// If a window inside the current tabpage (including a float) already shows the
+/// buffer One of these windows will be set as current window temporarily.
+/// Otherwise a temporary scratch window (calleed the "autocmd window" for
+/// historical reasons) will be used.
+///
+/// This is useful e.g. to call vimL functions that only work with the current
+/// buffer/window currently, like |termopen()|.
+///
+/// @param buffer     Buffer handle, or 0 for current buffer
+/// @param fun        Function to call inside the buffer (currently lua callable
+///                   only)
+/// @param[out] err   Error details, if any
+/// @return           Return value of function. NB: will deepcopy lua values
+///                   currently, use upvalues to send lua references in and out.
+Object nvim_buf_call(Buffer buffer, LuaRef fun, Error *err)
+  FUNC_API_SINCE(7)
+  FUNC_API_LUA_ONLY
+{
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+  if (!buf) {
+    return NIL;
+  }
+  try_start();
+  aco_save_T aco;
+  aucmd_prepbuf(&aco, (buf_T *)buf);
+
+  Array args = ARRAY_DICT_INIT;
+  Object res = nlua_call_ref(fun, NULL, args, true, err);
+
+  aucmd_restbuf(&aco);
+  try_end(err);
+  return res;
 }
 
 Dictionary nvim__buf_stats(Buffer buffer, Error *err)
