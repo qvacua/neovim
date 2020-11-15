@@ -44,7 +44,7 @@ main() {
 
 
   echo "### Building libnvim"
-    if "${build_deps}" ; then
+    if [[ "${build_deps}" == true ]]; then
       ./NvimServer/bin/build_deps.sh
     fi
 

@@ -11,7 +11,7 @@ main() {
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
     mkdir -p "${build_dir}"
 
-    if "${build_libnvim}" ; then
+    if [[ "${build_libnvim}" == true ]]; then
       ./NvimServer/bin/build_libnvim.sh
     fi
 
