@@ -42,13 +42,15 @@ main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-
   echo "### Building libnvim"
     if [[ "${build_deps}" == true ]]; then
       ./NvimServer/bin/build_deps.sh
     fi
 
-    local -r temp_lib_parent_path="$(mktemp -d -t 'nvimserver-temp-lib-parent')"
+    local temp_lib_parent_path
+    temp_lib_parent_path="$(mktemp -d -t 'nvimserver-temp-lib-parent')"
+    readonly temp_lib_parent_path
+
     local target
     local deployment_target
 

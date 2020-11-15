@@ -51,11 +51,18 @@ main() {
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
     local -r nvim_build_dir_path="./build"
-    local -r nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
+    local nvim_install_path
+    nvim_install_path="$(mktemp -d -t 'nvim-runtime')"
+    readonly nvim_install_path
     local -r nvimserver_build_dir_prefix="./NvimServer/build"
 
-    local -r x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
-    local -r arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
+    local x86_64_deployment_target
+    x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
+    readonly x86_64_deployment_target
+
+    local -r arm64_deployment_target
+    arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
+    readonly arm64_deployment_target
 
     local -r x86_64_target="x86_64-apple-macos${x86_64_deployment_target}"
 

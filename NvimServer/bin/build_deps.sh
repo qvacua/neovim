@@ -91,7 +91,8 @@ main() {
   download_gettext "${working_directory}"
 
   local target="arm64"
-  local deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
+  local deployment_target
+  deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
   extract_gettext "${working_directory}" "${target}"
   build_gettext \
       "${deployment_target}" \
