@@ -60,7 +60,7 @@ main() {
     x86_64_deployment_target=$(cat "./NvimServer/Resources/x86_64_deployment_target.txt")
     readonly x86_64_deployment_target
 
-    local -r arm64_deployment_target
+    local arm64_deployment_target
     arm64_deployment_target=$(cat "./NvimServer/Resources/arm64_deployment_target.txt")
     readonly arm64_deployment_target
 
