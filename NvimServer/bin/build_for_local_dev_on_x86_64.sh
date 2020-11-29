@@ -62,15 +62,6 @@ build_gettext() {
   echo "### Built gettext"
 }
 
-install_universal_lib() {
-  local -r x86_64_libintl_path=$1
-  local -r install_path_lib=$2
-
-  pushd "${install_path_lib}" >/dev/null
-    cp "${x86_64_libintl_path}" libintl.a
-  popd >/dev/null
-}
-
 install_gettext() {
   echo "### Building deps"
 
@@ -103,8 +94,7 @@ install_gettext() {
       "${target}" \
       "x86_64-apple-macos"
 
-  install_universal_lib "${x86_64_install_path}/lib/libintl.a" "${install_path_lib}"
-  cp -r "${x86_64_install_path}/include"/* "${install_path_include}"
+  cp -r "${x86_64_install_path}"/* "${install_path}"
 
   echo "### Built deps"
 }
