@@ -60,12 +60,13 @@ build_gettext() {
 }
 
 install_universal_lib() {
-  local -r x86_64_libintl_path=$1
-  local -r arm64_libintl_path=$2
+  local -r x86_64_install_path_lib=$1
+  local -r arm64_install_path_lib=$2
   local -r install_path_lib=$3
 
   pushd "${install_path_lib}" >/dev/null
-    lipo -create -output libintl.a "${x86_64_libintl_path}" "${arm64_libintl_path}"
+    lipo -create -output libintl.8.dylib "${x86_64_install_path_lib}/libintl.8.dylib" "${arm64_install_path_lib}.libintl.8.dylib"
+    lipo -create -output libintl.a "${x86_64_install_path_lib}/libintl.a" "${arm64_install_path_lib}/libintl.a"
   popd >/dev/null
 }
 
@@ -113,7 +114,7 @@ main() {
       "${target}" \
       "x86_64-apple-macos"
 
-  install_universal_lib "${x86_64_install_path}/lib/libintl.a" "${arm64_install_path}/lib/libintl.a" "${install_path_lib}"
+  install_universal_lib "${x86_64_install_path}/lib" "${arm64_install_path}/lib" "${install_path_lib}"
   cp -r "${arm64_install_path}/include"/* "${install_path_include}"
 
   popd >/dev/null
