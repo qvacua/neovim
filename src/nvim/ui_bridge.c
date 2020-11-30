@@ -36,11 +36,18 @@
 # include "ui_events_bridge.generated.h"
 #endif
 
+#ifdef CUSTOM_UI
+extern void custom_ui_handle_event(UI *ui, char * name, Array args, bool * args_consumed);
+#endif
+
 UI *ui_bridge_attach(UI *ui, ui_main_fn ui_main, event_scheduler scheduler)
 {
   UIBridgeData *rv = xcalloc(1, sizeof(UIBridgeData));
   rv->ui = ui;
   rv->bridge.rgb = ui->rgb;
+#ifdef CUSTOM_UI
+  rv->bridge.event = custom_ui_handle_event;
+#endif
   rv->bridge.stop = ui_bridge_stop;
   rv->bridge.grid_resize = ui_bridge_grid_resize;
   rv->bridge.grid_clear = ui_bridge_grid_clear;
