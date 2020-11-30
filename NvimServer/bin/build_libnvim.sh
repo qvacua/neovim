@@ -1,13 +1,33 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly build_deps=${build_deps:?"true or false"}
+readonly target=${target:?"arm64 or x86_64: you can only build the same target as your machine"}
+
+download_gettext() {
+  local tag
+  tag=$(cat "./NvimServer/Resources/nvim-version-for-gettext.txt")
+  readonly tag
+  local -r archive_folder="./NvimServer/build"
+  rm -rf "${archive_folder}" && mkdir -p ${archive_folder}
+
+  local -r archive_file_name="gettext-${target}.tar.bz2"
+  local -r archive_file_path="${archive_folder}/${archive_file_name}"
+
+  curl -o "${archive_file_path}" -L "https://github.com/qvacua/neovim/releases/download/${tag}/gettext-${target}.tar.bz2"
+
+  pushd "${archive_folder}" >/dev/null
+    tar xf "${archive_file_name}"
+  popd >/dev/null
+
+  local -r third_party_folder="./NvimServer/third-party"
+  rm -rf "${third_party_folder}" && mkdir -p "${third_party_folder}"
+
+  mv "${archive_folder}/lib" "${third_party_folder}"
+  mv "${archive_folder}/include" "${third_party_folder}"
+}
 
 build_libnvim() {
   local -r deployment_target=$1
-  local -r target=$2
-
-  local -r target_option="--target=${target}-apple-macos${deployment_target}"
 
   # Brew's gettext does not get sym-linked to PATH
   export PATH="/opt/homebrew/opt/gettext/bin:/usr/local/opt/gettext/bin:${PATH}"
@@ -15,69 +35,42 @@ build_libnvim() {
   make \
     SDKROOT="$(xcrun --show-sdk-path)" \
     MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
-    CFLAGS="${target_option}" \
-    CXXFLAGS="${target_option}" \
     CMAKE_EXTRA_FLAGS="-DGETTEXT_SOURCE=CUSTOM -DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target}" \
-    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++) -DCMAKE_C_COMPILER_ARG1=${target_option}" \
+    DEPS_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=${deployment_target} -DCMAKE_CXX_COMPILER=$(xcrun -find c++)" \
     CMAKE_BUILD_TYPE=Release \
     libnvim
 }
 
-build_universal_libs() {
-  local -r arm64_lib_parent_path=$1
-  local -r x86_64_lib_parent_path=$2
+package() {
+  local -r package_stage_folder_name="libnvim-${target}"
+  local -r package_stage_folder="./build/${package_stage_folder_name}"
+  mkdir -p "${package_stage_folder}"
 
-  local lib_name
-  local x86_64_lib
+  cp ./build/lib/libnvim.a "${package_stage_folder}"
+  cp ./.deps/usr/lib/*.a "${package_stage_folder}"
 
-  for arm64_lib in "${arm64_temp_lib_parent_path}"/*.a ; do
-    lib_name="$(basename ${arm64_lib})"
-    x86_64_lib="${x86_64_temp_lib_parent_path}/${lib_name}"
-    lipo -create -output "./.deps/usr/lib/${lib_name}" "${arm64_lib}" "${x86_64_lib}"
-  done
-  mv ./.deps/usr/lib/libnvim.a ./build/lib/
+  pushd ./build >/dev/null
+    tar cjf "libnvim-${target}.tar.bz2" "${package_stage_folder_name}"
+  popd >/dev/null
+
+  echo "Packaged to $(realpath ./build/libnvim-${target}.tar.bz2)"
 }
 
 main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
+  download_gettext
+
   echo "### Building libnvim"
-    if [[ "${build_deps}" == true ]]; then
-      ./NvimServer/bin/build_deps.sh
-    fi
+  local deployment_target
+  deployment_target=$(cat "./NvimServer/Resources/${target}_deployment_target.txt")
+  readonly deployment_target
 
-    local temp_lib_parent_path
-    temp_lib_parent_path="$(mktemp -d -t 'nvimserver-temp-lib-parent')"
-    readonly temp_lib_parent_path
+  make distclean
+  build_libnvim "${deployment_target}"
 
-    local target
-    local deployment_target
-
-    target="arm64"
-    deployment_target=$(cat "./NvimServer/Resources/${target}_deployment_target.txt")
-    make distclean
-    build_libnvim "${deployment_target}" "${target}"
-
-    local -r arm64_temp_lib_parent_path="${temp_lib_parent_path}/arm64"
-    mkdir -p "${arm64_temp_lib_parent_path}"
-    mv ./build/lib/libnvim.a "${arm64_temp_lib_parent_path}"
-    mv ./.deps/usr/lib/*.a "${arm64_temp_lib_parent_path}"
-
-
-    target="x86_64"
-    deployment_target=$(cat "./NvimServer/Resources/${target}_deployment_target.txt")
-    make distclean
-    build_libnvim "${deployment_target}" "${target}"
-
-    local -r x86_64_temp_lib_parent_path="${temp_lib_parent_path}/x86_64"
-    mkdir -p "${x86_64_temp_lib_parent_path}"
-    mv ./build/lib/libnvim.a "${x86_64_temp_lib_parent_path}"
-    mv ./.deps/usr/lib/*.a "${x86_64_temp_lib_parent_path}"
-
-    echo "${arm64_temp_lib_parent_path}"
-    echo "${x86_64_temp_lib_parent_path}"
-    build_universal_libs "${arm64_temp_lib_parent_path}" "${x86_64_temp_lib_parent_path}"
+  package
 
   popd >/dev/null
   echo "### Built libnvim"
