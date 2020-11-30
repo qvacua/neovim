@@ -1,6 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+readonly clean=${clean:-true}
+readonly download_gettext=${download_gettext:-true}
 readonly target=${target:?"arm64 or x86_64: you can only build the same target as your machine"}
 
 download_gettext() {
@@ -45,14 +47,19 @@ main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
 
-  download_gettext
+  if [[ "${download_gettext}" == true ]]; then
+    download_gettext
+  fi
 
   echo "### Building libnvim"
   local deployment_target
   deployment_target=$(cat "./NvimServer/Resources/${target}_deployment_target.txt")
   readonly deployment_target
 
-  make distclean
+  if [[ "${clean}" == true ]]; then
+    make distclean
+  fi
+
   build_libnvim "${deployment_target}"
 
   popd >/dev/null
