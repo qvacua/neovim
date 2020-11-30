@@ -41,21 +41,6 @@ build_libnvim() {
     libnvim
 }
 
-package() {
-  local -r package_stage_folder_name="libnvim-${target}"
-  local -r package_stage_folder="./build/${package_stage_folder_name}"
-  mkdir -p "${package_stage_folder}"
-
-  cp ./build/lib/libnvim.a "${package_stage_folder}"
-  cp ./.deps/usr/lib/*.a "${package_stage_folder}"
-
-  pushd ./build >/dev/null
-    tar cjf "libnvim-${target}.tar.bz2" "${package_stage_folder_name}"
-  popd >/dev/null
-
-  echo "Packaged to $(realpath ./build/libnvim-${target}.tar.bz2)"
-}
-
 main() {
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
@@ -69,8 +54,6 @@ main() {
 
   make distclean
   build_libnvim "${deployment_target}"
-
-  package
 
   popd >/dev/null
   echo "### Built libnvim"
