@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly target=${target:?"arm64 or x86_64"}
+declare target; target="$(uname -m)"; readonly target
 readonly download_gettext=${download_gettext:?"true or falce"}
 readonly clean=${clean:?"if true, will clean libnvim and nvimserver"}
 readonly build_libnvim=${build_libnvim:?"true or false"}

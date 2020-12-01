@@ -2,8 +2,7 @@
 set -Eeuo pipefail
 
 readonly gettext_version="0.20.1"
-readonly gettext_default_cflags="-g -O2"
-readonly target=${target:?"arm64 or x86_64: you can only build the same target as your machine"}
+declare target; target="$(uname -m)"; readonly target
 
 download_gettext() {
   local -r working_directory=$1
@@ -26,17 +25,14 @@ extract_gettext() {
 
 build_gettext() {
   local -r deployment_target=$1
-  local -r cflags=$2
-  local -r working_directory=$3
-  local -r install_path=$4
+  local -r working_directory=$2
+  local -r install_path=$3
 
   echo "### Building gettext"
   pushd "${working_directory}/gettext-${target}" >/dev/null
     make distclean || true
     ./configure \
         MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
-        CFLAGS="${cflags} --target=${target}-apple-macos${deployment_target}" \
-        CXXFLAGS="${cflags} --target=${target}-apple-macos${deployment_target}" \
         --disable-dependency-tracking \
         --disable-silent-rules \
         --disable-debug \
@@ -66,41 +62,27 @@ package() {
 }
 
 main() {
-  if [[ "$(uname -m)" != "${target}" ]]; then
-    echo "We are not on ${target}!"
-    exit 1
-  fi
-
   echo "### Building deps"
   pushd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null
 
   rm -rf "./third-party" && mkdir -p "./third-party"
   local -r install_path="$(realpath ./third-party)"
 
-  local -r install_path_lib="${install_path}/lib"
-  local -r install_path_include="${install_path}/include"
-  rm -rf "${install_path_lib}" && mkdir -p "${install_path_lib}"
-  rm -rf "${install_path_include}" && mkdir -p "${install_path_include}"
-
-  local -r target_install_path="${install_path}-${target}"
-  rm -rf "${target_install_path}" && mkdir -p "${target_install_path}"
-
-  local -r working_directory="$(realpath ./third-party/.deps)"
+  local working_directory; working_directory="$(realpath ./third-party/.deps)"
+  readonly working_directory
   mkdir -p "${working_directory}"
   download_gettext "${working_directory}"
 
-  local deployment_target
-  deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
+  local deployment_target; deployment_target=$(cat "./Resources/${target}_deployment_target.txt")
   readonly deployment_target
 
   extract_gettext "${working_directory}"
   build_gettext \
       "${deployment_target}" \
-      "${gettext_default_cflags}" \
       "${working_directory}" \
-      "${target_install_path}"
+      "${install_path}"
 
-  package "${target_install_path}"
+  package "${install_path}"
 
   popd >/dev/null
   echo "### Built deps"

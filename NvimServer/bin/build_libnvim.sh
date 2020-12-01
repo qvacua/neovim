@@ -3,12 +3,10 @@ set -Eeuo pipefail
 
 readonly clean=${clean:-true}
 readonly download_gettext=${download_gettext:-true}
-readonly target=${target:?"arm64 or x86_64: you can only build the same target as your machine"}
+declare target; target="$(uname -m)"; readonly target
 
 download_gettext() {
-  local tag
-  tag=$(cat "./NvimServer/Resources/nvim-version-for-gettext.txt")
-  readonly tag
+  local tag; tag=$(cat "./NvimServer/Resources/nvim-version-for-gettext.txt"); readonly tag
   local -r archive_folder="./NvimServer/build"
   rm -rf "${archive_folder}" && mkdir -p ${archive_folder}
 
