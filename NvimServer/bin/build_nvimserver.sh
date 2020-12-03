@@ -7,6 +7,14 @@ readonly clean=${clean:?"if true, will clean libnvim and nvimserver"}
 readonly build_libnvim=${build_libnvim:?"true or false"}
 readonly build_dir=${build_dir:-"./build"}
 
+package() {
+  local -r build_folder_path=$1
+  pushd "${build_folder_path}" >/dev/null
+    tar cjf "NvimServer-${target}.tar.bz2" NvimServer
+    echo "Packaged NvimServer for ${target} to $(realpath "NvimServer-${target}.tar.bz2")"
+  popd >/dev/null
+}
+
 main() {
   echo "### Building libnvim"
   # This script is located in /NvimServer/bin and we have to go to /
@@ -20,6 +28,8 @@ main() {
     fi
 
     xcodebuild -derivedDataPath "${build_dir}" -configuration Release -scheme NvimServer ARCHS="${target}" build
+
+    package "${build_dir}/Build/Products/Release"
 
   popd >/dev/null
   echo "### Built libnvim"
