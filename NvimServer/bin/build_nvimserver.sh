@@ -16,7 +16,7 @@ package() {
 }
 
 main() {
-  echo "### Building libnvim"
+  echo "### Building NvimServer"
   # This script is located in /NvimServer/bin and we have to go to /
   pushd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null
     if [[ "${build_libnvim}" == true ]]; then
@@ -32,7 +32,7 @@ main() {
     package "${build_dir}/Build/Products/Release"
 
   popd >/dev/null
-  echo "### Built libnvim"
+  echo "### Built NvimServer"
 }
 
 main

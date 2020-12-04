@@ -31,6 +31,7 @@ build_libnvim() {
 
   # Brew's gettext does not get sym-linked to PATH
   export PATH="/opt/homebrew/opt/gettext/bin:/usr/local/opt/gettext/bin:${PATH}"
+  ln -sf ./NvimServer/local.mk local.mk
 
   make \
     SDKROOT="$(xcrun --show-sdk-path)" \
