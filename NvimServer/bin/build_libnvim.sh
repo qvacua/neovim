@@ -1,8 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-readonly clean=${clean:-true}
-readonly download_gettext=${download_gettext:-true}
+readonly clean=${clean:?"true or false"}
+readonly download_gettext=${download_gettext:?"true or false"}
 declare target; target="$(uname -m)"; readonly target
 
 download_gettext() {
