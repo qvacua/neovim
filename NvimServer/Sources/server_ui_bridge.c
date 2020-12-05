@@ -270,42 +270,36 @@ static void dummy2(UI *ui __unused, String icon __unused) {}
 
 #pragma mark called by nvim
 
-void custom_ui_handle_event(UI *ui, char *name, Array args, bool *args_consumed) {
-  os_log_error(logger, "event: %s", name);
-}
-
 void custom_ui_start(void) {
   UI *const ui = xcalloc(1, sizeof(UI));
 
   memset(ui->ui_ext, 0, sizeof(ui->ui_ext));
   ui->ui_ext[kUILinegrid] = true;
-  ui->ui_ext[kUITabline] = true;
 
   ui->rgb = true;
-  ui->bell = server_ui_bell;
-  ui->busy_start = server_ui_busy_start;
-  ui->busy_stop = server_ui_busy_stop;
-  ui->default_colors_set = server_ui_default_colors_set;
-  // ui->event will be handled in nvim
-  ui->flush = server_ui_flush;
+  ui->stop = server_ui_stop;
+  ui->grid_resize = server_ui_grid_resize;
   ui->grid_clear = server_ui_grid_clear;
   ui->grid_cursor_goto = server_ui_cursor_goto;
-  ui->grid_resize = server_ui_grid_resize;
+  ui->update_menu = server_ui_update_menu;
+  ui->busy_start = server_ui_busy_start;
+  ui->busy_stop = server_ui_busy_stop;
+  ui->mouse_on = dummy;
+  ui->mouse_off = dummy;
+  ui->mode_info_set = server_ui_mode_info_set;
+  ui->mode_change = server_ui_mode_change;
   ui->grid_scroll = server_ui_grid_scroll;
   ui->hl_attr_define = server_ui_hl_attr_define;
   ui->hl_group_set = server_hl_group_set;
-  ui->mode_change = server_ui_mode_change;
-  ui->mode_info_set = server_ui_mode_info_set;
-  ui->mouse_off = dummy;
-  ui->mouse_on = dummy;
-  ui->option_set = server_ui_option_set;
+  ui->default_colors_set = server_ui_default_colors_set;
   ui->raw_line = server_ui_raw_line;
-  ui->set_icon = dummy2;
-  ui->set_title = server_ui_set_title;
-  ui->stop = server_ui_stop;
-  ui->suspend = dummy;
-  ui->update_menu = server_ui_update_menu;
+  ui->bell = server_ui_bell;
   ui->visual_bell = server_ui_visual_bell;
+  ui->flush = server_ui_flush;
+  ui->suspend = dummy;
+  ui->set_title = server_ui_set_title;
+  ui->set_icon = dummy2;
+  ui->option_set = server_ui_option_set;
 
   ui_bridge_attach(ui, server_ui_main, server_ui_scheduler);
 }
