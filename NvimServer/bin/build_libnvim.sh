@@ -6,7 +6,7 @@ readonly download_gettext=${download_gettext:?"true or false"}
 declare target; target="$(uname -m)"; readonly target
 
 download_gettext() {
-  local tag; tag=$(cat "./NvimServer/Resources/nvim-version-for-gettext.txt"); readonly tag
+  local tag; tag=$(cat "./NvimServer/Resources/nvim-version-for-download.txt"); readonly tag
   local -r archive_folder="./NvimServer/build"
   rm -rf "${archive_folder}" && mkdir -p ${archive_folder}
 
