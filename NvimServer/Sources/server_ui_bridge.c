@@ -270,11 +270,16 @@ static void dummy2(UI *ui __unused, String icon __unused) {}
 
 #pragma mark called by nvim
 
+void custom_ui_event(UI *ui, char *name, Array args, bool *args_consumed) {
+  os_log_error(logger, "%s", name);
+}
+
 void custom_ui_start(void) {
   UI *const ui = xcalloc(1, sizeof(UI));
 
   memset(ui->ui_ext, 0, sizeof(ui->ui_ext));
   ui->ui_ext[kUILinegrid] = true;
+  ui->ui_ext[kUITabline] = true;
 
   ui->rgb = true;
   ui->stop = server_ui_stop;
