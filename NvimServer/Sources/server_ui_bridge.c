@@ -271,7 +271,15 @@ static void dummy2(UI *ui __unused, String icon __unused) {}
 #pragma mark called by nvim
 
 void custom_ui_event(UI *ui, char *name, Array args, bool *args_consumed) {
-  os_log_error(logger, "%s", name);
+  size_t name_len = strlen(name);
+  send_msg_packing(
+      NvimServerMsgIdEvent,
+      ^(msgpack_packer *packer) {
+        msgpack_pack_map(packer, 1);
+        msgpack_pack_str(packer, name_len);
+        msgpack_pack_str_body(packer, name, name_len);
+        msgpack_rpc_from_array(args, packer);
+      });
 }
 
 void custom_ui_start(void) {
