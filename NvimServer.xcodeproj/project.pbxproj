@@ -28,7 +28,7 @@
 /* Begin PBXFileReference section */
 		4BD565A424E865C800D52809 /* ui_events.generated.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ui_events.generated.h; path = build/src/nvim/auto/ui_events.generated.h; sourceTree = SOURCE_ROOT; };
 		4BD565A624E8665000D52809 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
-		4BD67C7124EC311A00147C51 /* NvimServerTypes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NvimServerTypes.h; path = NvimServerTypes/include/NvimServerTypes.h; sourceTree = SOURCE_ROOT; };
+		4BD67C7124EC311A00147C51 /* NvimServerTypes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NvimServerTypes.h; path = NvimServerTypes/Sources/NvimServerTypes/include/NvimServerTypes.h; sourceTree = SOURCE_ROOT; };
 		4BFB6C2824E852BC00B105BA /* NvimServer */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NvimServer; sourceTree = BUILT_PRODUCTS_DIR; };
 		4BFB6C3D24E853E800B105BA /* server_log.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = server_log.h; path = Sources/server_log.h; sourceTree = "<group>"; };
 		4BFB6C3E24E853E800B105BA /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = main.c; path = Sources/main.c; sourceTree = "<group>"; };

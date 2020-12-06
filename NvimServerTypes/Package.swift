@@ -11,7 +11,6 @@ let package = Package(
     .target(
       name: "NvimServerTypes",
       dependencies: [],
-      path: "NvimServerTypes",
       exclude: ["README.md"]
     ),
   ]
