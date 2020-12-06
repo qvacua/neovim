@@ -9,6 +9,8 @@
 #include <msgpack.h>
 #include "NvimServerTypes.h"
 
+extern bool uses_custom_tabline;
+
 void server_set_nvim_args(int argc, const char **const args);
 
 void server_init_local_port(const char *name);

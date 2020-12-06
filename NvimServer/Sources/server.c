@@ -28,6 +28,8 @@
 #include <nvim/aucmd.h>
 #include "server_ui_bridge.h"
 
+bool uses_custom_tabline;
+
 #pragma mark cond_var_t
 typedef struct {
   uv_mutex_t mutex;

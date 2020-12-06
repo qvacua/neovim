@@ -8,14 +8,15 @@
 
 os_log_t logger;
 
+static const int ARGC = 5;
 static void observe_parent_termination(void);
 
 int main(int argc, const char *argv[]) {
   logger = os_log_create("com.qvacua.NvimServer", "server");
   observe_parent_termination();
 
-  if (argc < 4) {
-    printf("We need at least 3 arguments! Printing --version and exiting...\n");
+  if (argc < 5) {
+    printf("We need at least %d arguments! Printing --version and exiting...\n", ARGC - 1);
 
     const char **nvim_argv = malloc(2 * sizeof(char *));
 
@@ -26,10 +27,13 @@ int main(int argc, const char *argv[]) {
     return 0;
   }
 
-  const int nvim_argc = argc - 3;
-  const char **nvim_args = &argv[3];
+  const int nvim_argc = argc - (ARGC - 1);
+  const char **nvim_args = &argv[4];
   const char *remote_port_name = argv[1];
   const char *local_port_name = argv[2];
+  const char *uses_custom_tabline_arg = argv[3];
+  
+  uses_custom_tabline = (strcmp(uses_custom_tabline_arg, "1") == 0);
 
   server_set_nvim_args(nvim_argc, nvim_argc == 0 ? NULL : nvim_args);
   server_init_local_port(local_port_name);
