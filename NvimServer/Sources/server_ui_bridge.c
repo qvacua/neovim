@@ -287,7 +287,7 @@ void custom_ui_start(void) {
 
   memset(ui->ui_ext, 0, sizeof(ui->ui_ext));
   ui->ui_ext[kUILinegrid] = true;
-  ui->ui_ext[kUITabline] = true;
+  ui->ui_ext[kUITabline] = uses_custom_tabline;
 
   ui->rgb = true;
   ui->stop = server_ui_stop;
