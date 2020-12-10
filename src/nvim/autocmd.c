@@ -1391,6 +1391,10 @@ static bool apply_autocmds_group(event_T event,
   save_redo_T save_redo;
   const bool save_KeyTyped = KeyTyped;
 
+#ifdef CUSTOM_UI
+  custom_ui_autocmds_groups(event, fname, fname_io, group, force, buf, eap);
+#endif
+
   // Quickly return if there are no autocommands for this event or
   // autocommands are blocked.
   if (event == NUM_EVENTS || first_autopat[(int)event] == NULL
