@@ -308,15 +308,16 @@ end
 
 --- Get all diagnostics for all clients
 ---
----@return Diagnostic[]
+---@return {bufnr: Diagnostic[]}
 function M.get_all()
-  local all_diagnostics = {}
-  for _, buf_diagnostics in pairs(diagnostic_cache) do
+  local diagnostics_by_bufnr = {}
+  for bufnr, buf_diagnostics in pairs(diagnostic_cache) do
+    diagnostics_by_bufnr[bufnr] = {}
     for _, client_diagnostics in pairs(buf_diagnostics) do
-      vim.list_extend(all_diagnostics, client_diagnostics)
+      vim.list_extend(diagnostics_by_bufnr[bufnr], client_diagnostics)
     end
   end
-  return all_diagnostics
+  return diagnostics_by_bufnr
 end
 
 --- Return associated diagnostics for bufnr
@@ -399,9 +400,9 @@ end
 ---   let sl = ''
 ---   if luaeval('not vim.tbl_isempty(vim.lsp.buf_get_clients(0))')
 ---     let sl.='%#MyStatuslineLSP#E:'
----     let sl.='%#MyStatuslineLSPErrors#%{luaeval("vim.lsp.diagnostic.get_count([[Error]])")}'
+---     let sl.='%#MyStatuslineLSPErrors#%{luaeval("vim.lsp.diagnostic.get_count(0, [[Error]])")}'
 ---     let sl.='%#MyStatuslineLSP# W:'
----     let sl.='%#MyStatuslineLSPWarnings#%{luaeval("vim.lsp.diagnostic.get_count([[Warning]])")}'
+---     let sl.='%#MyStatuslineLSPWarnings#%{luaeval("vim.lsp.diagnostic.get_count(0, [[Warning]])")}'
 ---   else
 ---       let sl.='%#MyStatuslineLSPErrors#off'
 ---   endif
@@ -509,7 +510,7 @@ end
 
 --- Get the previous diagnostic closest to the cursor_position
 ---
----@param opts table See |vim.lsp.diagnostics.goto_next()|
+---@param opts table See |vim.lsp.diagnostic.goto_next()|
 ---@return table Previous diagnostic
 function M.get_prev(opts)
   opts = opts or {}
@@ -522,7 +523,7 @@ function M.get_prev(opts)
 end
 
 --- Return the pos, {row, col}, for the prev diagnostic in the current buffer.
----@param opts table See |vim.lsp.diagnostics.goto_next()|
+---@param opts table See |vim.lsp.diagnostic.goto_next()|
 ---@return table Previous diagnostic position
 function M.get_prev_pos(opts)
   return _iter_diagnostic_lines_pos(
@@ -532,7 +533,7 @@ function M.get_prev_pos(opts)
 end
 
 --- Move to the previous diagnostic
----@param opts table See |vim.lsp.diagnostics.goto_next()|
+---@param opts table See |vim.lsp.diagnostic.goto_next()|
 function M.goto_prev(opts)
   return _iter_diagnostic_move_pos(
     "DiagnosticPrevious",
@@ -542,7 +543,7 @@ function M.goto_prev(opts)
 end
 
 --- Get the previous diagnostic closest to the cursor_position
----@param opts table See |vim.lsp.diagnostics.goto_next()|
+---@param opts table See |vim.lsp.diagnostic.goto_next()|
 ---@return table Next diagnostic
 function M.get_next(opts)
   opts = opts or {}
@@ -555,7 +556,7 @@ function M.get_next(opts)
 end
 
 --- Return the pos, {row, col}, for the next diagnostic in the current buffer.
----@param opts table See |vim.lsp.diagnostics.goto_next()|
+---@param opts table See |vim.lsp.diagnostic.goto_next()|
 ---@return table Next diagnostic position
 function M.get_next_pos(opts)
   return _iter_diagnostic_lines_pos(

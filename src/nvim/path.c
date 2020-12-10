@@ -1610,10 +1610,10 @@ void simplify_filename(char_u *filename)
 
 static char *eval_includeexpr(const char *const ptr, const size_t len)
 {
-  set_vim_var_string(VV_FNAME, ptr, (ptrdiff_t) len);
-  char *res = (char *) eval_to_string_safe(
-      curbuf->b_p_inex, NULL, was_set_insecurely((char_u *)"includeexpr",
-                                                 OPT_LOCAL));
+  set_vim_var_string(VV_FNAME, ptr, (ptrdiff_t)len);
+  char *res = (char *)eval_to_string_safe(
+      curbuf->b_p_inex, NULL,
+      was_set_insecurely(curwin, (char_u *)"includeexpr", OPT_LOCAL));
   set_vim_var_string(VV_FNAME, NULL, 0);
   return res;
 }
@@ -1702,6 +1702,13 @@ int path_with_url(const char *fname)
   const char *p;
   for (p = fname; isalpha(*p); p++) {}
   return path_is_url(p);
+}
+
+bool path_with_extension(const char *path, const char *extension)
+{
+  const char *last_dot = strrchr(path, '.');
+  if (!last_dot) { return false; }
+  return strcmp(last_dot + 1, extension) == 0;
 }
 
 /*

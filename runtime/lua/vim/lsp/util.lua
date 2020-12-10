@@ -957,6 +957,7 @@ function M.open_floating_preview(contents, filetype, opts)
   end
   api.nvim_buf_set_lines(floating_bufnr, 0, -1, true, contents)
   api.nvim_buf_set_option(floating_bufnr, 'modifiable', false)
+  api.nvim_buf_set_option(floating_bufnr, 'bufhidden', 'wipe')
   M.close_preview_autocmd({"CursorMoved", "CursorMovedI", "BufHidden", "BufLeave"}, floating_winnr)
   return floating_bufnr, floating_winnr
 end
@@ -1021,7 +1022,7 @@ do
 
   --@deprecated
   function M.buf_diagnostics_signs(bufnr, diagnostics, client_id)
-    warn_once("buf_diagnostics_signs is deprecated. Use 'vim.lsp.diagnostics.set_signs'")
+    warn_once("buf_diagnostics_signs is deprecated. Use 'vim.lsp.diagnostic.set_signs'")
     return vim.lsp.diagnostic.set_signs(diagnostics, bufnr, client_id)
   end
 
@@ -1314,6 +1315,12 @@ function M.make_text_document_params()
   return { uri = vim.uri_from_bufnr(0) }
 end
 
+--- Create the workspace params
+--@param added
+--@param removed
+function M.make_workspace_params(added, removed)
+  return { event = { added = added; removed = removed; } }
+end
 --- Returns visual width of tabstop.
 ---
 --@see |softtabstop|

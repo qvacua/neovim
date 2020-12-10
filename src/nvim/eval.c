@@ -64,6 +64,7 @@ static char *e_dictrange = N_("E719: Cannot use [:] with a Dictionary");
 static char *e_illvar = N_("E461: Illegal variable name: %s");
 static char *e_cannot_mod = N_("E995: Cannot modify existing variable");
 static char *e_invalwindow = N_("E957: Invalid window number");
+static char *e_lock_unlock = N_("E940: Cannot lock or unlock variable %s");
 
 // TODO(ZyX-I): move to eval/executor
 static char *e_letwrong = N_("E734: Wrong variable type for %s=");
@@ -1178,8 +1179,7 @@ int eval_foldexpr(char_u *arg, int *cp)
 {
   typval_T tv;
   varnumber_T retval;
-  int use_sandbox = was_set_insecurely((char_u *)"foldexpr",
-      OPT_LOCAL);
+  int use_sandbox = was_set_insecurely(curwin, (char_u *)"foldexpr", OPT_LOCAL);
 
   ++emsg_off;
   if (use_sandbox)
@@ -1971,7 +1971,7 @@ char_u *get_lval(char_u *const name, typval_T *const rettv,
   typval_T var2;
   int empty1 = FALSE;
   listitem_T  *ni;
-  hashtab_T   *ht;
+  hashtab_T *ht = NULL;
   int quiet = flags & GLV_QUIET;
 
   // Clear everything in "lp".
@@ -2441,7 +2441,7 @@ static void set_var_lval(lval_T *lp, char_u *endp, typval_T *rettv,
       tv_copy(rettv, lp->ll_tv);
     } else {
       *lp->ll_tv = *rettv;
-      lp->ll_tv->v_lock = 0;
+      lp->ll_tv->v_lock = VAR_UNLOCKED;
       tv_init(rettv);
     }
 
@@ -2639,22 +2639,18 @@ void set_context_for_expression(expand_T *xp, char_u *arg, cmdidx_T cmdidx)
   xp->xp_pattern = arg;
 }
 
-/*
- * ":unlet[!] var1 ... " command.
- */
+/// ":unlet[!] var1 ... " command.
 void ex_unlet(exarg_T *eap)
 {
-  ex_unletlock(eap, eap->arg, 0);
+  ex_unletlock(eap, eap->arg, 0, do_unlet_var);
 }
 
 // TODO(ZyX-I): move to eval/ex_cmds
 
-/*
- * ":lockvar" and ":unlockvar" commands
- */
+/// ":lockvar" and ":unlockvar" commands
 void ex_lockvar(exarg_T *eap)
 {
-  char_u      *arg = eap->arg;
+  char_u *arg = eap->arg;
   int deep = 2;
 
   if (eap->forceit) {
@@ -2664,30 +2660,41 @@ void ex_lockvar(exarg_T *eap)
     arg = skipwhite(arg);
   }
 
-  ex_unletlock(eap, arg, deep);
+  ex_unletlock(eap, arg, deep, do_lock_var);
 }
 
 // TODO(ZyX-I): move to eval/ex_cmds
 
-/*
- * ":unlet", ":lockvar" and ":unlockvar" are quite similar.
- */
-static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep)
+/// Common parsing logic for :unlet, :lockvar and :unlockvar.
+///
+/// Invokes `callback` afterwards if successful and `eap->skip == false`.
+///
+/// @param[in]  eap  Ex command arguments for the command.
+/// @param[in]  argstart  Start of the string argument for the command.
+/// @param[in]  deep  Levels to (un)lock for :(un)lockvar, -1 to (un)lock
+///                   everything.
+/// @param[in]  callback  Appropriate handler for the command.
+static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep,
+                         ex_unletlock_callback callback)
+  FUNC_ATTR_NONNULL_ALL
 {
-  char_u      *arg = argstart;
+  char_u *arg = argstart;
   char_u *name_end;
   bool error = false;
   lval_T lv;
 
   do {
     if (*arg == '$') {
-      const char *name = (char *)++arg;
-
+      lv.ll_name = (const char *)arg;
+      lv.ll_tv = NULL;
+      arg++;
       if (get_env_len((const char_u **)&arg) == 0) {
-        EMSG2(_(e_invarg2), name - 1);
+        EMSG2(_(e_invarg2), arg - 1);
         return;
       }
-      os_unsetenv(name);
+      if (!error && !eap->skip && callback(&lv, arg, eap, deep) == FAIL) {
+        error = true;
+      }
       name_end = arg;
     } else {
       // Parse the name and find the end.
@@ -2708,17 +2715,8 @@ static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep)
         break;
       }
 
-      if (!error && !eap->skip) {
-        if (eap->cmdidx == CMD_unlet) {
-          if (do_unlet_var(&lv, name_end, eap->forceit) == FAIL) {
-            error = true;
-          }
-        } else {
-          if (do_lock_var(&lv, name_end, deep,
-                          eap->cmdidx == CMD_lockvar) == FAIL) {
-            error = true;
-          }
-        }
+      if (!error && !eap->skip && callback(&lv, name_end, eap, deep) == FAIL) {
+        error = true;
       }
 
       if (!eap->skip) {
@@ -2733,8 +2731,19 @@ static void ex_unletlock(exarg_T *eap, char_u *argstart, int deep)
 
 // TODO(ZyX-I): move to eval/ex_cmds
 
-static int do_unlet_var(lval_T *const lp, char_u *const name_end, int forceit)
+/// Unlet a variable indicated by `lp`.
+///
+/// @param[in]  lp  The lvalue.
+/// @param[in]  name_end  End of the string argument for the command.
+/// @param[in]  eap  Ex command arguments for :unlet.
+/// @param[in]  deep  Unused.
+///
+/// @return OK on success, or FAIL on failure.
+static int do_unlet_var(lval_T *lp, char_u *name_end, exarg_T *eap,
+                        int deep FUNC_ATTR_UNUSED)
+  FUNC_ATTR_NONNULL_ALL
 {
+  int forceit = eap->forceit;
   int ret = OK;
   int cc;
 
@@ -2742,8 +2751,10 @@ static int do_unlet_var(lval_T *const lp, char_u *const name_end, int forceit)
     cc = *name_end;
     *name_end = NUL;
 
-    // Normal name or expanded name.
-    if (do_unlet(lp->ll_name, lp->ll_name_len, forceit) == FAIL) {
+    // Environment variable, normal name or expanded name.
+    if (*lp->ll_name == '$') {
+      os_unsetenv(lp->ll_name + 1);
+    } else if (do_unlet(lp->ll_name, lp->ll_name_len, forceit) == FAIL) {
       ret = FAIL;
     }
     *name_end = cc;
@@ -2817,7 +2828,7 @@ static int do_unlet_var(lval_T *const lp, char_u *const name_end, int forceit)
 ///
 /// @param[in]  name  Variable name to unlet.
 /// @param[in]  name_len  Variable name length.
-/// @param[in]  fonceit  If true, do not complain if variable doesn’t exist.
+/// @param[in]  forceit  If true, do not complain if variable doesn’t exist.
 ///
 /// @return OK if it existed, FAIL otherwise.
 int do_unlet(const char *const name, const size_t name_len, const bool forceit)
@@ -2884,14 +2895,21 @@ int do_unlet(const char *const name, const size_t name_len, const bool forceit)
 
 // TODO(ZyX-I): move to eval/ex_cmds
 
-/*
- * Lock or unlock variable indicated by "lp".
- * "deep" is the levels to go (-1 for unlimited);
- * "lock" is TRUE for ":lockvar", FALSE for ":unlockvar".
- */
-static int do_lock_var(lval_T *lp, char_u *const name_end, const int deep,
-                       const bool lock)
+/// Lock or unlock variable indicated by `lp`.
+///
+/// Locks if `eap->cmdidx == CMD_lockvar`, unlocks otherwise.
+///
+/// @param[in]  lp  The lvalue.
+/// @param[in]  name_end  Unused.
+/// @param[in]  eap  Ex command arguments for :(un)lockvar.
+/// @param[in]  deep  Levels to (un)lock, -1 to (un)lock everything.
+///
+/// @return OK on success, or FAIL on failure.
+static int do_lock_var(lval_T *lp, char_u *name_end FUNC_ATTR_UNUSED,
+                       exarg_T *eap, int deep)
+  FUNC_ATTR_NONNULL_ARG(1, 3)
 {
+  bool lock = eap->cmdidx == CMD_lockvar;
   int ret = OK;
 
   if (deep == 0) {  // Nothing to do.
@@ -2899,25 +2917,31 @@ static int do_lock_var(lval_T *lp, char_u *const name_end, const int deep,
   }
 
   if (lp->ll_tv == NULL) {
-    // Normal name or expanded name.
-    dictitem_T *const di = find_var(
-        (const char *)lp->ll_name, lp->ll_name_len, NULL,
-        true);
-    if (di == NULL) {
+    if (*lp->ll_name == '$') {
+      EMSG2(_(e_lock_unlock), lp->ll_name);
       ret = FAIL;
-    } else if ((di->di_flags & DI_FLAGS_FIX)
-               && di->di_tv.v_type != VAR_DICT
-               && di->di_tv.v_type != VAR_LIST) {
-      // For historical reasons this error is not given for Lists and
-      // Dictionaries. E.g. b: dictionary may be locked/unlocked.
-      emsgf(_("E940: Cannot lock or unlock variable %s"), lp->ll_name);
     } else {
-      if (lock) {
-        di->di_flags |= DI_FLAGS_LOCK;
+      // Normal name or expanded name.
+      dictitem_T *const di = find_var(
+          (const char *)lp->ll_name, lp->ll_name_len, NULL,
+          true);
+      if (di == NULL) {
+        ret = FAIL;
+      } else if ((di->di_flags & DI_FLAGS_FIX)
+                 && di->di_tv.v_type != VAR_DICT
+                 && di->di_tv.v_type != VAR_LIST) {
+        // For historical reasons this error is not given for Lists and
+        // Dictionaries. E.g. b: dictionary may be locked/unlocked.
+        EMSG2(_(e_lock_unlock), lp->ll_name);
+        ret = FAIL;
       } else {
-        di->di_flags &= ~DI_FLAGS_LOCK;
+        if (lock) {
+          di->di_flags |= DI_FLAGS_LOCK;
+        } else {
+          di->di_flags &= ~DI_FLAGS_LOCK;
+        }
+        tv_item_lock(&di->di_tv, deep, lock);
       }
-      tv_item_lock(&di->di_tv, deep, lock);
     }
   } else if (lp->ll_range) {
     listitem_T    *li = lp->ll_li;
@@ -5458,7 +5482,7 @@ static int dict_get_tv(char_u **arg, typval_T *rettv, int evaluate,
       }
       item = tv_dict_item_alloc((const char *)key);
       item->di_tv = tv;
-      item->di_tv.v_lock = 0;
+      item->di_tv.v_lock = VAR_UNLOCKED;
       if (tv_dict_add(d, item) == FAIL) {
         tv_dict_item_free(item);
       }
@@ -6128,7 +6152,7 @@ static int filter_map_one(typval_T *tv, typval_T *expr, int map, int *remp)
   if (map) {
     // map(): replace the list item value.
     tv_clear(tv);
-    rettv.v_lock = 0;
+    rettv.v_lock = VAR_UNLOCKED;
     *tv = rettv;
   } else {
     bool error = false;
@@ -6433,7 +6457,7 @@ dict_T *get_win_info(win_T *wp, int16_t tpnr, int16_t winnr)
   tv_dict_add_nr(dict, S_LEN("winrow"), wp->w_winrow + 1);
   tv_dict_add_nr(dict, S_LEN("topline"), wp->w_topline);
   tv_dict_add_nr(dict, S_LEN("botline"), wp->w_botline - 1);
-  tv_dict_add_nr(dict, S_LEN("winbar"), wp->w_winbar_height);
+  tv_dict_add_nr(dict, S_LEN("winbar"), 0);
   tv_dict_add_nr(dict, S_LEN("width"), wp->w_width);
   tv_dict_add_nr(dict, S_LEN("bufnr"), wp->w_buffer->b_fnum);
   tv_dict_add_nr(dict, S_LEN("wincol"), wp->w_wincol + 1);
@@ -9078,7 +9102,7 @@ static void set_var_const(const char *name, const size_t name_len,
     tv_copy(tv, &v->di_tv);
   } else {
     v->di_tv = *tv;
-    v->di_tv.v_lock = 0;
+    v->di_tv.v_lock = VAR_UNLOCKED;
     tv_init(tv);
   }
 
@@ -9275,7 +9299,7 @@ int var_item_copy(const vimconv_T *const conv,
       tv_copy(from, to);
     } else {
       to->v_type = VAR_STRING;
-      to->v_lock = 0;
+      to->v_lock = VAR_UNLOCKED;
       if ((to->vval.v_string = string_convert((vimconv_T *)conv,
                                               from->vval.v_string,
                                               NULL))
@@ -9286,7 +9310,7 @@ int var_item_copy(const vimconv_T *const conv,
     break;
   case VAR_LIST:
     to->v_type = VAR_LIST;
-    to->v_lock = 0;
+    to->v_lock = VAR_UNLOCKED;
     if (from->vval.v_list == NULL) {
       to->vval.v_list = NULL;
     } else if (copyID != 0 && tv_list_copyid(from->vval.v_list) == copyID) {
@@ -9302,7 +9326,7 @@ int var_item_copy(const vimconv_T *const conv,
     break;
   case VAR_DICT:
     to->v_type = VAR_DICT;
-    to->v_lock = 0;
+    to->v_lock = VAR_UNLOCKED;
     if (from->vval.v_dict == NULL) {
       to->vval.v_dict = NULL;
     } else if (copyID != 0 && from->vval.v_dict->dv_copyID == copyID) {
@@ -10466,9 +10490,10 @@ typval_T eval_call_provider(char *provider, char *method, list_T *arguments,
   provider_call_nesting++;
 
   typval_T argvars[3] = {
-    {.v_type = VAR_STRING, .vval.v_string = (uint8_t *)method, .v_lock = 0},
-    {.v_type = VAR_LIST, .vval.v_list = arguments, .v_lock = 0},
-    {.v_type = VAR_UNKNOWN}
+    { .v_type = VAR_STRING, .vval.v_string = (char_u *)method,
+      .v_lock = VAR_UNLOCKED },
+    { .v_type = VAR_LIST, .vval.v_list = arguments, .v_lock = VAR_UNLOCKED },
+    { .v_type = VAR_UNKNOWN }
   };
   typval_T rettv = { .v_type = VAR_UNKNOWN, .v_lock = VAR_UNLOCKED };
   tv_list_ref(arguments);

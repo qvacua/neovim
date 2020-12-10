@@ -1485,7 +1485,8 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
     if ((redo_yank || oap->op_type != OP_YANK)
         && ((!VIsual_active || oap->motion_force)
             // Also redo Operator-pending Visual mode mappings.
-            || (cap->cmdchar == ':' && oap->op_type != OP_COLON))
+            || ((cap->cmdchar == ':' || cap->cmdchar == K_COMMAND)
+                && oap->op_type != OP_COLON))
         && cap->cmdchar != 'D'
         && oap->op_type != OP_FOLD
         && oap->op_type != OP_FOLDOPEN
@@ -1678,7 +1679,7 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
           prep_redo(oap->regname, cap->count0,
                     get_op_char(oap->op_type), get_extra_op_char(oap->op_type),
                     oap->motion_force, cap->cmdchar, cap->nchar);
-        } else if (cap->cmdchar != ':') {
+        } else if (cap->cmdchar != ':' && cap->cmdchar != K_COMMAND) {
           int nchar = oap->op_type == OP_REPLACE ? cap->nchar : NUL;
 
           // reverse what nv_replace() did
@@ -1846,13 +1847,12 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
         CancelRedo();
       } else {
         (void)op_delete(oap);
-        if (oap->motion_type == kMTLineWise && has_format_option(FO_AUTO)) {
-          // cursor line wasn't saved yet
-          if (u_save_cursor() == FAIL) {
-            break;
-          }
+        // save cursor line for undo if it wasn't saved yet
+        if (oap->motion_type == kMTLineWise
+            && has_format_option(FO_AUTO)
+            && u_save_cursor() == OK) {
+          auto_format(false, true);
         }
-        auto_format(false, true);
       }
       break;
 
@@ -2599,11 +2599,6 @@ do_mouse (
   jump_flags = jump_to_mouse(jump_flags,
                              oap == NULL ? NULL : &(oap->inclusive),
                              which_button);
-
-  // A click in the window toolbar has no side effects.
-  if (jump_flags & MOUSE_WINBAR) {
-    return false;
-  }
 
   moved = (jump_flags & CURSOR_MOVED);
   in_status_line = (jump_flags & IN_STATUS_LINE);

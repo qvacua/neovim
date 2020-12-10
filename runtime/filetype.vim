@@ -692,12 +692,15 @@ au BufNewFile,BufRead .gtkrc,gtkrc		setf gtkrc
 au BufNewFile,BufRead *.haml			setf haml
 
 " Hamster Classic | Playground files
-au BufNewFile,BufRead *.hsc,*.hsm		setf hamster
+au BufNewFile,BufRead *.hsm	  		setf hamster
 
 " Haskell
-au BufNewFile,BufRead *.hs,*.hs-boot		setf haskell
+au BufNewFile,BufRead *.hs,*.hsc,*.hs-boot	setf haskell
 au BufNewFile,BufRead *.lhs			setf lhaskell
 au BufNewFile,BufRead *.chs			setf chaskell
+au BufNewFile,BufRead cabal.project		setf cabalproject
+au BufNewFile,BufRead $HOME/.cabal/config	setf cabalconfig
+au BufNewFile,BufRead cabal.config		setf cabalconfig
 
 " Haste
 au BufNewFile,BufRead *.ht			setf haste
@@ -1301,6 +1304,7 @@ au BufNewFile,BufRead *.pml			setf promela
 
 " Google protocol buffers
 au BufNewFile,BufRead *.proto			setf proto
+au BufNewFile,BufRead *.pbtxt			setf pbtxt
 
 " Protocols
 au BufNewFile,BufRead */etc/protocols		setf protocols
@@ -1740,6 +1744,9 @@ au BufNewFile,BufRead *.tf,.tfrc,tfrc		setf tf
 " tmux configuration
 au BufNewFile,BufRead {.,}tmux*.conf		setf tmux
 
+" TOML
+au BufNewFile,BufRead *.toml			setf toml
+
 " TPP - Text Presentation Program
 au BufNewFile,BufReadPost *.tpp			setf tpp
 
@@ -1764,8 +1771,13 @@ au BufNewFile,BufReadPost *.tutor		setf tutor
 " TWIG files
 au BufNewFile,BufReadPost *.twig		setf twig
 
-" Typescript
-au BufNewFile,BufReadPost *.ts			setf typescript
+" Typescript or Qt translation file (which is XML)
+au BufNewFile,BufReadPost *.ts
+	\ if getline(1) =~ '<?xml' |
+	\   setf xml |
+	\ else |
+	\   setf typescript |
+	\ endif
 
 " TypeScript with React
 au BufNewFile,BufRead *.tsx			setf typescriptreact
@@ -2041,11 +2053,13 @@ au BufNewFile,BufRead bzr_log.*			setf bzr
 
 " Bazel build file
 if !has("fname_case")
-  au BufNewFile,BufRead *.BUILD,BUILD			setf bzl
+  au BufNewFile,BufRead *.BUILD,BUILD		setf bzl
 endif
 
 " BIND zone
 au BufNewFile,BufRead */named/db.*,*/bind/db.*	call s:StarSetf('bindzone')
+
+au BufNewFile,BufRead cabal.project.*		call s:StarSetf('cabalproject')
 
 " Calendar
 au BufNewFile,BufRead */.calendar/*,

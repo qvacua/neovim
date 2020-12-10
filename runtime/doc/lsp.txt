@@ -30,7 +30,7 @@ Follow these steps to get LSP features:
   2. Install a language server.  Try ":LspInstall <tab>" or use your system
      package manager to install the relevant language server:
      https://microsoft.github.io/language-server-protocol/implementors/servers/
-  3. Add `lua require('nvim_lsp').xx.setup{…}` to your init.vim, where "xx" is
+  3. Add `lua require('lspconfig').xx.setup{…}` to your init.vim, where "xx" is
      the name of the relevant config. See the nvim-lspconfig README for details.
      NOTE: Make sure to restart nvim after installing and configuring.
   4. Check that an LSP client has attached to the current buffer:  >
@@ -68,7 +68,7 @@ Example config (in init.vim): >
     -- An example of configuring for `sumneko_lua`,
     --  a language server for Lua.
     -- First, you must run `:LspInstall sumneko_lua` for this to work.
-    require('nvim_lsp').sumneko_lua.setup({
+    require('lspconfig').sumneko_lua.setup({
       -- An example of settings for an LSP server.
       --    For more options, see nvim-lspconfig
       settings = {
@@ -247,7 +247,7 @@ For |lsp-notification|, each |lsp-handler| has this signature: >
                             of a particular handler.
 
                             For an example, see:
-                                |vim.lsp.diagnostics.on_publish_diagnostics()|
+                                |vim.lsp.diagnostic.on_publish_diagnostics()|
 
                             To configure a particular |lsp-handler|, see:
                                 |lsp-handler-configuration|
@@ -297,7 +297,7 @@ To configure the behavior of a builtin |lsp-handler|, the conenvience method
 <
   or if using 'nvim-lspconfig', you can use the {handlers} key of `setup()`: >
 
-   nvim_lsp.rust_analyzer.setup {
+   require('lspconfig').rust_analyzer.setup {
      handlers = {
        ["textDocument/publishDiagnostics"] = vim.lsp.with(
          vim.lsp.diagnostic.on_publish_diagnostics, {
@@ -715,6 +715,15 @@ start_client({config})                                *vim.lsp.start_client()*
 
                 The following parameters describe fields in the {config}
                 table.
+>
+
+    -- In attach function for the client, you can do:
+    local custom_attach = function(client)
+      if client.config.flags then
+        client.config.flags.allow_incremental_sync = true
+      end
+    end
+<
 
                 Parameters: ~
                     {root_dir}         (required, string) Directory where the
@@ -796,6 +805,11 @@ start_client({config})                                *vim.lsp.start_client()*
                                        in the initialize request.
                                        Invalid/empty values will default to
                                        "off"
+                    {flags}            A table with flags for the client. The
+                                       current (experimental) flags are:
+                                       • allow_incremental_sync (bool, default
+                                         false): Allow using on_line callbacks
+                                         for lsp
 
                 Return: ~
                     Client id. |vim.lsp.get_client_by_id()| Note: client may
@@ -832,6 +846,12 @@ with({handler}, {override_config})                            *vim.lsp.with()*
 
 ==============================================================================
 Lua module: vim.lsp.buf                                              *lsp-buf*
+
+                                          *vim.lsp.buf.add_workspace_folder()*
+add_workspace_folder({workspace_folder})
+                Add the folder at path to the workspace folders. If {path} is
+                not provided, the user will be prompted for a path using
+                |input()|.
 
 clear_references()                            *vim.lsp.buf.clear_references()*
                 Removes document highlights from current buffer.
@@ -935,6 +955,9 @@ incoming_calls()                                *vim.lsp.buf.incoming_calls()*
                 |quickfix| window. If the symbol can resolve to multiple
                 items, the user can pick one in the |inputlist|.
 
+list_workspace_folders()                *vim.lsp.buf.list_workspace_folders()*
+                List workspace folders.
+
 outgoing_calls()                                *vim.lsp.buf.outgoing_calls()*
                 Lists all the items that are called by the symbol under the
                 cursor in the |quickfix| window. If the symbol can resolve to
@@ -961,6 +984,9 @@ range_formatting({options}, {start_pos}, {end_pos})
                 Parameters: ~
                     {options}    Table with valid `FormattingOptions` entries.
                     {start_pos}  ({number, number}, optional) mark-indexed
+                                 position. Defaults to the start of the last
+                                 visual selection.
+                    {end_pos}    ({number, number}, optional) mark-indexed
                                  position. Defaults to the end of the last
                                  visual selection.
 
@@ -973,6 +999,12 @@ references({context})                               *vim.lsp.buf.references()*
 
                 See also: ~
                     https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_references
+
+                                       *vim.lsp.buf.remove_workspace_folder()*
+remove_workspace_folder({workspace_folder})
+                Remove the folder at path from the workspace folders. If
+                {path} is not provided, the user will be prompted for a path
+                using |input()|.
 
 rename({new_name})                                      *vim.lsp.buf.rename()*
                 Renames all references to the symbol under the cursor.
@@ -1036,7 +1068,7 @@ get_all()                                       *vim.lsp.diagnostic.get_all()*
                 Get all diagnostics for all clients
 
                 Return: ~
-                    Diagnostic[]
+                    {bufnr:Diagnostic[]}
 
                                               *vim.lsp.diagnostic.get_count()*
 get_count({bufnr}, {severity}, {client_id})
@@ -1049,9 +1081,9 @@ get_count({bufnr}, {severity}, {client_id})
       let sl = ''
       if luaeval('not vim.tbl_isempty(vim.lsp.buf_get_clients(0))')
         let sl.='%#MyStatuslineLSP#E:'
-        let sl.='%#MyStatuslineLSPErrors#%{luaeval("vim.lsp.diagnostic.get_count([[Error]])")}'
+        let sl.='%#MyStatuslineLSPErrors#%{luaeval("vim.lsp.diagnostic.get_count(0, [[Error]])")}'
         let sl.='%#MyStatuslineLSP# W:'
-        let sl.='%#MyStatuslineLSPWarnings#%{luaeval("vim.lsp.diagnostic.get_count([[Warning]])")}'
+        let sl.='%#MyStatuslineLSPWarnings#%{luaeval("vim.lsp.diagnostic.get_count(0, [[Warning]])")}'
       else
           let sl.='%#MyStatuslineLSPErrors#off'
       endif
@@ -1091,7 +1123,7 @@ get_next({opts})                               *vim.lsp.diagnostic.get_next()*
                 Get the previous diagnostic closest to the cursor_position
 
                 Parameters: ~
-                    {opts}  table See |vim.lsp.diagnostics.goto_next()|
+                    {opts}  table See |vim.lsp.diagnostic.goto_next()|
 
                 Return: ~
                     table Next diagnostic
@@ -1101,7 +1133,7 @@ get_next_pos({opts})                       *vim.lsp.diagnostic.get_next_pos()*
                 current buffer.
 
                 Parameters: ~
-                    {opts}  table See |vim.lsp.diagnostics.goto_next()|
+                    {opts}  table See |vim.lsp.diagnostic.goto_next()|
 
                 Return: ~
                     table Next diagnostic position
@@ -1110,7 +1142,7 @@ get_prev({opts})                               *vim.lsp.diagnostic.get_prev()*
                 Get the previous diagnostic closest to the cursor_position
 
                 Parameters: ~
-                    {opts}  table See |vim.lsp.diagnostics.goto_next()|
+                    {opts}  table See |vim.lsp.diagnostic.goto_next()|
 
                 Return: ~
                     table Previous diagnostic
@@ -1120,7 +1152,7 @@ get_prev_pos({opts})                       *vim.lsp.diagnostic.get_prev_pos()*
                 current buffer.
 
                 Parameters: ~
-                    {opts}  table See |vim.lsp.diagnostics.goto_next()|
+                    {opts}  table See |vim.lsp.diagnostic.goto_next()|
 
                 Return: ~
                     table Previous diagnostic position
@@ -1183,7 +1215,7 @@ goto_prev({opts})                             *vim.lsp.diagnostic.goto_prev()*
                 Move to the previous diagnostic
 
                 Parameters: ~
-                    {opts}  table See |vim.lsp.diagnostics.goto_next()|
+                    {opts}  table See |vim.lsp.diagnostic.goto_next()|
 
                                  *vim.lsp.diagnostic.on_publish_diagnostics()*
 on_publish_diagnostics({_}, {_}, {params}, {client_id}, {_}, {config})
@@ -1640,6 +1672,14 @@ make_text_document_params()         *vim.lsp.util.make_text_document_params()*
 
                 See also: ~
                     https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentIdentifier
+
+                                        *vim.lsp.util.make_workspace_params()*
+make_workspace_params({added}, {removed})
+                Create the workspace params
+
+                Parameters: ~
+                    {added}    
+                    {removed}
 
                                         *vim.lsp.util.open_floating_preview()*
 open_floating_preview({contents}, {filetype}, {opts})

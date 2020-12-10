@@ -173,7 +173,9 @@ static bool provider_invoke(NS ns_id, const char *name, LuaRef ref,
   Error err = ERROR_INIT;
 
   textlock++;
+  provider_active = true;
   Object ret = nlua_call_ref(ref, name, args, true, &err);
+  provider_active = false;
   textlock--;
 
   if (!ERROR_SET(&err)
@@ -2194,6 +2196,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
 
     if (wp->w_p_spell
+        && foldinfo.fi_lines == 0
         && *wp->w_s->b_p_spl != NUL
         && !GA_EMPTY(&wp->w_s->b_langp)
         && *(char **)(wp->w_s->b_langp.ga_data) != NULL) {
@@ -2547,7 +2550,9 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
    */
   cur = wp->w_match_head;
   shl_flag = false;
-  while ((cur != NULL || !shl_flag) && !number_only) {
+  while ((cur != NULL || !shl_flag) && !number_only
+         && foldinfo.fi_lines == 0
+         ) {
     if (!shl_flag) {
       shl = &search_hl;
       shl_flag = true;
@@ -2833,9 +2838,9 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
            * required when 'linebreak' is also set. */
           if (tocol == vcol)
             tocol += n_extra;
-          /* combine 'showbreak' with 'cursorline' */
+          // Combine 'showbreak' with 'cursorline', prioritizing 'showbreak'.
           if (wp->w_p_cul && lnum == wp->w_cursor.lnum) {
-            char_attr = hl_combine_attr(char_attr, win_hl_attr(wp, HLF_CUL));
+            char_attr = hl_combine_attr(win_hl_attr(wp, HLF_CUL), char_attr);
           }
         }
       }
@@ -5203,7 +5208,7 @@ win_redr_custom (
     fillchar = ' ';
     attr = HL_ATTR(HLF_TPF);
     maxwidth = Columns;
-    use_sandbox = was_set_insecurely((char_u *)"tabline", 0);
+    use_sandbox = was_set_insecurely(wp, (char_u *)"tabline", 0);
   } else {
     row = W_ENDROW(wp);
     fillchar = fillchar_status(&attr, wp);
@@ -5234,14 +5239,14 @@ win_redr_custom (
         attr = HL_ATTR(HLF_MSG);
       }
 
-      use_sandbox = was_set_insecurely((char_u *)"rulerformat", 0);
+      use_sandbox = was_set_insecurely(wp, (char_u *)"rulerformat", 0);
     } else {
       if (*wp->w_p_stl != NUL)
         stl = wp->w_p_stl;
       else
         stl = p_stl;
-      use_sandbox = was_set_insecurely((char_u *)"statusline",
-          *wp->w_p_stl == NUL ? 0 : OPT_LOCAL);
+      use_sandbox = was_set_insecurely(
+          wp, (char_u *)"statusline", *wp->w_p_stl == NUL ? 0 : OPT_LOCAL);
     }
 
     col += wp->w_wincol;

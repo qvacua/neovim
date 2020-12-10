@@ -189,9 +189,6 @@ void early_init(mparm_T *paramp)
   global_alist.id = 0;
 
   // Set the default values for the options.
-  // NOTE: Non-latin1 translated messages are working only after this,
-  // because this is where "has_mbyte" will be set, which is used by
-  // msg_outtrans_len_attr().
   // First find out the home directory, needed to expand "~" in options.
   init_homedir();               // find real value of $HOME
   set_init_1(paramp != NULL ? paramp->clean : false);
@@ -1082,9 +1079,14 @@ static void command_line_scan(mparm_T *parmp)
               } else {
                 a = argv[0];
               }
-              size_t s_size = STRLEN(a) + 4;
+
+              size_t s_size = STRLEN(a) + 9;
               char *s = xmalloc(s_size);
-              snprintf(s, s_size, "so %s", a);
+              if (path_with_extension(a, "lua")) {
+                snprintf(s, s_size, "luafile %s", a);
+              } else {
+                snprintf(s, s_size, "so %s", a);
+              }
               parmp->cmds_tofree[parmp->n_commands] = true;
               parmp->commands[parmp->n_commands++] = s;
             } else {
@@ -1352,6 +1354,7 @@ static void load_plugins(void)
 {
   if (p_lpl) {
     char_u *rtp_copy = NULL;
+    char_u *const plugin_pattern = (char_u *)"plugin/**/*.vim";  // NOLINT
 
     // First add all package directories to 'runtimepath', so that their
     // autoload directories can be found.  Only if not done already with a
@@ -1364,7 +1367,7 @@ static void load_plugins(void)
     }
 
     source_in_path(rtp_copy == NULL ? p_rtp : rtp_copy,
-                   (char_u *)"plugin/**/*.vim",  // NOLINT
+                   plugin_pattern,
                    DIP_ALL | DIP_NOAFTER);
     TIME_MSG("loading plugins");
     xfree(rtp_copy);
@@ -1376,7 +1379,7 @@ static void load_plugins(void)
     }
     TIME_MSG("loading packages");
 
-    source_runtime((char_u *)"plugin/**/*.vim", DIP_ALL | DIP_AFTER);
+    source_runtime(plugin_pattern, DIP_ALL | DIP_AFTER);
     TIME_MSG("loading after plugins");
   }
 }
@@ -1427,7 +1430,10 @@ static void read_stdin(void)
   no_wait_return = true;
   int save_msg_didany = msg_didany;
   set_buflisted(true);
-  (void)open_buffer(true, NULL, 0);  // create memfile and read file
+
+  // Create memfile and read from stdin.
+  (void)open_buffer(true, NULL, 0);
+
   if (BUFEMPTY() && curbuf->b_next != NULL) {
     // stdin was empty, go to buffer 2 (e.g. "echo file1 | xargs nvim"). #8561
     do_cmdline_cmd("silent! bnext");
@@ -1788,6 +1794,23 @@ static bool do_user_initialization(void)
     do_exrc = p_exrc;
     return do_exrc;
   }
+
+  char_u *init_lua_path = (char_u *)stdpaths_user_conf_subpath("init.lua");
+  if (os_path_exists(init_lua_path)
+      && nlua_exec_file((const char *)init_lua_path)) {
+    os_setenv("MYVIMRC", (const char *)init_lua_path, 1);
+    char_u *vimrc_path = (char_u *)stdpaths_user_conf_subpath("init.vim");
+
+    if (os_path_exists(vimrc_path)) {
+      EMSG3(_("Conflicting configs: \"%s\" \"%s\""), init_lua_path, vimrc_path);
+    }
+
+    xfree(vimrc_path);
+    xfree(init_lua_path);
+    return false;
+  }
+  xfree(init_lua_path);
+
   char_u *user_vimrc = (char_u *)stdpaths_user_conf_subpath("init.vim");
   if (do_source(user_vimrc, true, DOSO_VIMRC) != FAIL) {
     do_exrc = p_exrc;
@@ -1847,8 +1870,12 @@ static void source_startup_scripts(const mparm_T *const parmp)
         || strequal(parmp->use_vimrc, "NORC")) {
       // Do nothing.
     } else {
-      if (do_source((char_u *)parmp->use_vimrc, false, DOSO_NONE) != OK) {
-        EMSG2(_("E282: Cannot read from \"%s\""), parmp->use_vimrc);
+      if (path_with_extension(parmp->use_vimrc, "lua")) {
+        nlua_exec_file(parmp->use_vimrc);
+      } else {
+        if (do_source((char_u *)parmp->use_vimrc, false, DOSO_NONE) != OK) {
+          EMSG2(_("E282: Cannot read from \"%s\""), parmp->use_vimrc);
+        }
       }
     }
   } else if (!silent_mode) {

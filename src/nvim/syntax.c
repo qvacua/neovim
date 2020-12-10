@@ -3505,12 +3505,16 @@ syn_cmd_list(
       syn_match_msg();
       return;
     } else if (!(curwin->w_s->b_syn_sync_flags & SF_MATCH))   {
-      if (curwin->w_s->b_syn_sync_minlines == 0)
+      if (curwin->w_s->b_syn_sync_minlines == 0) {
         MSG_PUTS(_("no syncing"));
-      else {
-        MSG_PUTS(_("syncing starts "));
-        msg_outnum(curwin->w_s->b_syn_sync_minlines);
-        MSG_PUTS(_(" lines before top line"));
+      } else {
+        if (curwin->w_s->b_syn_sync_minlines == MAXLNUM) {
+          MSG_PUTS(_("syncing starts at the first line"));
+        } else {
+          MSG_PUTS(_("syncing starts "));
+          msg_outnum(curwin->w_s->b_syn_sync_minlines);
+          MSG_PUTS(_(" lines before top line"));
+        }
         syn_match_msg();
       }
       return;
@@ -3566,17 +3570,22 @@ static void syn_lines_msg(void)
   if (curwin->w_s->b_syn_sync_maxlines > 0
       || curwin->w_s->b_syn_sync_minlines > 0) {
     MSG_PUTS("; ");
-    if (curwin->w_s->b_syn_sync_minlines > 0) {
-      MSG_PUTS(_("minimal "));
-      msg_outnum(curwin->w_s->b_syn_sync_minlines);
-      if (curwin->w_s->b_syn_sync_maxlines)
-        MSG_PUTS(", ");
+    if (curwin->w_s->b_syn_sync_minlines == MAXLNUM) {
+      MSG_PUTS(_("from the first line"));
+    } else {
+      if (curwin->w_s->b_syn_sync_minlines > 0) {
+        MSG_PUTS(_("minimal "));
+        msg_outnum(curwin->w_s->b_syn_sync_minlines);
+        if (curwin->w_s->b_syn_sync_maxlines) {
+          MSG_PUTS(", ");
+        }
+      }
+      if (curwin->w_s->b_syn_sync_maxlines > 0) {
+        MSG_PUTS(_("maximal "));
+        msg_outnum(curwin->w_s->b_syn_sync_maxlines);
+      }
+      MSG_PUTS(_(" lines before top line"));
     }
-    if (curwin->w_s->b_syn_sync_maxlines > 0) {
-      MSG_PUTS(_("maximal "));
-      msg_outnum(curwin->w_s->b_syn_sync_maxlines);
-    }
-    MSG_PUTS(_(" lines before top line"));
   }
 }
 
@@ -7554,14 +7563,13 @@ static void syn_unadd_group(void)
 /// @see syn_attr2entry
 int syn_id2attr(int hl_id)
 {
-  struct hl_group     *sgp;
-
   hl_id = syn_get_final_id(hl_id);
-  int attr = ns_get_hl(-1, hl_id, false);
+  struct hl_group *sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
+
+  int attr = ns_get_hl(-1, hl_id, false, sgp->sg_set);
   if (attr >= 0) {
     return attr;
   }
-  sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
   return sgp->sg_attr;
 }
 
@@ -7574,7 +7582,6 @@ int syn_id2attr(int hl_id)
 int syn_get_final_id(int hl_id)
 {
   int count;
-  struct hl_group     *sgp;
 
   if (hl_id > highlight_ga.ga_len || hl_id < 1)
     return 0;                           /* Can be called from eval!! */
@@ -7584,19 +7591,20 @@ int syn_get_final_id(int hl_id)
    * Look out for loops!  Break after 100 links.
    */
   for (count = 100; --count >= 0; ) {
+    struct hl_group *sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
+
     // ACHTUNG: when using "tmp" attribute (no link) the function might be
     // called twice. it needs be smart enough to remember attr only to
     // syn_id2attr time
-    int check = ns_get_hl(-1, hl_id, true);
+    int check = ns_get_hl(-1, hl_id, true, sgp->sg_set);
     if (check == 0) {
-      return 0;  // how dare! it broke the link!
+      return hl_id;  // how dare! it broke the link!
     } else if (check > 0) {
       hl_id = check;
       continue;
     }
 
 
-    sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
     if (sgp->sg_link == 0 || sgp->sg_link > highlight_ga.ga_len) {
       break;
     }

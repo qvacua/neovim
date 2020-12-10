@@ -15,6 +15,7 @@
 #include "nvim/api/private/dispatch.h"
 #include "nvim/api/buffer.h"
 #include "nvim/api/window.h"
+#include "nvim/api/deprecated.h"
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/helpers.h"
 #include "nvim/lua/executor.h"
@@ -213,6 +214,9 @@ Dictionary nvim__get_hl_defs(Integer ns_id, Error *err)
 /// @param ns_id number of namespace for this highlight
 /// @param name highlight group name, like ErrorMsg
 /// @param val highlight definiton map, like |nvim_get_hl_by_name|.
+///            in addition the following keys are also recognized:
+///              `default`: don't override existing definition,
+///                         like `hi default`
 /// @param[out] err Error details, if any
 ///
 /// TODO: ns_id = 0, should modify :highlight namespace
@@ -250,7 +254,7 @@ void nvim_set_hl_ns(Integer ns_id, Error *err)
   // event path for redraws caused by "fast" events. This could tie in with
   // better throttling of async events causing redraws, such as non-batched
   // nvim_buf_set_extmark calls from async contexts.
-  if (!updating_screen && !ns_hl_changed) {
+  if (!provider_active && !ns_hl_changed) {
     multiqueue_put(main_loop.events, on_redraw_event, 0);
   }
   ns_hl_changed = true;
@@ -477,15 +481,6 @@ String nvim_replace_termcodes(String str, Boolean from_part, Boolean do_lt,
   return cstr_as_string(ptr);
 }
 
-/// @deprecated
-/// @see nvim_exec
-String nvim_command_output(String command, Error *err)
-  FUNC_API_SINCE(1)
-  FUNC_API_DEPRECATED_SINCE(7)
-{
-  return nvim_exec(command, true, err);
-}
-
 /// Evaluates a VimL |expression|.
 /// Dictionaries and Lists are recursively expanded.
 ///
@@ -530,16 +525,6 @@ Object nvim_eval(String expr, Error *err)
   });
 
   return rv;
-}
-
-/// @deprecated Use nvim_exec_lua() instead.
-/// @see nvim_exec_lua
-Object nvim_execute_lua(String code, Array args, Error *err)
-  FUNC_API_SINCE(3)
-  FUNC_API_DEPRECATED_SINCE(7)
-  FUNC_API_REMOTE_ONLY
-{
-  return nlua_exec(code, args, err);
 }
 
 /// Execute Lua code. Parameters (if any) are available as `...` inside the
@@ -786,9 +771,14 @@ ArrayOf(String) nvim_list_runtime_paths(void)
 ///
 /// 'name' can contain wildcards. For example
 /// nvim_get_runtime_file("colors/*.vim", true) will return all color
-/// scheme files.
+/// scheme files. Always use forward slashes (/) in the search pattern for
+/// subdirectories regardless of platform.
 ///
 /// It is not an error to not find any files. An empty array is returned then.
+///
+/// To find a directory, `name` must end with a forward slash, like
+/// "rplugin/python/". Without the slash it would instead look for an ordinary
+/// file called "rplugin/python".
 ///
 /// @param name pattern of files to search for
 /// @param all whether to return all matches or only the first
@@ -799,14 +789,13 @@ ArrayOf(String) nvim_get_runtime_file(String name, Boolean all, Error *err)
 {
   Array rv = ARRAY_DICT_INIT;
 
-  // TODO(bfredl):
-  if (name.size == 0) {
-    api_set_error(err, kErrorTypeValidation, "not yet implemented");
-    return rv;
+  int flags = DIP_START | (all ? DIP_ALL : 0);
+
+  if (name.size == 0 || name.data[name.size-1] == '/') {
+    flags |= DIP_DIR;
   }
 
-  int flags = DIP_START | (all ? DIP_ALL : 0);
-  do_in_runtimepath((char_u *)name.data,
+  do_in_runtimepath((char_u *)(name.size ? name.data : ""),
                     flags, find_runtime_cb, &rv);
   return rv;
 }
@@ -914,23 +903,6 @@ void nvim_del_var(String name, Error *err)
   dict_set_var(&globvardict, name, NIL, true, false, err);
 }
 
-/// @deprecated
-/// @see nvim_set_var
-/// @warning May return nil if there was no previous value
-///          OR if previous value was `v:null`.
-/// @return Old value or nil if there was no previous value.
-Object vim_set_var(String name, Object value, Error *err)
-{
-  return dict_set_var(&globvardict, name, value, false, true, err);
-}
-
-/// @deprecated
-/// @see nvim_del_var
-Object vim_del_var(String name, Error *err)
-{
-  return dict_set_var(&globvardict, name, NIL, true, true, err);
-}
-
 /// Gets a v: variable.
 ///
 /// @param name     Variable name
@@ -962,6 +934,47 @@ Object nvim_get_option(String name, Error *err)
   FUNC_API_SINCE(1)
 {
   return get_option_from(NULL, SREQ_GLOBAL, name, err);
+}
+
+/// Gets the option information for all options.
+///
+/// The dictionary has the full option names as keys and option metadata
+/// dictionaries as detailed at |nvim_get_option_info|.
+///
+/// @return dictionary of all options
+Dictionary nvim_get_all_options_info(Error *err)
+  FUNC_API_SINCE(7)
+{
+  return get_all_vimoptions();
+}
+
+/// Gets the option information for one option
+///
+/// Resulting dictionary has keys:
+///     - name: Name of the option (like 'filetype')
+///     - shortname: Shortened name of the option (like 'ft')
+///     - type: type of option ("string", "integer" or "boolean")
+///     - default: The default value for the option
+///     - was_set: Whether the option was set.
+///
+///     - last_set_sid: Last set script id (if any)
+///     - last_set_linenr: line number where option was set
+///     - last_set_chan: Channel where option was set (0 for local)
+///
+///     - scope: one of "global", "win", or "buf"
+///     - global_local: whether win or buf option has a global value
+///
+///     - commalist: List of comma separated values
+///     - flaglist: List of single char flags
+///
+///
+/// @param          name Option name
+/// @param[out] err Error details, if any
+/// @return         Option Information
+Dictionary nvim_get_option_info(String name, Error *err)
+  FUNC_API_SINCE(7)
+{
+  return get_vimoption(name, err);
 }
 
 /// Sets an option value.

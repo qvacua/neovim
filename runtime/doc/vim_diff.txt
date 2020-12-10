@@ -182,8 +182,6 @@ Highlight groups:
   |hl-Whitespace| highlights 'listchars' whitespace
 
 Input/Mappings:
-  |<Cmd>| pseudokey
-
   ALT (|META|) chords always work (even in the |TUI|). Map |<M-| with any key:
   <M-1>, <M-BS>, <M-Del>, <M-Ins>, <M-/>, <M-\>, <M-Space>, <M-Enter>, etc.
   Case-sensitive: <M-a> and <M-A> are two different keycodes.
@@ -215,7 +213,6 @@ Signs:
   Signs are removed if the associated line is deleted.
 
 Variables:
-  |v:exiting|
   |v:progpath| is always absolute ("full")
   |v:windowid| is always available (for use by external UIs)
 
@@ -416,8 +413,8 @@ Aliases:
   gvimdiff  (GUI)
   rgview    (GUI)
   rgvim     (GUI)
-  rview     (alias for "nvim -RZ")
-  rvim      (alias for "nvim -Z")
+  rview
+  rvim
   view      (alias for "nvim -R")
   vimdiff   (alias for "nvim -d" |diff-mode|)
 
@@ -496,6 +493,7 @@ Startup:
   --literal (file args are always literal; to expand wildcards on Windows, use
     |:n| e.g. `nvim +"n *"`)
   Easy mode: eview, evim, nvim -y
+  Restricted mode: rview, rvim, nvim -Z
   Vi mode: nvim -v
 
 Test functions:

@@ -1024,7 +1024,7 @@ static int command_line_execute(VimState *state, int key)
   }
 
   // free expanded names when finished walking through matches
-  if (!(s->c == p_wc && KeyTyped) && s->c != p_wcm
+  if (!(s->c == p_wc && KeyTyped) && s->c != p_wcm && s->c != Ctrl_Z
       && s->c != Ctrl_N && s->c != Ctrl_P && s->c != Ctrl_A
       && s->c != Ctrl_L) {
     if (compl_match_array) {
@@ -1328,7 +1328,8 @@ static int command_line_execute(VimState *state, int key)
   // - hitting <ESC> twice means: abandon command line.
   // - wildcard expansion is only done when the 'wildchar' key is really
   //   typed, not when it comes from a macro
-  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm) {
+  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm
+      || s->c == Ctrl_Z) {
     int options = WILD_NO_BEEP;
     if (wim_flags[s->wim_index] & WIM_BUFLASTUSED) {
       options |= WILD_BUFLASTUSED;
@@ -4326,7 +4327,8 @@ void ExpandEscape(expand_T *xp, char_u *str, int numfiles, char_u **files, int o
 ///                    if true then it escapes for a shell command.
 ///
 /// @return [allocated] escaped file name.
-char *vim_strsave_fnameescape(const char *const fname, const bool shell)
+char *vim_strsave_fnameescape(const char *const fname,
+                              const bool shell FUNC_ATTR_UNUSED)
   FUNC_ATTR_NONNULL_RET FUNC_ATTR_MALLOC FUNC_ATTR_NONNULL_ALL
 {
 #ifdef BACKSLASH_IN_FILENAME
@@ -5533,6 +5535,7 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
   garray_T ga;
   ga_init(&ga, (int)sizeof(char *), 10);
 
+  // TODO(bfredl): this is bullshit, exandpath should not reinvent path logic.
   for (int i = 0; dirnames[i] != NULL; i++) {
     size_t size = STRLEN(dirnames[i]) + pat_len + 7;
     char_u *s = xmalloc(size);
@@ -5549,6 +5552,14 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       globpath(p_pp, s, &ga, 0);
       xfree(s);
     }
+
+    for (int i = 0; dirnames[i] != NULL; i++) {
+      size_t size = STRLEN(dirnames[i]) + pat_len + 22;
+      char_u *s = xmalloc(size);
+      snprintf((char *)s, size, "start/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
+      globpath(p_pp, s, &ga, 0);
+      xfree(s);
+    }
   }
 
   if (flags & DIP_OPT) {
@@ -5556,6 +5567,14 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       size_t size = STRLEN(dirnames[i]) + pat_len + 20;
       char_u *s = xmalloc(size);
       snprintf((char *)s, size, "pack/*/opt/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
+      globpath(p_pp, s, &ga, 0);
+      xfree(s);
+    }
+
+    for (int i = 0; dirnames[i] != NULL; i++) {
+      size_t size = STRLEN(dirnames[i]) + pat_len + 20;
+      char_u *s = xmalloc(size);
+      snprintf((char *)s, size, "opt/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
       globpath(p_pp, s, &ga, 0);
       xfree(s);
     }
@@ -5605,6 +5624,8 @@ static int ExpandPackAddDir(char_u *pat, int *num_file, char_u ***file)
   size_t buflen = pat_len + 26;
   char_u *s = xmalloc(buflen);
   snprintf((char *)s, buflen, "pack/*/opt/%s*", pat);  // NOLINT
+  globpath(p_pp, s, &ga, 0);
+  snprintf((char *)s, buflen, "opt/%s*", pat);  // NOLINT
   globpath(p_pp, s, &ga, 0);
   xfree(s);
 

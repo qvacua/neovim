@@ -56,6 +56,7 @@
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/misc1.h"
+#include "nvim/runtime.h"
 #include "nvim/keymap.h"
 #include "nvim/garray.h"
 #include "nvim/cursor_shape.h"
@@ -337,313 +338,19 @@ static char_u SHM_ALL[] = {
 # include "option.c.generated.h"
 #endif
 
-/// Append string with escaped commas
-static char *strcpy_comma_escaped(char *dest, const char *src, const size_t len)
-  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT
-{
-  size_t shift = 0;
-  for (size_t i = 0; i < len; i++) {
-    if (src[i] == ',') {
-      dest[i + shift++] = '\\';
-    }
-    dest[i + shift] = src[i];
-  }
-  return &dest[len + shift];
-}
-
-/// Compute length of a ENV_SEPCHAR-separated value, doubled and with some
-/// suffixes
-///
-/// @param[in]  val  ENV_SEPCHAR-separated array value.
-/// @param[in]  common_suf_len  Length of the common suffix which is appended to
-///                             each item in the array, twice.
-/// @param[in]  single_suf_len  Length of the suffix which is appended to each
-///                             item in the array once.
-///
-/// @return Length of the ENV_SEPCHAR-separated string array that contains each
-///         item in the original array twice with suffixes with given length
-///         (common_suf is present after each new item, single_suf is present
-///         after half of the new items) and with commas after each item, commas
-///         inside the values are escaped.
-static inline size_t compute_double_env_sep_len(const char *const val,
-                                                const size_t common_suf_len,
-                                                const size_t single_suf_len)
-  FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_PURE
-{
-  if (val == NULL || *val == NUL) {
-    return 0;
-  }
-  size_t ret = 0;
-  const void *iter = NULL;
-  do {
-    size_t dir_len;
-    const char *dir;
-    iter = vim_env_iter(ENV_SEPCHAR, val, iter, &dir, &dir_len);
-    if (dir != NULL && dir_len > 0) {
-      ret += ((dir_len + memcnt(dir, ',', dir_len) + common_suf_len
-               + !after_pathsep(dir, dir + dir_len)) * 2
-              + single_suf_len);
-    }
-  } while (iter != NULL);
-  return ret;
-}
-
-#define NVIM_SIZE (sizeof("nvim") - 1)
-
-/// Add directories to a ENV_SEPCHAR-separated array from a colon-separated one
-///
-/// Commas are escaped in process. To each item PATHSEP "nvim" is appended in
-/// addition to suf1 and suf2.
-///
-/// @param[in,out]  dest  Destination comma-separated array.
-/// @param[in]  val  Source ENV_SEPCHAR-separated array.
-/// @param[in]  suf1  If not NULL, suffix appended to destination. Prior to it
-///                   directory separator is appended. Suffix must not contain
-///                   commas.
-/// @param[in]  len1  Length of the suf1.
-/// @param[in]  suf2  If not NULL, another suffix appended to destination. Again
-///                   with directory separator behind. Suffix must not contain
-///                   commas.
-/// @param[in]  len2  Length of the suf2.
-/// @param[in]  forward  If true, iterate over val in forward direction.
-///                      Otherwise in reverse.
-///
-/// @return (dest + appended_characters_length)
-static inline char *add_env_sep_dirs(char *dest, const char *const val,
-                                     const char *const suf1, const size_t len1,
-                                     const char *const suf2, const size_t len2,
-                                     const bool forward)
-  FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_RET FUNC_ATTR_NONNULL_ARG(1)
-{
-  if (val == NULL || *val == NUL) {
-    return dest;
-  }
-  const void *iter = NULL;
-  do {
-    size_t dir_len;
-    const char *dir;
-    iter = (forward ? vim_env_iter : vim_env_iter_rev)(ENV_SEPCHAR, val, iter,
-                                                       &dir, &dir_len);
-    if (dir != NULL && dir_len > 0) {
-      dest = strcpy_comma_escaped(dest, dir, dir_len);
-      if (!after_pathsep(dest - 1, dest)) {
-        *dest++ = PATHSEP;
-      }
-      memmove(dest, "nvim", NVIM_SIZE);
-      dest += NVIM_SIZE;
-      if (suf1 != NULL) {
-        *dest++ = PATHSEP;
-        memmove(dest, suf1, len1);
-        dest += len1;
-        if (suf2 != NULL) {
-          *dest++ = PATHSEP;
-          memmove(dest, suf2, len2);
-          dest += len2;
-        }
-      }
-      *dest++ = ',';
-    }
-  } while (iter != NULL);
-  return dest;
-}
-
-/// Adds directory `dest` to a comma-separated list of directories.
-///
-/// Commas in the added directory are escaped.
-///
-/// Windows: Appends "nvim-data" instead of "nvim" if `type` is kXDGDataHome.
-///
-/// @see get_xdg_home
-///
-/// @param[in,out]  dest  Destination comma-separated array.
-/// @param[in]  dir  Directory to append.
-/// @param[in]  type  Decides whether to append "nvim" (Win: or "nvim-data").
-/// @param[in]  suf1  If not NULL, suffix appended to destination. Prior to it
-///                   directory separator is appended. Suffix must not contain
-///                   commas.
-/// @param[in]  len1  Length of the suf1.
-/// @param[in]  suf2  If not NULL, another suffix appended to destination. Again
-///                   with directory separator behind. Suffix must not contain
-///                   commas.
-/// @param[in]  len2  Length of the suf2.
-/// @param[in]  forward  If true, iterate over val in forward direction.
-///                      Otherwise in reverse.
-///
-/// @return (dest + appended_characters_length)
-static inline char *add_dir(char *dest, const char *const dir,
-                            const size_t dir_len, const XDGVarType type,
-                            const char *const suf1, const size_t len1,
-                            const char *const suf2, const size_t len2)
-  FUNC_ATTR_NONNULL_RET FUNC_ATTR_NONNULL_ARG(1) FUNC_ATTR_WARN_UNUSED_RESULT
-{
-  if (dir == NULL || dir_len == 0) {
-    return dest;
-  }
-  dest = strcpy_comma_escaped(dest, dir, dir_len);
-  bool append_nvim = (type == kXDGDataHome || type == kXDGConfigHome);
-  if (append_nvim) {
-    if (!after_pathsep(dest - 1, dest)) {
-      *dest++ = PATHSEP;
-    }
-#if defined(WIN32)
-    size_t size = (type == kXDGDataHome ? sizeof("nvim-data") - 1 : NVIM_SIZE);
-    memmove(dest, (type == kXDGDataHome ? "nvim-data" : "nvim"), size);
-    dest += size;
-#else
-    memmove(dest, "nvim", NVIM_SIZE);
-    dest += NVIM_SIZE;
-#endif
-    if (suf1 != NULL) {
-      *dest++ = PATHSEP;
-      memmove(dest, suf1, len1);
-      dest += len1;
-      if (suf2 != NULL) {
-        *dest++ = PATHSEP;
-        memmove(dest, suf2, len2);
-        dest += len2;
-      }
-    }
-  }
-  *dest++ = ',';
-  return dest;
-}
-
-char *get_lib_dir(void)
-{
-  // TODO(bfredl): too fragile? Ideally default_lib_dir would be made empty
-  // in an appimage build
-  if (strlen(default_lib_dir) != 0
-      && os_isdir((const char_u *)default_lib_dir)) {
-    return xstrdup(default_lib_dir);
-  }
-
-  // Find library path relative to the nvim binary: ../lib/nvim/
-  char exe_name[MAXPATHL];
-  vim_get_prefix_from_exepath(exe_name);
-  if (append_path(exe_name, "lib" _PATHSEPSTR "nvim", MAXPATHL) == OK) {
-    return xstrdup(exe_name);
-  }
-  return NULL;
-}
-
-/// Sets &runtimepath to default value.
-///
-/// Windows: Uses "…/nvim-data" for kXDGDataHome to avoid storing
-/// configuration and data files in the same path. #4403
-///
-/// If "clean_arg" is true, Nvim was started with --clean.
-static void set_runtimepath_default(bool clean_arg)
-{
-  size_t rtp_size = 0;
-  char *const data_home = clean_arg
-    ? NULL
-    : stdpaths_get_xdg_var(kXDGDataHome);
-  char *const config_home = clean_arg
-    ? NULL
-    : stdpaths_get_xdg_var(kXDGConfigHome);
-  char *const vimruntime = vim_getenv("VIMRUNTIME");
-  char *const libdir = get_lib_dir();
-  char *const data_dirs = stdpaths_get_xdg_var(kXDGDataDirs);
-  char *const config_dirs = stdpaths_get_xdg_var(kXDGConfigDirs);
-#define SITE_SIZE (sizeof("site") - 1)
-#define AFTER_SIZE (sizeof("after") - 1)
-  size_t data_len = 0;
-  size_t config_len = 0;
-  size_t vimruntime_len = 0;
-  size_t libdir_len = 0;
-  if (data_home != NULL) {
-    data_len = strlen(data_home);
-    if (data_len != 0) {
-#if defined(WIN32)
-      size_t nvim_size = (sizeof("nvim-data") - 1);
-#else
-      size_t nvim_size = NVIM_SIZE;
-#endif
-      rtp_size += ((data_len + memcnt(data_home, ',', data_len)
-                    + nvim_size + 1 + SITE_SIZE + 1
-                    + !after_pathsep(data_home, data_home + data_len)) * 2
-                   + AFTER_SIZE + 1);
-    }
-  }
-  if (config_home != NULL) {
-    config_len = strlen(config_home);
-    if (config_len != 0) {
-      rtp_size += ((config_len + memcnt(config_home, ',', config_len)
-                    + NVIM_SIZE + 1
-                    + !after_pathsep(config_home, config_home + config_len)) * 2
-                   + AFTER_SIZE + 1);
-    }
-  }
-  if (vimruntime != NULL) {
-    vimruntime_len = strlen(vimruntime);
-    if (vimruntime_len != 0) {
-      rtp_size += vimruntime_len + memcnt(vimruntime, ',', vimruntime_len) + 1;
-    }
-  }
-  if (libdir != NULL) {
-    libdir_len = strlen(libdir);
-    if (libdir_len != 0) {
-      rtp_size += libdir_len + memcnt(libdir, ',', libdir_len) + 1;
-    }
-  }
-  rtp_size += compute_double_env_sep_len(data_dirs,
-                                         NVIM_SIZE + 1 + SITE_SIZE + 1,
-                                         AFTER_SIZE + 1);
-  rtp_size += compute_double_env_sep_len(config_dirs, NVIM_SIZE + 1,
-                                         AFTER_SIZE + 1);
-  if (rtp_size == 0) {
-    return;
-  }
-  char *const rtp = xmalloc(rtp_size);
-  char *rtp_cur = rtp;
-  rtp_cur = add_dir(rtp_cur, config_home, config_len, kXDGConfigHome,
-                    NULL, 0, NULL, 0);
-  rtp_cur = add_env_sep_dirs(rtp_cur, config_dirs, NULL, 0, NULL, 0, true);
-  rtp_cur = add_dir(rtp_cur, data_home, data_len, kXDGDataHome,
-                    "site", SITE_SIZE, NULL, 0);
-  rtp_cur = add_env_sep_dirs(rtp_cur, data_dirs, "site", SITE_SIZE, NULL, 0,
-                             true);
-  rtp_cur = add_dir(rtp_cur, vimruntime, vimruntime_len, kXDGNone,
-                    NULL, 0, NULL, 0);
-  rtp_cur = add_dir(rtp_cur, libdir, libdir_len, kXDGNone, NULL, 0, NULL, 0);
-  rtp_cur = add_env_sep_dirs(rtp_cur, data_dirs, "site", SITE_SIZE,
-                             "after", AFTER_SIZE, false);
-  rtp_cur = add_dir(rtp_cur, data_home, data_len, kXDGDataHome,
-                    "site", SITE_SIZE, "after", AFTER_SIZE);
-  rtp_cur = add_env_sep_dirs(rtp_cur, config_dirs, "after", AFTER_SIZE, NULL, 0,
-                             false);
-  rtp_cur = add_dir(rtp_cur, config_home, config_len, kXDGConfigHome,
-                    "after", AFTER_SIZE, NULL, 0);
-  // Strip trailing comma.
-  rtp_cur[-1] = NUL;
-  assert((size_t) (rtp_cur - rtp) == rtp_size);
-#undef SITE_SIZE
-#undef AFTER_SIZE
-  set_string_default("runtimepath", rtp, true);
-  // Make a copy of 'rtp' for 'packpath'
-  set_string_default("packpath", rtp, false);
-  xfree(data_dirs);
-  xfree(config_dirs);
-  xfree(data_home);
-  xfree(config_home);
-  xfree(vimruntime);
-  xfree(libdir);
-}
-
-#undef NVIM_SIZE
-
 /// Initialize the options, first part.
 ///
 /// Called only once from main(), just after creating the first buffer.
 /// If "clean_arg" is true, Nvim was started with --clean.
+///
+/// NOTE: ELOG() etc calls are not allowed here, as log location depends on
+/// env var expansion which depends on expression evaluation and other
+/// editor state initialized here. Do logging in set_init_2 or later.
 void set_init_1(bool clean_arg)
 {
   int opt_idx;
 
   langmap_init();
-
-  // Be nocompatible
-  p_cp = false;
 
   /*
    * Find default value for 'shell' option.
@@ -652,7 +359,14 @@ void set_init_1(bool clean_arg)
   {
     const char *shell = os_getenv("SHELL");
     if (shell != NULL) {
-      set_string_default("sh", (char *) shell, false);
+      if (vim_strchr((const char_u *)shell, ' ') != NULL) {
+        const size_t len = strlen(shell) + 3;  // two quotes and a trailing NUL
+        char *const cmd = xmalloc(len);
+        snprintf(cmd, len, "\"%s\"", shell);
+        set_string_default("sh", cmd, true);
+      } else {
+        set_string_default("sh", (char *)shell, false);
+      }
     }
   }
 
@@ -779,7 +493,13 @@ void set_init_1(bool clean_arg)
                      true);
   // Set default for &runtimepath. All necessary expansions are performed in
   // this function.
-  set_runtimepath_default(clean_arg);
+  char *rtp = runtimepath_default(clean_arg);
+  if (rtp) {
+    set_string_default("runtimepath", rtp, true);
+    // Make a copy of 'rtp' for 'packpath'
+    set_string_default("packpath", rtp, false);
+    rtp = NULL;  // ownership taken
+  }
 
   /*
    * Set all the options (except the terminal options) to their default
@@ -945,7 +665,7 @@ set_option_default(
     }
 
     // The default value is not insecure.
-    uint32_t *flagsp = insecure_flag(opt_idx, opt_flags);
+    uint32_t *flagsp = insecure_flag(curwin, opt_idx, opt_flags);
     *flagsp = *flagsp & ~P_INSECURE;
   }
 
@@ -960,7 +680,7 @@ set_options_default(
 {
   for (int i = 0; options[i].fullname; i++) {
     if (!(options[i].flags & P_NODEFAULT)) {
-      set_option_default(i, opt_flags, p_cp);
+      set_option_default(i, opt_flags, false);
     }
   }
 
@@ -987,10 +707,9 @@ static void set_string_default(const char *name, char *val, bool allocated)
       xfree(options[opt_idx].def_val[VI_DEFAULT]);
     }
 
-    options[opt_idx].def_val[VI_DEFAULT] = (char_u *) (
-        allocated
-        ? (char_u *) val
-        : (char_u *) xstrdup(val));
+    options[opt_idx].def_val[VI_DEFAULT] = allocated
+        ? (char_u *)val
+        : (char_u *)xstrdup(val);
     options[opt_idx].flags |= P_DEF_ALLOCED;
   }
 }
@@ -1032,13 +751,16 @@ void free_all_options(void)
 /// Initialize the options, part two: After getting Rows and Columns.
 void set_init_2(bool headless)
 {
+  // set in set_init_1 but logging is not allowed there
+  ILOG("startup runtimepath/packpath value: %s", p_rtp);
+
   int idx;
 
   // 'scroll' defaults to half the window height. The stored default is zero,
   // which results in the actual value computed from the window height.
   idx = findoption("scroll");
   if (idx >= 0 && !(options[idx].flags & P_WAS_SET)) {
-    set_option_default(idx, OPT_LOCAL, p_cp);
+    set_option_default(idx, OPT_LOCAL, false);
   }
   comp_col();
 
@@ -1388,7 +1110,7 @@ int do_set(
 
       if (vim_strchr((char_u *)"?=:!&<", nextchar) != NULL) {
         arg += len;
-        cp_val = p_cp;
+        cp_val = false;
         if (nextchar == '&' && arg[1] == 'v' && arg[2] == 'i') {
           if (arg[3] == 'm') {          // "opt&vim": set to Vim default
             cp_val = false;
@@ -1880,7 +1602,7 @@ int do_set(
             saved_newval = (newval != NULL) ? xstrdup((char *)newval) : 0;
 
             {
-              uint32_t *p = insecure_flag(opt_idx, opt_flags);
+              uint32_t *p = insecure_flag(curwin, opt_idx, opt_flags);
               const int secure_saved = secure;
 
               // When an option is set in the sandbox, from a
@@ -2007,7 +1729,7 @@ static void did_set_option(
   /* When an option is set in the sandbox, from a modeline or in secure mode
    * set the P_INSECURE flag.  Otherwise, if a new value is stored reset the
    * flag. */
-  uint32_t *p = insecure_flag(opt_idx, opt_flags);
+  uint32_t *p = insecure_flag(curwin, opt_idx, opt_flags);
   if (!value_checked && (secure
                          || sandbox != 0
                          || (opt_flags & OPT_MODELINE))) {
@@ -2346,12 +2068,12 @@ static void check_string_option(char_u **pp)
 /// Return true when option "opt" was set from a modeline or in secure mode.
 /// Return false when it wasn't.
 /// Return -1 for an unknown option.
-int was_set_insecurely(char_u *opt, int opt_flags)
+int was_set_insecurely(win_T *const wp, char_u *opt, int opt_flags)
 {
   int idx = findoption((const char *)opt);
 
   if (idx >= 0) {
-    uint32_t *flagp = insecure_flag(idx, opt_flags);
+    uint32_t *flagp = insecure_flag(wp, idx, opt_flags);
     return (*flagp & P_INSECURE) != 0;
   }
   internal_error("was_set_insecurely()");
@@ -2360,16 +2082,16 @@ int was_set_insecurely(char_u *opt, int opt_flags)
 
 /// Get a pointer to the flags used for the P_INSECURE flag of option
 /// "opt_idx".  For some local options a local flags field is used.
-static uint32_t *insecure_flag(int opt_idx, int opt_flags)
+static uint32_t *insecure_flag(win_T *const wp, int opt_idx, int opt_flags)
 {
   if (opt_flags & OPT_LOCAL)
     switch ((int)options[opt_idx].indir) {
-    case PV_STL:        return &curwin->w_p_stl_flags;
-    case PV_FDE:        return &curwin->w_p_fde_flags;
-    case PV_FDT:        return &curwin->w_p_fdt_flags;
-    case PV_INDE:       return &curbuf->b_p_inde_flags;
-    case PV_FEX:        return &curbuf->b_p_fex_flags;
-    case PV_INEX:       return &curbuf->b_p_inex_flags;
+    case PV_STL:        return &wp->w_p_stl_flags;
+    case PV_FDE:        return &wp->w_p_fde_flags;
+    case PV_FDT:        return &wp->w_p_fdt_flags;
+    case PV_INDE:       return &wp->w_buffer->b_p_inde_flags;
+    case PV_FEX:        return &wp->w_buffer->b_p_fex_flags;
+    case PV_INEX:       return &wp->w_buffer->b_p_inex_flags;
     }
 
   // Nothing special, return global flags field.
@@ -3892,10 +3614,14 @@ static void set_option_sctx_idx(int opt_idx, int opt_flags, sctx_T script_ctx)
 {
   int both = (opt_flags & (OPT_LOCAL | OPT_GLOBAL)) == 0;
   int indir = (int)options[opt_idx].indir;
-  const LastSet last_set = { .script_ctx =
-    { script_ctx.sc_sid, script_ctx.sc_seq,
-      script_ctx.sc_lnum + sourcing_lnum },
-    current_channel_id };
+  const LastSet last_set = {
+    .script_ctx = {
+      script_ctx.sc_sid,
+      script_ctx.sc_seq,
+      script_ctx.sc_lnum + sourcing_lnum
+    },
+    current_channel_id
+  };
 
   // Remember where the option was set.  For local options need to do that
   // in the buffer or window structure.
@@ -5225,7 +4951,7 @@ static int optval_default(vimoption_T *p, char_u *varp)
   if (varp == NULL) {
     return true;            // hidden option is always at default
   }
-  dvi = ((p->flags & P_VI_DEF) || p_cp) ? VI_DEFAULT : VIM_DEFAULT;
+  dvi = (p->flags & P_VI_DEF) ? VI_DEFAULT : VIM_DEFAULT;
   if (p->flags & P_NUM) {
     return *(long *)varp == (long)(intptr_t)p->def_val[dvi];
   }
@@ -7173,46 +6899,6 @@ int get_sts_value(void)
   return (int)result;
 }
 
-/// Check matchpairs option for "*initc".
-/// If there is a match set "*initc" to the matching character and "*findc" to
-/// the opposite character.  Set "*backwards" to the direction.
-/// When "switchit" is true swap the direction.
-void find_mps_values(int *initc, int *findc, int *backwards, int switchit)
-{
-  char_u *ptr = curbuf->b_p_mps;
-
-  while (*ptr != NUL) {
-    if (utf_ptr2char(ptr) == *initc) {
-      if (switchit) {
-        *findc = *initc;
-        *initc = utf_ptr2char(ptr + utfc_ptr2len(ptr) + 1);
-        *backwards = true;
-      } else {
-        *findc = utf_ptr2char(ptr + utfc_ptr2len(ptr) + 1);
-        *backwards = false;
-      }
-      return;
-    }
-    char_u *prev = ptr;
-    ptr += utfc_ptr2len(ptr) + 1;
-    if (utf_ptr2char(ptr) == *initc) {
-      if (switchit) {
-        *findc = *initc;
-        *initc = utf_ptr2char(prev);
-        *backwards = false;
-      } else {
-        *findc = utf_ptr2char(prev);
-        *backwards = true;
-      }
-      return;
-    }
-    ptr += utfc_ptr2len(ptr);
-    if (*ptr == ',') {
-      ptr++;
-    }
-  }
-}
-
 /// This is called when 'breakindentopt' is changed and when a window is
 /// initialized
 static bool briopt_check(win_T *wp)
@@ -7488,4 +7174,76 @@ long get_scrolloff_value(void)
 long get_sidescrolloff_value(void)
 {
   return curwin->w_p_siso < 0 ? p_siso : curwin->w_p_siso;
+}
+
+Dictionary get_vimoption(String name, Error *err)
+{
+  int opt_idx = findoption_len((const char *)name.data, name.size);
+  if (opt_idx < 0) {
+    api_set_error(err, kErrorTypeValidation, "no such option: '%s'", name.data);
+    return (Dictionary)ARRAY_DICT_INIT;
+  }
+  return vimoption2dict(&options[opt_idx]);
+}
+
+Dictionary get_all_vimoptions(void)
+{
+  Dictionary retval = ARRAY_DICT_INIT;
+  for (size_t i = 0; i < PARAM_COUNT; i++) {
+    Dictionary opt_dict = vimoption2dict(&options[i]);
+    PUT(retval, options[i].fullname, DICTIONARY_OBJ(opt_dict));
+  }
+  return retval;
+}
+
+static Dictionary vimoption2dict(vimoption_T *opt)
+{
+    Dictionary dict = ARRAY_DICT_INIT;
+
+    PUT(dict, "name", CSTR_TO_OBJ(opt->fullname));
+    PUT(dict, "shortname", CSTR_TO_OBJ(opt->shortname));
+
+    const char *scope;
+    if (opt->indir & PV_BUF) {
+      scope = "buf";
+    } else if (opt->indir & PV_WIN) {
+      scope = "win";
+    } else {
+      scope = "global";
+    }
+
+    PUT(dict, "scope", CSTR_TO_OBJ(scope));
+
+    // welcome to the jungle
+    PUT(dict, "global_local", BOOL(opt->indir & PV_BOTH));
+    PUT(dict, "commalist", BOOL(opt->flags & P_COMMA));
+    PUT(dict, "flaglist", BOOL(opt->flags & P_FLAGLIST));
+
+    PUT(dict, "was_set", BOOL(opt->flags & P_WAS_SET));
+
+    PUT(dict, "last_set_sid", INTEGER_OBJ(opt->last_set.script_ctx.sc_sid));
+    PUT(dict, "last_set_linenr", INTEGER_OBJ(opt->last_set.script_ctx.sc_lnum));
+    PUT(dict, "last_set_chan", INTEGER_OBJ((int64_t)opt->last_set.channel_id));
+
+    const char *type;
+    Object def;
+    // TODO(bfredl): do you even nocp?
+    char_u *def_val = opt->def_val[(opt->flags & P_VI_DEF)
+                                   ? VI_DEFAULT : VIM_DEFAULT];
+    if (opt->flags & P_STRING) {
+      type = "string";
+      def = CSTR_TO_OBJ(def_val ? (char *)def_val : "");
+    } else if (opt->flags & P_NUM) {
+      type = "number";
+      def = INTEGER_OBJ((Integer)(intptr_t)def_val);
+    } else if (opt->flags & P_BOOL) {
+      type = "boolean";
+      def = BOOL((intptr_t)def_val);
+    } else {
+      type = ""; def = NIL;
+    }
+    PUT(dict, "type", CSTR_TO_OBJ(type));
+    PUT(dict, "default", def);
+
+    return dict;
 }

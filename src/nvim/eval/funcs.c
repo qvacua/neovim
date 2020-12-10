@@ -2987,11 +2987,12 @@ static void f_getchar(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       // illegal argument or getchar(0) and no char avail: return zero
       n = 0;
     } else {
-      // getchar(0) and char avail: return char
+      // getchar(0) and char avail() != NUL: get a character.
+      // Note that vpeekc_any() returns K_SPECIAL for K_IGNORE.
       n = safe_vgetc();
     }
 
-    if (n == K_IGNORE) {
+    if (n == K_IGNORE || n == K_VER_SCROLLBAR || n == K_HOR_SCROLLBAR) {
       continue;
     }
     break;
@@ -4046,7 +4047,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 #if defined(WIN32)
     "win32",
 #endif
-#if defined(WIN64) || defined(_WIN64)
+#ifdef _WIN64
     "win64",
 #endif
     "fname_case",
@@ -7047,7 +7048,8 @@ static void f_resolve(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     xfree(buf);
   }
 # else
-  rettv->vval.v_string = (char_u *)xstrdup(p);
+  char *v = os_realpath(fname, NULL);
+  rettv->vval.v_string = (char_u *)(v == NULL ? xstrdup(fname) : v);
 # endif
 #endif
 
@@ -10993,6 +10995,31 @@ static void f_win_findbuf(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 static void f_win_getid(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->vval.v_number = win_getid(argvars);
+}
+
+/// "win_gettype(nr)" function
+static void f_win_gettype(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  win_T *wp = curwin;
+
+  rettv->v_type = VAR_STRING;
+  rettv->vval.v_string = NULL;
+  if (argvars[0].v_type != VAR_UNKNOWN) {
+    wp = find_win_by_nr_or_id(&argvars[0]);
+    if (wp == NULL) {
+      rettv->vval.v_string = vim_strsave((char_u *)"unknown");
+      return;
+    }
+  }
+  if (wp == aucmd_win) {
+    rettv->vval.v_string = vim_strsave((char_u *)"autocmd");
+  } else if (wp->w_p_pvw) {
+    rettv->vval.v_string = vim_strsave((char_u *)"preview");
+  } else if (wp->w_floating) {
+    rettv->vval.v_string = vim_strsave((char_u *)"popup");
+  } else if (wp == curwin && cmdwin_type != 0) {
+    rettv->vval.v_string = vim_strsave((char_u *)"command");
+  }
 }
 
 /// "win_gotoid()" function
