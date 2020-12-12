@@ -53,9 +53,6 @@ static void cond_var_destroy(cond_var_t *cond_var) {
 
 #pragma mark server
 static CFMessagePortRef local_port;
-static CFRunLoopRef local_port_run_loop;
-static uv_thread_t local_port_thread;
-
 static CFMessagePortRef remote_port;
 
 static uv_thread_t nvim_thread;
@@ -68,7 +65,7 @@ static const char **nvim_argv;
 static CFDataRef data_async(CFDataRef data, argv_callback cb);
 typedef void (^async_work_block)(CFDataRef);
 
-static void run_local_port(void *cond_var);
+static void run_local_port(CFRunLoopRef run_loop);
 static CFDataRef local_port_callback(
     CFMessagePortRef local,
     SInt32 msgid,
@@ -100,7 +97,7 @@ void server_set_nvim_args(int argc, const char **const argv) {
   for (int i = 0; i < argc; i++) { nvim_argv[i + 1] = argv[i]; }
 }
 
-void server_init_local_port(const char *name) {
+void server_init_local_port(const char *name, CFRunLoopRef run_loop) {
   CFStringRef name_cf = CFStringCreateWithCString(
       kCFAllocatorDefault,
       name,
@@ -123,22 +120,10 @@ void server_init_local_port(const char *name) {
     exit(NvimServerFatalErrorCodeLocalPort);
   }
 
-  cond_var_t cond_var;
-  cond_var_init(&cond_var, 5, false);
-
-  uv_thread_create(&local_port_thread, run_local_port, &cond_var);
-
-  uv_mutex_lock(&cond_var.mutex);
-  while (!cond_var.posted) {
-    uv_cond_timedwait(&cond_var.condition, &cond_var.mutex, cond_var.timeout);
-  }
-  uv_mutex_unlock(&cond_var.mutex);
-
-  cond_var_destroy(&cond_var);
+  run_local_port(run_loop);
 }
 
 void server_destroy_local_port() {
-  CFRunLoopStop(local_port_run_loop);
   if (CFMessagePortIsValid(local_port)) { CFMessagePortInvalidate(local_port); }
   CFRelease(local_port);
 }
@@ -279,24 +264,14 @@ static CFDataRef local_port_callback(
   }
 }
 
-static void run_local_port(void *arg) {
-  local_port_run_loop = CFRunLoopGetCurrent();
+static void run_local_port(CFRunLoopRef run_loop) {
   CFRunLoopSourceRef const run_loop_src = CFMessagePortCreateRunLoopSource(
       kCFAllocatorDefault,
       local_port,
       0
   );
-  CFRunLoopAddSource(local_port_run_loop, run_loop_src, kCFRunLoopCommonModes);
+  CFRunLoopAddSource(run_loop, run_loop_src, kCFRunLoopCommonModes);
   CFRelease(run_loop_src);
-
-  cond_var_t *cond_var = (cond_var_t *) arg;
-
-  uv_mutex_lock(&cond_var->mutex);
-  cond_var->posted = true;
-  uv_cond_signal(&cond_var->condition);
-  uv_mutex_unlock(&cond_var->mutex);
-
-  CFRunLoopRun();
 }
 
 static const char *cfstr2cstr(CFStringRef cfstr, bool *free_bytes) {

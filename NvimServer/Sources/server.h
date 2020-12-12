@@ -13,7 +13,7 @@ extern bool uses_custom_tabline;
 
 void server_set_nvim_args(int argc, const char **const args);
 
-void server_init_local_port(const char *name);
+void server_init_local_port(const char *name, CFRunLoopRef run_loop);
 void server_destroy_local_port(void);
 
 void server_init_remote_port(const char *name);

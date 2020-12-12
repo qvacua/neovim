@@ -36,7 +36,7 @@ int main(int argc, const char *argv[]) {
   uses_custom_tabline = (strcmp(uses_custom_tabline_arg, "1") == 0);
 
   server_set_nvim_args(nvim_argc, nvim_argc == 0 ? NULL : nvim_args);
-  server_init_local_port(local_port_name);
+  server_init_local_port(local_port_name, CFRunLoopGetMain());
   server_init_remote_port(remote_port_name);
 
   server_send_msg(NvimServerMsgIdServerReady, NULL);
