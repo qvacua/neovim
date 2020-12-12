@@ -32,6 +32,7 @@ deploy:
   - NvimServer/third-party/gettext-$target.tar.bz2
   - build/Build/Products/Release/NvimServer-$target.tar.bz2
   skip_cleanup: true
+  prerelease: true
   overwrite: true
   on:
     tags: true
