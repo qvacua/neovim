@@ -1,17 +1,30 @@
 os: osx
 osx_image: xcode12.2
 
+env:
+  global:
+  - secure: fXy2Ub+SRyRutnjt/Ii0bMcM9ub6/by+YJOq5cOTc9D95g9iPjzbT3NB57HrqBTN/MNXGAyj3wPJKd8x6mQSQTGttszNMvbEaAdKw2kwNwPALhwCXxA1N54HerzKBa67rT9cj99R8ZRpSsAmxQ1dNEu95GzxUBx6wJ1jCTKMmcmOHk+vGNsKSs5N6XPWTHGoe5TwA4pZlNAw9XGtm7RAtXmhDFKCdb5LDrIUr4EwcrnBuBHXCe7MKQklVDcuWxsgcqiDX8tqKA4+Dl9G0q2vMpmOgD1Woz6IDOrDM04Ztt1jaOFnx5V1VY2RhIUCuW3c0WM/JKmgJhxQQTR2JEzR5PZG30m+T96yIvXh55GXhNsCD4jfZvNcE7bGcAjB1ZKwoCAEuWq8Rj47tSbg/VxVVuN0pxUT8/EewtQ1YuZFRhLEXt15dBUTlwoizNQ7TfWiMVanvTFyFNkBi4pZ1xH+IfceDE/OZWNZXAdK//oQxqJyxbYEzqSyuWohSjTNlskV+VN/2tNZhvFF+r07kDr0lMi0KTdcaENnPuNroMTVG2lRgs3yv9puIxdkB6C8RmyORbDcp3qYTqRk4/JvWG++IPnoND0q+FCArsuz2cCgw5RPeR+M43mne6Q/7KoVfsURO46+PwoH/Mwb2c5tHIziypU4SEBMZ7WK7fEO+g9gj8w=
+
 addons:
   homebrew:
     update: true
     packages:
-      - coreutils
-      - ninja
-      - libtool
-      - automake
-      - cmake
-      - pkg-config
-      - gettext
+    - coreutils
+    - ninja
+    - libtool
+    - automake
+    - cmake
+    - pkg-config
+    - gettext
 
 script:
-  - download_gettext=true clean=true build_libnvim=true ./NvimServer/bin/build_nvimserver.sh
+- download_gettext=true clean=true build_libnvim=true ./NvimServer/bin/build_nvimserver.sh
+
+deploy:
+  provider: releases
+  api_key: $GITHUB_TOKEN
+  file: build/Build/Products/Release/NvimServer-x86_64.tar.bz2
+  skip_cleanup: true
+  overwrite: true
+  on:
+    tags: true
