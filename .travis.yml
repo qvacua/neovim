@@ -29,7 +29,7 @@ deploy:
   provider: releases
   api_key: $GITHUB_TOKEN
   file:
-  - gettext-$target.tar.bz
+  - NvimServer/third-party/gettext-$target.tar.bz
   - build/Build/Products/Release/NvimServer-$target.tar.bz2
   skip_cleanup: true
   overwrite: true
