@@ -56,12 +56,11 @@ int main(int argc, const char *argv[]) {
 static void observe_parent_termination() {
   const pid_t parent_pid = getppid();
 
-  const dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
   dispatch_source_t source = dispatch_source_create(
       DISPATCH_SOURCE_TYPE_PROC,
       (uintptr_t) parent_pid,
       DISPATCH_PROC_EXIT,
-      queue
+      dispatch_get_main_queue()
   );
 
   if (source == NULL) {
@@ -71,8 +70,8 @@ static void observe_parent_termination() {
 
   dispatch_source_set_event_handler(source, ^{
     os_log_fault(logger, "Exiting NvimServer due to parent termination.");
-    CFRunLoopStop(CFRunLoopGetMain());
     dispatch_source_cancel(source);
+    CFRunLoopStop(CFRunLoopGetMain());
   });
 
   os_log_info(logger, "Monitoring parend PID %{public}u", parent_pid);
