@@ -625,10 +625,7 @@ function protocol.make_client_capabilities()
         codeActionLiteralSupport = {
           codeActionKind = {
             valueSet = (function()
-              local res = {}
-              for _, v in pairs(constants.CodeActionKind) do
-                table.insert(res, v)
-              end
+              local res = vim.tbl_values(protocol.CodeActionKind)
               table.sort(res)
               return res
             end)();
