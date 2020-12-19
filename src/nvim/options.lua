@@ -1137,7 +1137,6 @@ return {
       varname='p_guicursor',
       defaults={if_true={vi="n-v-c-sm:block,i-ci-ve:ver25,r-cr-o:hor20"}}
     },
-    --[[
     {
       full_name='guifont', abbreviation='gfn',
       short_desc=N_("GUI: Name(s) of font(s) to be used"),
@@ -1158,7 +1157,6 @@ return {
       varname='p_guifontwide',
       defaults={if_true={vi=""}}
     },
-    --]]
     {
       full_name='guioptions', abbreviation='go',
       short_desc=N_("GUI: Which components and options are used"),
