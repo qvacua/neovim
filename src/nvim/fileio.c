@@ -15,6 +15,7 @@
 #include "nvim/ascii.h"
 #include "nvim/fileio.h"
 #include "nvim/buffer.h"
+#include "nvim/buffer_updates.h"
 #include "nvim/change.h"
 #include "nvim/charset.h"
 #include "nvim/cursor.h"
@@ -4216,7 +4217,9 @@ void shorten_buf_fname(buf_T *buf, char_u *dirname, int force)
       && (force
           || buf->b_sfname == NULL
           || path_is_absolute(buf->b_sfname))) {
-    XFREE_CLEAR(buf->b_sfname);
+    if (buf->b_sfname != buf->b_ffname) {
+      XFREE_CLEAR(buf->b_sfname);
+    }
     p = path_shorten_fname(buf->b_ffname, dirname);
     if (p != NULL) {
       buf->b_sfname = vim_strsave(p);
@@ -5082,6 +5085,7 @@ void buf_reload(buf_T *buf, int orig_mode)
         // Mark all undo states as changed.
         u_unchanged(curbuf);
       }
+      buf_updates_unregister_all(curbuf);
     }
   }
   xfree(ea.cmd);

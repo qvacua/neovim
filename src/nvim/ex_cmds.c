@@ -2066,19 +2066,20 @@ static int check_readonly(int *forceit, buf_T *buf)
   return FALSE;
 }
 
-/*
- * Try to abandon current file and edit a new or existing file.
- * "fnum" is the number of the file, if zero use ffname/sfname.
- * "lnum" is the line number for the cursor in the new file (if non-zero).
- *
- * Return:
- * GETFILE_ERROR for "normal" error,
- * GETFILE_NOT_WRITTEN for "not written" error,
- * GETFILE_SAME_FILE for success
- * GETFILE_OPEN_OTHER for successfully opening another file.
- */
-int getfile(int fnum, char_u *ffname, char_u *sfname, int setpm, linenr_T lnum, int forceit)
+// Try to abandon the current file and edit a new or existing file.
+// "fnum" is the number of the file, if zero use "ffname_arg"/"sfname_arg".
+// "lnum" is the line number for the cursor in the new file (if non-zero).
+//
+// Return:
+// GETFILE_ERROR for "normal" error,
+// GETFILE_NOT_WRITTEN for "not written" error,
+// GETFILE_SAME_FILE for success
+// GETFILE_OPEN_OTHER for successfully opening another file.
+int getfile(int fnum, char_u *ffname_arg, char_u *sfname_arg, int setpm,
+            linenr_T lnum, int forceit)
 {
+  char_u *ffname = ffname_arg;
+  char_u *sfname = sfname_arg;
   int other;
   int retval;
   char_u      *free_me = NULL;
@@ -3909,17 +3910,13 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
 
           ADJUST_SUB_FIRSTLNUM();
 
-          // TODO(bfredl): adjust also in preview, because decorations?
-          // this has some robustness issues, will look into later.
-          bool do_splice = !preview;
+          // TODO(bfredl): this has some robustness issues, look into later.
           bcount_t replaced_bytes = 0;
           lpos_T start = regmatch.startpos[0], end = regmatch.endpos[0];
-          if (do_splice) {
-            for (i = 0; i < nmatch-1; i++) {
-              replaced_bytes += STRLEN(ml_get(lnum_start+i)) + 1;
-            }
-            replaced_bytes += end.col - start.col;
+          for (i = 0; i < nmatch-1; i++) {
+            replaced_bytes += STRLEN(ml_get(lnum_start+i)) + 1;
           }
+          replaced_bytes += end.col - start.col;
 
 
           // Now the trick is to replace CTRL-M chars with a real line
@@ -3964,14 +3961,12 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
           current_match.end.col = new_endcol;
           current_match.end.lnum = lnum;
 
-          if (do_splice) {
-            int matchcols = end.col - ((end.lnum == start.lnum)
-                                       ? start.col : 0);
-            int subcols = new_endcol - ((lnum == lnum_start) ? start_col : 0);
-            extmark_splice(curbuf, lnum_start-1, start_col,
-                           end.lnum-start.lnum, matchcols, replaced_bytes,
-                           lnum-lnum_start, subcols, sublen-1, kExtmarkUndo);
-          }
+          int matchcols = end.col - ((end.lnum == start.lnum)
+                                     ? start.col : 0);
+          int subcols = new_endcol - ((lnum == lnum_start) ? start_col : 0);
+          extmark_splice(curbuf, lnum_start-1, start_col,
+                         end.lnum-start.lnum, matchcols, replaced_bytes,
+                         lnum-lnum_start, subcols, sublen-1, kExtmarkUndo);
         }
 
 
@@ -5254,8 +5249,10 @@ void ex_viusage(exarg_T *eap)
 /// @param tagname  Name of the tags file ("tags" for English, "tags-fr" for
 ///                 French)
 /// @param add_help_tags  Whether to add the "help-tags" tag
-static void helptags_one(char_u *const dir, const char_u *const ext,
-                         const char_u *const tagfname, const bool add_help_tags)
+/// @param ignore_writeerr  ignore write error
+static void helptags_one(char_u *dir, const char_u *ext, const char_u *tagfname,
+                         bool add_help_tags, bool ignore_writeerr)
+  FUNC_ATTR_NONNULL_ALL
 {
   garray_T ga;
   int filecount;
@@ -5299,7 +5296,9 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
 
   FILE *const fd_tags = os_fopen((char *)NameBuff, "w");
   if (fd_tags == NULL) {
-    EMSG2(_("E152: Cannot open %s for writing"), NameBuff);
+    if (!ignore_writeerr) {
+      EMSG2(_("E152: Cannot open %s for writing"), NameBuff);
+    }
     FreeWild(filecount, files);
     return;
   }
@@ -5447,7 +5446,9 @@ static void helptags_one(char_u *const dir, const char_u *const ext,
 }
 
 /// Generate tags in one help directory, taking care of translations.
-static void do_helptags(char_u *dirname, bool add_help_tags)
+static void do_helptags(char_u *dirname, bool add_help_tags,
+                        bool ignore_writeerr)
+  FUNC_ATTR_NONNULL_ALL
 {
   int len;
   garray_T ga;
@@ -5529,17 +5530,17 @@ static void do_helptags(char_u *dirname, bool add_help_tags)
       ext[1] = fname[5];
       ext[2] = fname[6];
     }
-    helptags_one(dirname, ext, fname, add_help_tags);
+    helptags_one(dirname, ext, fname, add_help_tags, ignore_writeerr);
   }
 
   ga_clear(&ga);
   FreeWild(filecount, files);
 }
 
-    static void
-helptags_cb(char_u *fname, void *cookie)
+static void helptags_cb(char_u *fname, void *cookie)
+  FUNC_ATTR_NONNULL_ALL
 {
-    do_helptags(fname, *(bool *)cookie);
+    do_helptags(fname, *(bool *)cookie, true);
 }
 
 /*
@@ -5568,7 +5569,7 @@ void ex_helptags(exarg_T *eap)
     if (dirname == NULL || !os_isdir(dirname)) {
       EMSG2(_("E150: Not a directory: %s"), eap->arg);
     } else {
-      do_helptags(dirname, add_help_tags);
+      do_helptags(dirname, add_help_tags, false);
     }
     xfree(dirname);
   }
