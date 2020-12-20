@@ -1321,6 +1321,22 @@ bool apply_autocmds_retval(event_T event,
 /// @param event the autocommand to check
 bool has_event(event_T event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
+  switch (event) {
+    case EVENT_TEXTCHANGED:
+    case EVENT_TEXTCHANGEDI:
+    case EVENT_BUFWRITEPOST:
+    case EVENT_BUFENTER:
+    case EVENT_BUFLEAVE:
+    case EVENT_DIRCHANGED:
+    case EVENT_BUFWINENTER:
+    case EVENT_BUFWINLEAVE:
+    case EVENT_TABENTER:
+    case EVENT_COLORSCHEME:
+    case EVENT_BUFREADPOST:
+    case EVENT_GUIENTER:
+      return true;
+  }
+
   return first_autopat[event] != NULL;
 }
 
