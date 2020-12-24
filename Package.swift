@@ -6,7 +6,9 @@ import PackageDescription
 let package = Package(
   name: "NvimServer",
   platforms: [.macOS(.v10_13)],
-  products: [.library(name: "NvimServerTypes", targets: ["NvimServerTypes"])],
+  products: [
+    .library(name: "NvimServerTypes", targets: ["NvimServerTypes"]),
+  ],
   dependencies: [],
   targets: [
     .target(
