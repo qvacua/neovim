@@ -53,5 +53,6 @@ let package = Package(
         ]),
       ]
     ),
-  ]
+  ],
+  cLanguageStandard: .gnu99
 )
