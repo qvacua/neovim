@@ -1197,7 +1197,13 @@ int insert_reg(
       retval = FAIL;
     } else {
       for (size_t i = 0; i < reg->y_size; i++) {
-        stuffescaped((const char *)reg->y_array[i], literally);
+        if (regname == '-') {
+          AppendCharToRedobuff(Ctrl_R);
+          AppendCharToRedobuff(regname);
+          do_put(regname, NULL, BACKWARD, 1L, PUT_CURSEND);
+        } else {
+          stuffescaped((const char *)reg->y_array[i], literally);
+        }
         // Insert a newline between lines and after last line if
         // y_type is kMTLineWise.
         if (reg->y_type == kMTLineWise || i < reg->y_size - 1) {
@@ -1683,6 +1689,7 @@ int op_delete(oparg_T *oap)
                      (int)oap->line_count-1, n, deleted_bytes,
                      0, 0, 0, kExtmarkUndo);
     }
+    auto_format(false, true);
   }
 
   msgmore(curbuf->b_ml.ml_line_count - old_lcount);
