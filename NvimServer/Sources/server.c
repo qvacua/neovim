@@ -8,10 +8,8 @@
 
 #define FileInfo CarbonFileInfo
 #define Boolean CarbonBoolean
-
 #include "server.h"
 #include "server_log.h"
-
 #undef FileInfo
 #undef Boolean
 

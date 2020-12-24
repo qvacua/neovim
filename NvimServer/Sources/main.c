@@ -17,13 +17,10 @@ int main(int argc, const char *argv[]) {
 
   if (argc < 5) {
     printf("We need at least %d arguments! Printing --version and exiting...\n", ARGC - 1);
-
-    const char **nvim_argv = malloc(2 * sizeof(char *));
-
-    nvim_argv[0] = "nvim";
-    nvim_argv[1] = "--version";
-
+    
+    const char* nvim_argv[] = { "nvim", "--version" };
     nvim_main(2, nvim_argv);
+    
     return 0;
   }
 

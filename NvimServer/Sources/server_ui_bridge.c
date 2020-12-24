@@ -3,16 +3,13 @@
  * See LICENSE
  */
 
-#include "server_log.h"
 
 #define FileInfo CarbonFileInfo
 #define Boolean CarbonBoolean
-
-#include "NvimServerTypes.h"
+#include "server_log.h"
 #include "server.h"
-
-#undef Boolean
 #undef FileInfo
+#undef Boolean
 
 #include <nvim/api/private/defs.h>
 #include <nvim/vim.h>
@@ -108,7 +105,7 @@ static void server_ui_busy_stop(UI *ui __unused) {
 
 static void server_ui_mode_info_set(
     UI *ui __unused,
-    Boolean enabled,
+    bool enabled,
     Array cursor_styles
 ) {
   send_msg_packing(NvimServerMsgIdModeInfoSet, ^(msgpack_packer *packer) {
