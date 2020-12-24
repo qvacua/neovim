@@ -48,8 +48,8 @@ let package = Package(
           ".deps/usr/lib/libuv.a",
           ".deps/usr/lib/libvterm.a",
           ".deps/usr/lib/libluajit-5.1.a",
-          "NvimServer/third-party/lib/libintl.a",
           ".deps/usr/lib/libtree-sitter.a",
+          "NvimServer/third-party/lib/libintl.a",
         ]),
       ]
     ),
