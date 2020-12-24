@@ -5,7 +5,7 @@ declare -x target; target="$(uname -m)"; readonly target
 declare -r -x download_gettext=${download_gettext:?"true or falce"}
 declare -r -x clean=${clean:?"if true, will clean libnvim and nvimserver"}
 readonly build_libnvim=${build_libnvim:?"true or false"}
-readonly build_dir=${build_dir:-"./build"}
+readonly build_dir=${build_dir:-"./.build"}
 
 package() {
   local -r build_folder_path=$1
@@ -24,12 +24,12 @@ main() {
     fi
 
     if [[ "${clean}" == true ]]; then
-      xcodebuild -derivedDataPath "${build_dir}" -configuration Release -scheme NvimServer ARCHS="${target}" clean
+      rm -rf "${build_dir}"
     fi
 
-    xcodebuild -derivedDataPath "${build_dir}" -configuration Release -scheme NvimServer ARCHS="${target}" build
+    swift build -c release --product NvimServer
 
-    package "${build_dir}/Build/Products/Release"
+    package "${build_dir}/release"
 
   popd >/dev/null
   echo "### Built NvimServer"
