@@ -63,6 +63,7 @@ tags
 /runtime/doc/errors.log
 
 # NvimServer
+.build
 .swiftpm
 /NvimServer/build
 /NvimServer/third-party-x86_64
