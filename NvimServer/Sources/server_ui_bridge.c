@@ -34,7 +34,6 @@ static msgpack_sbuffer flush_sbuffer;
 static msgpack_packer flush_packer;
 
 static void pack_flush_data(RenderDataType type, pack_block body);
-static void pack_mode_info_dictionary(msgpack_packer *packer, Dictionary dict);
 static void send_cwd(void);
 static void send_dirty_status(void);
 static void send_colorscheme(void);
@@ -115,7 +114,7 @@ static void server_ui_mode_info_set(
     for (size_t i = 0; i < cursor_styles.size; ++i) {
       Object item = cursor_styles.items[i];
       if (item.type == kObjectTypeDictionary) {
-        pack_mode_info_dictionary(packer, item.data.dictionary);
+        msgpack_rpc_from_dictionary(item.data.dictionary, packer);
       } else {
         // this should never happen, but write nil to match the given array size
         msgpack_pack_nil(packer);
@@ -392,34 +391,6 @@ static void pack_flush_data(RenderDataType type, pack_block body) {
   msgpack_pack_array(&flush_packer, 2);
   msgpack_pack_int64(&flush_packer, type);
   body(&flush_packer);
-}
-
-// Small utility to pack an nvim Dictionary into a msgpack_map for mode_info_set
-// BEWARE: This is by no means a generic Dict -> map packer, as only String and
-// Integer values are supported for now.
-static void pack_mode_info_dictionary(
-    msgpack_packer *packer,
-    Dictionary dict
-) {
-  msgpack_pack_map(packer, dict.size);
-  for (size_t i = 0; i < dict.size; ++i) {
-    String key = dict.items[i].key;
-    Object value = dict.items[i].value;
-    msgpack_pack_str(packer, key.size);
-    msgpack_pack_str_body(packer, key.data, key.size);
-    switch (value.type) {
-      case kObjectTypeInteger:
-        msgpack_pack_int64(packer, value.data.integer);
-        break;
-      case kObjectTypeString:
-        msgpack_pack_str(packer, value.data.string.size);
-        msgpack_pack_str_body(packer, value.data.string.data, value.data.string.size);
-        break;
-      default:
-        msgpack_pack_nil(packer);
-        break;
-    }
-  }
 }
 
 static void send_dirty_status() {
