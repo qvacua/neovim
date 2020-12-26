@@ -549,7 +549,7 @@ int main(int argc, char **argv)
   // When a startup script or session file setup for diff'ing and
   // scrollbind, sync the scrollbind now.
   if (curwin->w_p_diff && curwin->w_p_scb) {
-    update_topline();
+    update_topline(curwin);
     check_scrollbind((linenr_T)0, 0L);
     TIME_MSG("diff scrollbinding");
   }
@@ -2022,7 +2022,7 @@ static void version(void)
   info_message = TRUE;  // use mch_msg(), not mch_errmsg()
   list_version();
   msg_putchar('\n');
-  msg_didout = FALSE;
+  msg_didout = false;
 }
 
 /// Prints help message for "nvim -h" or "nvim --help".

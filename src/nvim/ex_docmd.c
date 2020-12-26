@@ -7366,7 +7366,7 @@ static void ex_syncbind(exarg_T *eap)
     topline = curwin->w_topline;
     FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
       if (wp->w_p_scb && wp->w_buffer) {
-        y = wp->w_buffer->b_ml.ml_line_count - get_scrolloff_value();
+        y = wp->w_buffer->b_ml.ml_line_count - get_scrolloff_value(curwin);
         if (topline > y) {
           topline = y;
         }
@@ -8056,7 +8056,7 @@ static void ex_redraw(exarg_T *eap)
   RedrawingDisabled = 0;
   p_lz = FALSE;
   validate_cursor();
-  update_topline();
+  update_topline(curwin);
   if (eap->forceit) {
     redraw_all_later(NOT_VALID);
   }
@@ -8068,8 +8068,8 @@ static void ex_redraw(exarg_T *eap)
   RedrawingDisabled = r;
   p_lz = p;
 
-  /* Reset msg_didout, so that a message that's there is overwritten. */
-  msg_didout = FALSE;
+  // Reset msg_didout, so that a message that's there is overwritten.
+  msg_didout = false;
   msg_col = 0;
 
   /* No need to wait after an intentional redraw. */
@@ -8205,10 +8205,11 @@ static void ex_mark(exarg_T *eap)
  */
 void update_topline_cursor(void)
 {
-  check_cursor();               /* put cursor on valid line */
-  update_topline();
-  if (!curwin->w_p_wrap)
+  check_cursor();               // put cursor on valid line
+  update_topline(curwin);
+  if (!curwin->w_p_wrap) {
     validate_cursor();
+  }
   update_curswant();
 }
 

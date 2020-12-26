@@ -381,7 +381,7 @@ static void insert_enter(InsertState *s)
 
   // Need to recompute the cursor position, it might move when the cursor is
   // on a TAB or special character.
-  curs_columns(true);
+  curs_columns(curwin, true);
 
   // Enable langmap or IME, indicated by 'iminsert'.
   // Note that IME may enabled/disabled without us noticing here, thus the
@@ -594,7 +594,7 @@ static int insert_check(VimState *state)
 
     if (curwin->w_wcol < s->mincol - curbuf->b_p_ts
         && curwin->w_wrow == curwin->w_winrow
-        + curwin->w_height_inner - 1 - get_scrolloff_value()
+        + curwin->w_height_inner - 1 - get_scrolloff_value(curwin)
         && (curwin->w_cursor.lnum != curwin->w_topline
             || curwin->w_topfill > 0)) {
       if (curwin->w_topfill > 0) {
@@ -608,7 +608,7 @@ static int insert_check(VimState *state)
   }
 
   // May need to adjust w_topline to show the cursor.
-  update_topline();
+  update_topline(curwin);
 
   s->did_backspace = false;
 
@@ -1563,7 +1563,7 @@ void edit_putchar(int c, bool highlight)
   int attr;
 
   if (curwin->w_grid.chars != NULL || default_grid.chars != NULL) {
-    update_topline();  // just in case w_topline isn't valid
+    update_topline(curwin);  // just in case w_topline isn't valid
     validate_cursor();
     if (highlight) {
       attr = HL_ATTR(HLF_8);
@@ -1679,7 +1679,7 @@ void display_dollar(colnr_T col)
   // If on the last byte of a multi-byte move to the first byte.
   char_u *p = get_cursor_line_ptr();
   curwin->w_cursor.col -= utf_head_off(p, p + col);
-  curs_columns(false);              // Recompute w_wrow and w_wcol
+  curs_columns(curwin, false);              // Recompute w_wrow and w_wcol
   if (curwin->w_wcol < curwin->w_grid.Columns) {
     edit_putchar('$', false);
     dollar_vcol = curwin->w_virtcol;
@@ -5329,8 +5329,9 @@ static int ins_complete(int c, bool enable_pum)
               compl_curr_match->cp_number);
         edit_submode_extra = match_ref;
         edit_submode_highl = HLF_R;
-        if (dollar_vcol >= 0)
-          curs_columns(FALSE);
+        if (dollar_vcol >= 0) {
+          curs_columns(curwin, false);
+        }
       }
     }
   }
@@ -6160,7 +6161,7 @@ internal_format (
   curwin->w_p_lbr = has_lbr;
 
   if (!format_only && haveto_redraw) {
-    update_topline();
+    update_topline(curwin);
     redraw_curbuf_later(VALID);
   }
 }
@@ -6809,7 +6810,7 @@ cursor_up (
   coladvance(curwin->w_curswant);
 
   if (upd_topline) {
-    update_topline();           // make sure curwin->w_topline is valid
+    update_topline(curwin);           // make sure curwin->w_topline is valid
   }
 
   return OK;
@@ -6860,7 +6861,7 @@ cursor_down (
   coladvance(curwin->w_curswant);
 
   if (upd_topline) {
-    update_topline();           // make sure curwin->w_topline is valid
+    update_topline(curwin);           // make sure curwin->w_topline is valid
   }
 
   return OK;
@@ -7804,7 +7805,7 @@ static bool ins_esc(long *count, int cmdchar, bool nomove)
   // Otherwise remove the mode message.
   if (reg_recording != 0 || restart_edit != NUL) {
     showmode();
-  } else if (p_smd) {
+  } else if (p_smd && (got_int || !skip_showmode())) {
     MSG("");
   }
   // Exit Insert mode
