@@ -43,6 +43,7 @@ typedef CF_ENUM(NSInteger, NvimServerMsgId) {
   NvimServerMsgIdStop,
   NvimServerMsgIdOptionSet,
   NvimServerMsgIdEvent,
+  NvimServerMsgIdHlGroupSet,
 
   NvimServerMsgIdDirtyStatusChanged,
   NvimServerMsgIdCwdChanged,

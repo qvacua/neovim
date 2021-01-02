@@ -38,6 +38,7 @@
 
 #ifdef CUSTOM_UI
 extern void custom_ui_event(UI *ui, char * name, Array args, bool * args_consumed);
+extern void custom_ui_hl_group_set(UI *ui, String name, Integer id);
 #endif
 
 
@@ -48,6 +49,7 @@ UI *ui_bridge_attach(UI *ui, ui_main_fn ui_main, event_scheduler scheduler)
   rv->bridge.rgb = ui->rgb;
 #ifdef CUSTOM_UI
   rv->bridge.event = custom_ui_event;
+  rv->bridge.hl_group_set = custom_ui_hl_group_set;
 #endif
   rv->bridge.stop = ui_bridge_stop;
   rv->bridge.grid_resize = ui_bridge_grid_resize;

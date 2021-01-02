@@ -173,9 +173,6 @@ static void server_ui_hl_attr_define(
   });
 }
 
-static void server_hl_group_set(UI *ui, String name, Integer id) {
-}
-
 static void server_ui_raw_line(
     UI *ui __unused,
     Integer grid __unused,
@@ -266,6 +263,17 @@ static void dummy2(UI *ui __unused, String icon __unused) {}
 
 #pragma mark called by nvim
 
+void custom_ui_hl_group_set(UI *ui, String name, Integer id) {
+  send_msg_packing(
+      NvimServerMsgIdHlGroupSet,
+      ^(msgpack_packer *packer) {
+        msgpack_pack_map(packer, 1);
+        msgpack_rpc_from_string(name, packer);
+        msgpack_pack_int(packer, id);
+      }
+  );
+}
+
 void custom_ui_event(UI *ui, char *name, Array args, bool *args_consumed) {
   size_t name_len = strlen(name);
   send_msg_packing(
@@ -299,7 +307,7 @@ void custom_ui_start(void) {
   ui->mode_change = server_ui_mode_change;
   ui->grid_scroll = server_ui_grid_scroll;
   ui->hl_attr_define = server_ui_hl_attr_define;
-  ui->hl_group_set = server_hl_group_set;
+  ui->hl_group_set = custom_ui_hl_group_set;
   ui->default_colors_set = server_ui_default_colors_set;
   ui->raw_line = server_ui_raw_line;
   ui->bell = server_ui_bell;
