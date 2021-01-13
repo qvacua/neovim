@@ -443,21 +443,17 @@ static void send_colorscheme() {
   // It seems that the highlight groupt only gets updated when the screen is
   // redrawn. Since there's a guard var, probably it's safe to call it here...
   if (need_highlight_changed) {highlight_changed();}
-
-  const HlAttrs visualAttrs = syn_attr2entry(highlight_attr[HLF_V]);
-  const HlAttrs dirAttrs = syn_attr2entry(highlight_attr[HLF_D]);
-
+  
   send_msg_packing(
-      NvimServerMsgIdColorSchemeChanged,
-      ^(msgpack_packer *packer) {
-        msgpack_pack_array(packer, 5);
-        msgpack_pack_int64(packer, normal_fg);
-        msgpack_pack_int64(packer, normal_bg);
-        msgpack_pack_int64(packer, foreground_for(visualAttrs));
-        msgpack_pack_int64(packer, background_for(visualAttrs));
-        msgpack_pack_int64(packer, foreground_for(dirAttrs));
-      }
-  );
+    NvimServerMsgIdColorSchemeChanged,
+    ^(msgpack_packer *packer) {
+    msgpack_pack_map(packer, HLF_COUNT);
+    for (int hlf = 0; hlf < HLF_COUNT; hlf++) {
+      msgpack_pack_cstr(packer, hlf_names[hlf]);
+      Dictionary attrs_dict = hl_get_attr_by_id(highlight_attr[hlf], true, NULL);
+      msgpack_rpc_from_dictionary(attrs_dict, packer);
+    }
+  });
 }
 
 void server_set_ui_size(UIBridgeData *bridge, int width, int height) {

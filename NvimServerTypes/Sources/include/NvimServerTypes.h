@@ -11,6 +11,7 @@
 #define NSInteger long
 #define NSUInteger unsigned long
 
+// TODO: Add other properties like standout.
 typedef CF_OPTIONS(NSUInteger, FontTrait) {
   FontTraitNone = 0,
   FontTraitItalic = (1 << 0),
