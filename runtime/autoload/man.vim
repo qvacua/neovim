@@ -51,7 +51,7 @@ function! man#open_page(count, mods, ...) abort
 
   let [l:buf, l:save_tfu] = [bufnr(), &tagfunc]
   try
-    set tagfunc=man#goto_tag
+    setlocal tagfunc=man#goto_tag
     let l:target = l:name . '(' . l:sect . ')'
     if a:mods !~# 'tab' && s:find_man()
       execute 'silent keepalt tag' l:target
@@ -137,8 +137,6 @@ function! s:put_page(page) abort
   setlocal modifiable
   setlocal noreadonly
   setlocal noswapfile
-  " git-ls-files(1) is all one keyword/tag-target
-  setlocal iskeyword+=(,)
   silent keepjumps %delete _
   silent put =a:page
   while getline(1) =~# '^\s*$'

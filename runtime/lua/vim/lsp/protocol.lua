@@ -34,6 +34,13 @@ local constants = {
     Hint = 4;
   };
 
+  DiagnosticTag = {
+    -- Unused or unnecessary code
+    Unnecessary = 1;
+    -- Deprecated or obsolete code
+    Deprecated = 2;
+  };
+
   MessageType = {
     -- An error message.
     Error = 1;
@@ -521,6 +528,13 @@ export interface TextDocumentClientCapabilities {
   publishDiagnostics?: {
     --Whether the clients accepts diagnostics with related information.
     relatedInformation?: boolean;
+    --Client supports the tag property to provide meta data about a diagnostic.
+	  --Clients supporting tags have to handle unknown tags gracefully.
+    --Since 3.15.0
+    tagSupport?: {
+      --The tags supported by this client
+      valueSet: DiagnosticTag[];
+    };
   };
   --Capabilities specific to `textDocument/foldingRange` requests.
   --
@@ -706,6 +720,18 @@ function protocol.make_client_capabilities()
         dynamicRegistration = false;
         prepareSupport = true;
       };
+      publishDiagnostics = {
+        relatedInformation = true;
+        tagSupport = {
+          valueSet = (function()
+            local res = {}
+            for k in ipairs(protocol.DiagnosticTag) do
+              if type(k) == 'number' then table.insert(res, k) end
+            end
+            return res
+          end)();
+        };
+      };
     };
     workspace = {
       symbol = {
@@ -730,7 +756,15 @@ function protocol.make_client_capabilities()
     experimental = nil;
     window = {
       workDoneProgress = true;
-    }
+      showMessage = {
+        messageActionItem = {
+          additionalPropertiesSupport = false;
+        };
+      };
+      showDocument = {
+        support = false;
+      };
+    };
   }
 end
 

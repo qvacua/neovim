@@ -27,9 +27,9 @@ Follow these steps to get LSP features:
   1. Install the nvim-lspconfig plugin.  It provides common configuration for
      various servers so you can get started quickly.
      https://github.com/neovim/nvim-lspconfig
-  2. Install a language server.  Try ":LspInstall <tab>" or use your system
-     package manager to install the relevant language server:
+  2. Install a language server. A list of language servers can be found here:
      https://microsoft.github.io/language-server-protocol/implementors/servers/
+     See individual server documentation for installation instructions.
   3. Add `lua require('lspconfig').xx.setup{…}` to your init.vim, where "xx" is
      the name of the relevant config. See the nvim-lspconfig README for details.
      NOTE: Make sure to restart nvim after installing and configuring.
@@ -62,20 +62,39 @@ Example config (in init.vim): >
       vim.api.nvim_buf_set_option(0, 'omnifunc', 'v:lua.vim.lsp.omnifunc')
 
       -- For plugins with an `on_attach` callback, call them here. For example:
-      -- require('completion').on_attach(client)
+      -- require('completion').on_attach()
     end
 
     -- An example of configuring for `sumneko_lua`,
     --  a language server for Lua.
-    -- First, you must run `:LspInstall sumneko_lua` for this to work.
+
+    -- set the path to the sumneko installation
+    local system_name = "Linux" -- (Linux, macOS, or Windows)
+    local sumneko_root_path = '/path/to/lua-language-server'
+    local sumneko_binary = sumneko_root_path.."/bin/"..system_name.."/lua-language-server"
+
     require('lspconfig').sumneko_lua.setup({
+      cmd = {sumneko_binary, "-E", sumneko_root_path .. "/main.lua"};
       -- An example of settings for an LSP server.
       --    For more options, see nvim-lspconfig
       settings = {
         Lua = {
+          runtime = {
+            -- Tell the language server which version of Lua you're using (most likely LuaJIT in the case of Neovim)
+            version = 'LuaJIT',
+            -- Setup your lua path
+            path = vim.split(package.path, ';'),
+          },
           diagnostics = {
-            enable = true,
-            globals = { "vim" },
+            -- Get the language server to recognize the `vim` global
+            globals = {'vim'},
+          },
+          workspace = {
+            -- Make the server aware of Neovim runtime files
+            library = {
+              [vim.fn.expand('$VIMRUNTIME/lua')] = true,
+              [vim.fn.expand('$VIMRUNTIME/lua/vim/lsp')] = true,
+            },
           },
         }
       },
@@ -118,7 +137,7 @@ FAQ                                                     *lsp-faq*
 <
                                                            *vim.lsp.callbacks*
 - Q: What happened to `vim.lsp.callbacks`?
-  A: After better defining the interface of |lsp-hander|s, we thought it best
+  A: After better defining the interface of |lsp-handler|s, we thought it best
      to remove the generic usage of `callbacks` and transform to `handlers`.
      Due to this, `vim.lsp.callbacks` was renamed to |vim.lsp.handlers|.
 
@@ -176,6 +195,7 @@ specification. These LSP requests/notifications are defined by default:
     textDocument/typeDefinition*
     window/logMessage
     window/showMessage
+    window/showMessageRequest
     workspace/applyEdit
     workspace/symbol
 
@@ -257,7 +277,7 @@ For |lsp-notification|, each |lsp-handler| has this signature: >
 
                                                    *lsp-handler-configuration*
 
-To configure the behavior of a builtin |lsp-handler|, the conenvience method
+To configure the behavior of a builtin |lsp-handler|, the convenient method
 |vim.lsp.with()| is provided for users.
 
   To configure the behavior of |vim.lsp.diagnostic.on_publish_diagnostics()|,
@@ -619,8 +639,9 @@ client()                                                      *vim.lsp.client*
                     automatically escalate and force shutdown.
                   • is_stopped() Checks whether a client is stopped. Returns:
                     true if the client is fully stopped.
-                  • on_attach(bufnr) Runs the on_attach function from the
-                    client's config if it was defined.
+                  • on_attach(client, bufnr) Runs the on_attach function from
+                    the client's config if it was defined. Useful for
+                    buffer-local setup.
 
                 • Members
                   • {id} (number): The id allocated to the client.
@@ -657,6 +678,14 @@ get_active_clients()                            *vim.lsp.get_active_clients()*
 
                 Return: ~
                     Table of |vim.lsp.client| objects
+
+                                          *vim.lsp.get_buffers_by_client_id()*
+get_buffers_by_client_id({client_id})
+                Parameters: ~
+                    {client_id}  client id
+
+                Return: ~
+                    list of buffer ids
 
 get_client_by_id({client_id})                     *vim.lsp.get_client_by_id()*
                 Gets a client by id, or nil if the id is invalid. The returned
@@ -755,6 +784,11 @@ start_client({config})                                *vim.lsp.start_client()*
                                          array.
                     {handlers}         Map of language server method names to
                                        |lsp-handler|
+                    {settings}         Map with language server specific
+                                       settings. These are returned to the
+                                       language server if requested via
+                                       `workspace/configuration` . Keys are
+                                       case-sensitive.
                     {init_options}     Values to pass in the initialization
                                        request as `initializationOptions` .
                                        See `initialize` in the LSP spec.
@@ -791,7 +825,14 @@ start_client({config})                                *vim.lsp.start_client()*
                                        `capabilities.offsetEncoding` was sent
                                        to it. You can only modify the
                                        `client.offset_encoding` here before
-                                       any notifications are sent.
+                                       any notifications are sent. Most
+                                       language servers expect to be sent
+                                       client specified settings after
+                                       initialization. Neovim does not make
+                                       this assumption. A
+                                       `workspace/didChangeConfiguration`
+                                       notification should be sent to the
+                                       server during on_init.
                     {on_exit}          Callback (code, signal, client_id)
                                        invoked on client exit.
                                        • code: exit code of the process
@@ -1318,6 +1359,10 @@ set_signs({diagnostics}, {bufnr}, {client_id}, {sign_ns}, {opts})
                     {sign_ns}      number|nil
                     {opts}         table Configuration for signs. Keys:
                                    • priority: Set the priority of the signs.
+                                   • severity_limit (DiagnosticSeverity):
+                                     • Limit severity of diagnostics found.
+                                       E.g. "Warning" means { "Error",
+                                       "Warning" } will be valid.
 
                                           *vim.lsp.diagnostic.set_underline()*
 set_underline({diagnostics}, {bufnr}, {client_id}, {diagnostic_ns}, {opts})
@@ -1335,10 +1380,14 @@ set_underline({diagnostics}, {bufnr}, {client_id}, {diagnostic_ns}, {opts})
 
                 Parameters: ~
                     {diagnostics}    Diagnostic []
-                    {bufnr}          number The buffer number
-                    {client_id}      number the client id
-                    {diagnostic_ns}  number|nil
-                    {opts}           table Currently unused.
+                    {bufnr}          number: The buffer number
+                    {client_id}      number: The client id
+                    {diagnostic_ns}  number|nil: The namespace
+                    {opts}           table: Configuration table:
+                                     • severity_limit (DiagnosticSeverity):
+                                       • Limit severity of diagnostics found.
+                                         E.g. "Warning" means { "Error",
+                                         "Warning" } will be valid.
 
                                        *vim.lsp.diagnostic.set_virtual_text()*
 set_virtual_text({diagnostics}, {bufnr}, {client_id}, {diagnostic_ns}, {opts})
@@ -1365,6 +1414,10 @@ set_virtual_text({diagnostics}, {bufnr}, {client_id}, {diagnostic_ns}, {opts})
                                        before virtual text on line
                                      • spacing (number): Number of spaces to
                                        insert before virtual text
+                                     • severity_limit (DiagnosticSeverity):
+                                       • Limit severity of diagnostics found.
+                                         E.g. "Warning" means { "Error",
+                                         "Warning" } will be valid.
 
                                   *vim.lsp.diagnostic.show_line_diagnostics()*
 show_line_diagnostics({opts}, {bufnr}, {line_nr}, {client_id})
@@ -1388,16 +1441,31 @@ show_line_diagnostics({opts}, {bufnr}, {line_nr}, {client_id})
                     {client_id}  number|nil the client id
 
                 Return: ~
-                    {popup_bufnr, win_id}
+                    table {popup_bufnr, win_id}
+
+
+==============================================================================
+Lua module: vim.lsp.handlers                                    *lsp-handlers*
+
+                                        *vim.lsp.handlers.progress_callback()*
+progress_callback({_}, {_}, {params}, {client_id})
+                See also: ~
+                    https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_executeCommand
 
 
 ==============================================================================
 Lua module: vim.lsp.util                                            *lsp-util*
 
                                      *vim.lsp.util.apply_text_document_edit()*
-apply_text_document_edit({text_document_edit})
+apply_text_document_edit({text_document_edit}, {index})
+                Applies a `TextDocumentEdit` , which is a list of changes to a
+                single document.
+
                 Parameters: ~
-                    {text_document_edit}  (table) a `TextDocumentEdit` object
+                    {text_document_edit}  table: a `TextDocumentEdit` object
+                    {index}               number: Optional index of the edit,
+                                          if from a list of edits (or nil, if
+                                          not from a list)
 
                 See also: ~
                     https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentEdit
@@ -1577,6 +1645,9 @@ get_effective_tabstop({bufnr})          *vim.lsp.util.get_effective_tabstop()*
                 See also: ~
                     |softtabstop|
 
+get_progress_messages()                 *vim.lsp.util.get_progress_messages()*
+                TODO: Documentation
+
 jump_to_location({location})                 *vim.lsp.util.jump_to_location()*
                 Jumps to a location.
 
@@ -1597,6 +1668,19 @@ locations_to_items({locations})            *vim.lsp.util.locations_to_items()*
 
                 Return: ~
                     (table) list of items
+
+lookup_section({settings}, {section})          *vim.lsp.util.lookup_section()*
+                Helper function to return nested values in language server
+                settings
+
+                Parameters: ~
+                    {settings}  a table of language server settings
+                    {section}   a string indicating the field of the settings
+                                table
+
+                Return: ~
+                    (table or string) The value of settings accessed via
+                    section
 
                                   *vim.lsp.util.make_floating_popup_options()*
 make_floating_popup_options({width}, {height}, {opts})

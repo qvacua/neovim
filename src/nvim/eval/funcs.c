@@ -726,7 +726,7 @@ buf_T *tv_get_buf(typval_T *tv, int curtab_only)
   p_cpo = (char_u *)"";
 
   buf = buflist_findnr(buflist_findpat(name, name + STRLEN(name),
-                                       TRUE, FALSE, curtab_only));
+                                       true, false, curtab_only));
 
   p_magic = save_magic;
   p_cpo = save_cpo;
@@ -1629,27 +1629,26 @@ static void f_deletebufline(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   if (u_save(first - 1, last + 1) == FAIL) {
     rettv->vval.v_number = 1;  // FAIL
-    return;
-  }
+  } else {
+    for (linenr_T lnum = first; lnum <= last; lnum++) {
+      ml_delete(first, true);
+    }
 
-  for (linenr_T lnum = first; lnum <= last; lnum++) {
-    ml_delete(first, true);
-  }
-
-  FOR_ALL_TAB_WINDOWS(tp, wp) {
-    if (wp->w_buffer == buf) {
-      if (wp->w_cursor.lnum > last) {
-        wp->w_cursor.lnum -= count;
-      } else if (wp->w_cursor.lnum> first) {
-        wp->w_cursor.lnum = first;
-      }
-      if (wp->w_cursor.lnum > wp->w_buffer->b_ml.ml_line_count) {
-        wp->w_cursor.lnum = wp->w_buffer->b_ml.ml_line_count;
+    FOR_ALL_TAB_WINDOWS(tp, wp) {
+      if (wp->w_buffer == buf) {
+        if (wp->w_cursor.lnum > last) {
+          wp->w_cursor.lnum -= count;
+        } else if (wp->w_cursor.lnum> first) {
+          wp->w_cursor.lnum = first;
+        }
+        if (wp->w_cursor.lnum > wp->w_buffer->b_ml.ml_line_count) {
+          wp->w_cursor.lnum = wp->w_buffer->b_ml.ml_line_count;
+        }
       }
     }
+    check_cursor_col();
+    deleted_lines_mark(first, count);
   }
-  check_cursor_col();
-  deleted_lines_mark(first, count);
 
   if (!is_curbuf) {
     curbuf = curbuf_save;
@@ -1798,7 +1797,7 @@ static void f_environ(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   os_copy_fullenv(env, env_size);
 
-  for (size_t i = 0; i < env_size; i++) {
+  for (ssize_t i = env_size - 1; i >= 0; i--) {
     const char * str = env[i];
     const char * const end = strchr(str + (str[0] == '=' ? 1 : 0),
                                     '=');
@@ -1806,6 +1805,12 @@ static void f_environ(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     ptrdiff_t len = end - str;
     assert(len > 0);
     const char * value = str + len + 1;
+    if (tv_dict_find(rettv->vval.v_dict, str, len) != NULL) {
+      // Since we're traversing from the end of the env block to the front, any
+      // duplicate names encountered should be ignored.  This preserves the
+      // semantics of env vars defined later in the env block taking precedence.
+      continue;
+    }
     tv_dict_add_str(rettv->vval.v_dict,
                     str, len,
                     value);
@@ -2143,7 +2148,7 @@ static void f_menu_get(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   tv_list_alloc_ret(rettv, kListLenMayKnow);
   int modes = MENU_ALL_MODES;
   if (argvars[1].v_type == VAR_STRING) {
-    const char_u *const strmodes = (char_u *)tv_get_string(&argvars[1]);
+    const char *const strmodes = tv_get_string(&argvars[1]);
     modes = get_menu_cmd_modes(strmodes, false, NULL, NULL);
   }
   menu_get((char_u *)tv_get_string(&argvars[0]), modes, rettv->vval.v_list);
@@ -2165,7 +2170,7 @@ static void f_expandcmd(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     .nextcmd = NULL,
     .cmdidx = CMD_USER,
   };
-  eap.argt |= NOSPC;
+  eap.argt |= EX_NOSPC;
 
   expand_filename(&eap, &cmdstr, &errormsg);
   if (errormsg != NULL && *errormsg != NUL) {
@@ -3129,6 +3134,12 @@ static void f_getcompletion(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   int           options = WILD_SILENT | WILD_USE_NL | WILD_ADD_SLASH
           | WILD_NO_BEEP;
 
+  if (argvars[1].v_type != VAR_STRING) {
+    EMSG2(_(e_invarg2), "type must be a string");
+    return;
+  }
+  const char *const type = tv_get_string(&argvars[1]);
+
   if (argvars[2].v_type != VAR_UNKNOWN) {
     filtered = (bool)tv_get_number_chk(&argvars[2], NULL);
   }
@@ -3142,12 +3153,12 @@ static void f_getcompletion(typval_T *argvars, typval_T *rettv, FunPtr fptr)
     options |= WILD_KEEP_ALL;
   }
 
-  if (argvars[0].v_type != VAR_STRING || argvars[1].v_type != VAR_STRING) {
+  if (argvars[0].v_type != VAR_STRING) {
     EMSG(_(e_invarg));
     return;
   }
 
-  if (strcmp(tv_get_string(&argvars[1]), "cmdline") == 0) {
+  if (strcmp(type, "cmdline") == 0) {
     set_one_cmd_context(&xpc, tv_get_string(&argvars[0]));
     xpc.xp_pattern_len = STRLEN(xpc.xp_pattern);
     goto theend;
@@ -3156,15 +3167,14 @@ static void f_getcompletion(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   ExpandInit(&xpc);
   xpc.xp_pattern = (char_u *)tv_get_string(&argvars[0]);
   xpc.xp_pattern_len = STRLEN(xpc.xp_pattern);
-  xpc.xp_context = cmdcomplete_str_to_type(
-      (char_u *)tv_get_string(&argvars[1]));
+  xpc.xp_context = cmdcomplete_str_to_type(type);
   if (xpc.xp_context == EXPAND_NOTHING) {
-    EMSG2(_(e_invarg2), argvars[1].vval.v_string);
+    EMSG2(_(e_invarg2), type);
     return;
   }
 
   if (xpc.xp_context == EXPAND_MENUS) {
-    set_context_in_menu_cmd(&xpc, (char_u *)"menu", xpc.xp_pattern, false);
+    set_context_in_menu_cmd(&xpc, "menu", xpc.xp_pattern, false);
     xpc.xp_pattern_len = STRLEN(xpc.xp_pattern);
   }
 
@@ -3301,7 +3311,7 @@ static void f_getcwd(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       }
       break;
     case kCdScopeInvalid:     // We should never get here
-      assert(false);
+      abort();
   }
 
   if (from) {
@@ -3481,6 +3491,25 @@ static void f_getloclist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   win_T *wp = find_win_by_nr_or_id(&argvars[0]);
   get_qf_loc_list(false, wp, &argvars[1], rettv);
+}
+
+
+/// "getmarklist()" function
+static void f_getmarklist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
+{
+  tv_list_alloc_ret(rettv, kListLenMayKnow);
+
+  if (argvars[0].v_type == VAR_UNKNOWN) {
+    get_global_marks(rettv->vval.v_list);
+    return;
+  }
+
+  buf_T *buf = tv_get_buf(&argvars[0], false);
+  if (buf == NULL) {
+    return;
+  }
+
+  get_buf_local_marks(buf, rettv->vval.v_list);
 }
 
 /*
@@ -4339,7 +4368,7 @@ static void f_haslocaldir(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       break;
     case kCdScopeInvalid:
       // We should never get here
-      assert(false);
+      abort();
   }
 }
 
@@ -4860,6 +4889,108 @@ static void f_jobresize(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   rettv->vval.v_number = 1;
 }
 
+static const char *ignored_env_vars[] = {
+#ifndef WIN32
+  "COLUMNS",
+  "LINES",
+  "TERMCAP",
+  "COLORFGBG",
+#endif
+  NULL
+};
+
+/// According to comments in src/win/process.c of libuv, Windows has a few
+/// "essential" environment variables.
+static const char *required_env_vars[] = {
+#ifdef WIN32
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOGONSERVER",
+  "PATH",
+  "SYSTEMDRIVE",
+  "SYSTEMROOT",
+  "TEMP",
+  "USERDOMAIN",
+  "USERNAME",
+  "USERPROFILE",
+  "WINDIR",
+#endif
+  NULL
+};
+
+static dict_T *create_environment(const dictitem_T *job_env,
+                                  const bool clear_env,
+                                  const bool pty,
+                                  const char * const pty_term_name)
+{
+  dict_T * env = tv_dict_alloc();
+
+  if (!clear_env) {
+    typval_T temp_env = TV_INITIAL_VALUE;
+    f_environ(NULL, &temp_env, NULL);
+    tv_dict_extend(env, temp_env.vval.v_dict, "force");
+    tv_dict_free(temp_env.vval.v_dict);
+
+    if (pty) {
+      // These environment variables generally shouldn't be propagated to the
+      // child process.  We're removing them here so the user can still decide
+      // they want to explicitly set them.
+      for (size_t i = 0;
+           i < ARRAY_SIZE(ignored_env_vars) && ignored_env_vars[i];
+           i++) {
+        dictitem_T *dv = tv_dict_find(env, ignored_env_vars[i], -1);
+        if (dv) {
+          tv_dict_item_remove(env, dv);
+        }
+      }
+#ifndef WIN32
+      // Set COLORTERM to "truecolor" if termguicolors is set and 256
+      // otherwise, but only if it was set in the parent terminal at all
+      dictitem_T *dv = tv_dict_find(env, S_LEN("COLORTERM"));
+      if (dv) {
+        tv_dict_item_remove(env, dv);
+        tv_dict_add_str(env, S_LEN("COLORTERM"), p_tgc ? "truecolor" : "256");
+      }
+#endif
+    }
+  }
+
+  // For a pty, we need a sane $TERM set.  We can't rely on nvim's environment,
+  // because the child process is going to be communicating with nvim, not the
+  // parent terminal.  Set a sane default, but let the user override it in the
+  // job's environment if they want.
+  if (pty) {
+    dictitem_T *dv = tv_dict_find(env, S_LEN("TERM"));
+    if (dv) {
+      tv_dict_item_remove(env, dv);
+    }
+    tv_dict_add_str(env, S_LEN("TERM"), pty_term_name);
+  }
+
+  if (job_env) {
+    tv_dict_extend(env, job_env->di_tv.vval.v_dict, "force");
+  }
+
+  if (pty) {
+    // Now that the custom environment is configured, we need to ensure certain
+    // environment variables are present.
+    for (size_t i = 0;
+         i < ARRAY_SIZE(required_env_vars) && required_env_vars[i];
+         i++) {
+      size_t len = strlen(required_env_vars[i]);
+      dictitem_T *dv = tv_dict_find(env, required_env_vars[i], len);
+      if (!dv) {
+        const char *env_var = os_getenv(required_env_vars[i]);
+        if (env_var) {
+          tv_dict_add_str(env, required_env_vars[i], len, env_var);
+        }
+      }
+    }
+  }
+
+  return env;
+}
+
 // "jobstart()" function
 static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
@@ -4872,7 +5003,7 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 
   bool executable = true;
   char **argv = tv_to_argv(&argvars[0], NULL, &executable);
-  char **env = NULL;
+  dict_T *env = NULL;
   if (!argv) {
     rettv->vval.v_number = executable ? 0 : -1;
     return;  // Did error message in tv_to_argv.
@@ -4896,6 +5027,7 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
                  on_stderr = CALLBACK_READER_INIT;
   Callback on_exit = CALLBACK_NONE;
   char *cwd = NULL;
+  dictitem_T *job_env = NULL;
   if (argvars[1].v_type == VAR_DICT) {
     job_opts = argvars[1].vval.v_dict;
 
@@ -4921,7 +5053,7 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 #endif
 
     char *new_cwd = tv_dict_get_string(job_opts, "cwd", false);
-    if (new_cwd && strlen(new_cwd) > 0) {
+    if (new_cwd && *new_cwd != NUL) {
       cwd = new_cwd;
       // The new cwd must be a directory.
       if (!os_isdir_executable((const char *)cwd)) {
@@ -4930,45 +5062,13 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
         return;
       }
     }
-    dictitem_T *job_env = tv_dict_find(job_opts, S_LEN("env"));
-    if (job_env) {
-      if (job_env->di_tv.v_type != VAR_DICT) {
-        EMSG2(_(e_invarg2), "env");
-        shell_free_argv(argv);
-        return;
-      }
 
-      size_t custom_env_size = (size_t)tv_dict_len(job_env->di_tv.vval.v_dict);
-      size_t i = 0;
-      size_t env_size = 0;
-
-      if (clear_env) {
-        // + 1 for last null entry
-        env = xmalloc((custom_env_size + 1) * sizeof(*env));
-        env_size = 0;
-      } else {
-        env_size = os_get_fullenv_size();
-
-        env = xmalloc((custom_env_size + env_size + 1) * sizeof(*env));
-
-        os_copy_fullenv(env, env_size);
-        i = env_size;
-      }
-      assert(env);  // env must be allocated at this point
-
-      TV_DICT_ITER(job_env->di_tv.vval.v_dict, var, {
-        const char *str = tv_get_string(&var->di_tv);
-        assert(str);
-        size_t len = STRLEN(var->di_key) + strlen(str) + strlen("=") + 1;
-        env[i] = xmalloc(len);
-        snprintf(env[i], len, "%s=%s", (char *)var->di_key, str);
-        i++;
-      });
-
-      // must be null terminated
-      env[env_size + custom_env_size] = NULL;
+    job_env = tv_dict_find(job_opts, S_LEN("env"));
+    if (job_env && job_env->di_tv.v_type != VAR_DICT) {
+      EMSG2(_(e_invarg2), "env");
+      shell_free_argv(argv);
+      return;
     }
-
 
     if (!common_job_callbacks(job_opts, &on_stdout, &on_stderr, &on_exit)) {
       shell_free_argv(argv);
@@ -4982,12 +5082,19 @@ static void f_jobstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   if (pty) {
     width = (uint16_t)tv_dict_get_number(job_opts, "width");
     height = (uint16_t)tv_dict_get_number(job_opts, "height");
-    term_name = tv_dict_get_string(job_opts, "TERM", true);
+    // Legacy method, before env option existed, to specify $TERM.  No longer
+    // documented, but still usable to avoid breaking scripts.
+    term_name = tv_dict_get_string(job_opts, "TERM", false);
+    if (!term_name) {
+      term_name = "ansi";
+    }
   }
+
+  env = create_environment(job_env, clear_env, pty, term_name);
 
   Channel *chan = channel_job_start(argv, on_stdout, on_stderr, on_exit, pty,
                                     rpc, overlapped, detach, cwd, width, height,
-                                    term_name, env, &rettv->vval.v_number);
+                                    env, &rettv->vval.v_number);
   if (chan) {
     channel_create_event(chan, NULL);
   }
@@ -6557,7 +6664,7 @@ static void f_readfile(typval_T *argvars, typval_T *rettv, FunPtr fptr)
         }
         if (prevlen == 0) {
           assert(len < INT_MAX);
-          s = vim_strnsave(start, (int)len);
+          s = vim_strnsave(start, len);
         } else {
           /* Change "prev" buffer to be the right size.  This way
            * the bytes are only copied once, and very long lines are
@@ -7430,7 +7537,7 @@ static void f_rpcstart(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   Channel *chan = channel_job_start(argv, CALLBACK_READER_INIT,
                                     CALLBACK_READER_INIT, CALLBACK_NONE,
                                     false, true, false, false, NULL, 0, 0,
-                                    NULL, NULL, &rettv->vval.v_number);
+                                    NULL, &rettv->vval.v_number);
   if (chan) {
     channel_create_event(chan, NULL);
   }
@@ -10503,6 +10610,11 @@ static void f_termopen(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   Callback on_exit = CALLBACK_NONE;
   dict_T *job_opts = NULL;
   const char *cwd = ".";
+  dict_T *env = NULL;
+  const bool pty = true;
+  bool clear_env = false;
+  dictitem_T *job_env = NULL;
+
   if (argvars[1].v_type == VAR_DICT) {
     job_opts = argvars[1].vval.v_dict;
 
@@ -10517,18 +10629,31 @@ static void f_termopen(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       }
     }
 
+    job_env = tv_dict_find(job_opts, S_LEN("env"));
+    if (job_env && job_env->di_tv.v_type != VAR_DICT) {
+      EMSG2(_(e_invarg2), "env");
+      shell_free_argv(argv);
+      return;
+    }
+
+    clear_env = tv_dict_get_number(job_opts, "clear_env") != 0;
+
     if (!common_job_callbacks(job_opts, &on_stdout, &on_stderr, &on_exit)) {
       shell_free_argv(argv);
       return;
     }
   }
 
+  env = create_environment(job_env, clear_env, pty, "xterm-256color");
+
+  const bool rpc = false;
+  const bool overlapped = false;
+  const bool detach = false;
   uint16_t term_width = MAX(0, curwin->w_width_inner - win_col_off(curwin));
   Channel *chan = channel_job_start(argv, on_stdout, on_stderr, on_exit,
-                                    true, false, false, false, cwd,
+                                    pty, rpc, overlapped, detach, cwd,
                                     term_width, curwin->w_height_inner,
-                                    xstrdup("xterm-256color"), NULL,
-                                    &rettv->vval.v_number);
+                                    env, &rettv->vval.v_number);
   if (rettv->vval.v_number <= 0) {
     return;
   }
@@ -10859,7 +10984,7 @@ static void f_trim(typval_T *argvars, typval_T *rettv, FunPtr fptr)
       }
     }
   }
-  rettv->vval.v_string = vim_strnsave(head, (int)(tail - head));
+  rettv->vval.v_string = vim_strnsave(head, tail - head);
 }
 
 /*

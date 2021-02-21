@@ -2313,6 +2313,7 @@ return {
       deny_duplicates=true,
       vi_def=true,
       secure=true,
+      expand=true,
       varname='p_shadafile',
       defaults={if_true={vi=""}}
     },
@@ -2818,6 +2819,14 @@ return {
       redraw={'ui_option'},
       varname='p_tgc',
       defaults={if_true={vi=false}}
+    },
+    {
+      full_name='termpastefilter', abbreviation='tpf',
+      type='string', list='onecomma', scope={'global'},
+      deny_duplicates=true,
+      vim=true,
+      varname='p_tpf',
+      defaults={if_true={vi="", vim="BS,HT,ESC,DEL"}}
     },
     {
       full_name='terse',

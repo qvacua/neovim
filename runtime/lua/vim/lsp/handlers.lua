@@ -28,8 +28,9 @@ end
 -- Basically a token of type number/string
 local function progress_callback(_, _, params, client_id)
   local client = vim.lsp.get_client_by_id(client_id)
+  local client_name = client and client.name or string.format("id=%d", client_id)
   if not client then
-    err_message("LSP[", client_id, "] client has shut down after sending the message")
+    err_message("LSP[", client_name, "] client has shut down after sending the message")
   end
   local val = params.value    -- unspecified yet
   local token = params.token  -- string or number
@@ -43,14 +44,11 @@ local function progress_callback(_, _, params, client_id)
         percentage = val.percentage,
       }
     elseif val.kind == 'report' then
-      client.messages.progress[token] = {
-        message = val.message,
-        percentage = val.percentage,
-      }
+      client.messages.progress[token].message = val.message;
+      client.messages.progress[token].percentage = val.percentage;
     elseif val.kind == 'end' then
       if client.messages.progress[token] == nil then
-        err_message(
-          'echom "[lsp-status] Received `end` message with no corresponding `begin` from "')
+        err_message("LSP[", client_name, "] received `end` message with no corresponding `begin`")
       else
         client.messages.progress[token].message = val.message
         client.messages.progress[token].done = true
@@ -63,7 +61,53 @@ local function progress_callback(_, _, params, client_id)
   vim.api.nvim_command("doautocmd <nomodeline> User LspProgressUpdate")
 end
 
+--@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#progress
 M['$/progress'] = progress_callback
+
+--@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#window_workDoneProgress_create
+M['window/workDoneProgress/create'] =  function(_, _, params, client_id)
+  local client = vim.lsp.get_client_by_id(client_id)
+  local token = params.token  -- string or number
+  local client_name = client and client.name or string.format("id=%d", client_id)
+  if not client then
+    err_message("LSP[", client_name, "] client has shut down after sending the message")
+  end
+  client.messages.progress[token] = {}
+  return vim.NIL
+end
+
+--@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#window_showMessageRequest
+M['window/showMessageRequest'] = function(_, _, params)
+
+  local actions = params.actions
+  print(params.message)
+  local option_strings = {params.message, "\nRequest Actions:"}
+  for i, action in ipairs(actions) do
+    local title = action.title:gsub('\r\n', '\\r\\n')
+    title = title:gsub('\n', '\\n')
+    table.insert(option_strings, string.format("%d. %s", i, title))
+  end
+
+  -- window/showMessageRequest can return either MessageActionItem[] or null.
+  local choice = vim.fn.inputlist(option_strings)
+  if choice < 1 or choice > #actions then
+      return vim.NIL
+  else
+    return actions[choice]
+  end
+end
+
+--@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#client_registerCapability
+M['client/registerCapability'] = function(_, _, _, client_id)
+  local warning_tpl = "The language server %s triggers a registerCapability "..
+                      "handler despite dynamicRegistration set to false. "..
+                      "Report upstream, this warning is harmless"
+  local client = vim.lsp.get_client_by_id(client_id)
+  local client_name = client and client.name or string.format("id=%d", client_id)
+  local warning = string.format(warning_tpl, client_name)
+  log.warn(warning)
+  return vim.NIL
+end
 
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_codeAction
 M['textDocument/codeAction'] = function(_, _, actions)
@@ -111,6 +155,32 @@ M['workspace/applyEdit'] = function(_, _, workspace_edit)
     applied = status;
     failureReason = result;
   }
+end
+
+--@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_configuration
+M['workspace/configuration'] = function(err, _, params, client_id)
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    err_message("LSP[id=", client_id, "] client has shut down after sending the message")
+    return
+  end
+  if err then error(vim.inspect(err)) end
+  if not params.items then
+    return {}
+  end
+
+  local result = {}
+  for _, item in ipairs(params.items) do
+    if item.section then
+      local value = util.lookup_section(client.config.settings, item.section) or vim.NIL
+      -- For empty sections with no explicit '' key, return settings as is
+      if value == vim.NIL and item.section == '' then
+        value = client.config.settings or vim.NIL
+      end
+      table.insert(result, value)
+    end
+  end
+  return result
 end
 
 M['textDocument/publishDiagnostics'] = function(...)
@@ -253,9 +323,8 @@ M['textDocument/signatureHelp'] = function(_, method, result)
 end
 
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_documentHighlight
-M['textDocument/documentHighlight'] = function(_, _, result, _)
+M['textDocument/documentHighlight'] = function(_, _, result, _, bufnr, _)
   if not result then return end
-  local bufnr = api.nvim_get_current_buf()
   util.buf_highlight_references(bufnr, result)
 end
 

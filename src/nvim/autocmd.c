@@ -544,7 +544,7 @@ char_u *au_event_disable(char *what)
   } else {
     STRCAT(new_ei, what);
   }
-  set_string_option_direct((char_u *)"ei", -1, new_ei, OPT_FREE, SID_NONE);
+  set_string_option_direct("ei", -1, new_ei, OPT_FREE, SID_NONE);
   xfree(new_ei);
 
   return save_ei;
@@ -553,7 +553,7 @@ char_u *au_event_disable(char *what)
 void au_event_restore(char_u *old_ei)
 {
   if (old_ei != NULL) {
-    set_string_option_direct((char_u *)"ei", -1, old_ei, OPT_FREE, SID_NONE);
+    set_string_option_direct("ei", -1, old_ei, OPT_FREE, SID_NONE);
     xfree(old_ei);
   }
 }
@@ -700,11 +700,15 @@ void do_autocmd(char_u *arg_in, int forceit)
   last_event = (event_T)-1;    // for listing the event name
   last_group = AUGROUP_ERROR;  // for listing the group name
   if (*arg == '*' || *arg == NUL || *arg == '|') {
-    for (event_T event = (event_T)0; event < (int)NUM_EVENTS;
-         event = (event_T)(event + 1)) {
-      if (do_autocmd_event(event, pat, once, nested, cmd, forceit, group)
-          == FAIL) {
-        break;
+    if (!forceit && *cmd != NUL) {
+      EMSG(_(e_cannot_define_autocommands_for_all_events));
+    } else {
+      for (event_T event = (event_T)0; event < (int)NUM_EVENTS;
+           event = (event_T)(event + 1)) {
+        if (do_autocmd_event(event, pat, once, nested, cmd, forceit, group)
+            == FAIL) {
+          break;
+        }
       }
     }
   } else {

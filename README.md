@@ -5,7 +5,6 @@
 [Twitter](https://twitter.com/Neovim)
 
 [![GitHub CI](https://github.com/neovim/neovim/workflows/CI/badge.svg)](https://github.com/neovim/neovim/actions?query=workflow%3A%22CI%22)
-[![AppVeyor build status](https://ci.appveyor.com/api/projects/status/urdqjrik5u521fac/branch/master?svg=true)](https://ci.appveyor.com/project/neovim/neovim/branch/master)
 [![Codecov coverage](https://img.shields.io/codecov/c/github/neovim/neovim.svg)](https://codecov.io/gh/neovim/neovim)
 [![Coverity Scan analysis](https://scan.coverity.com/projects/2227/badge.svg)](https://scan.coverity.com/projects/2227)
 [![Clang analysis](https://neovim.io/doc/reports/clang/badge.svg)](https://neovim.io/doc/reports/clang)
@@ -47,7 +46,7 @@ Install from package
 Pre-built packages for Windows, macOS, and Linux are found on the
 [Releases](https://github.com/neovim/neovim/releases/) page.
 
-[Managed packages] are in Homebrew, [Debian], [Ubuntu], [Fedora], [Arch Linux],
+[Managed packages] are in [Homebrew], [Debian], [Ubuntu], [Fedora], [Arch Linux],
 [Gentoo], and more!
 
 Install from source
@@ -138,5 +137,6 @@ Apache 2.0 license, except for contributions copied from Vim (identified by the
 [Fedora]: https://apps.fedoraproject.org/packages/neovim
 [Arch Linux]: https://www.archlinux.org/packages/?q=neovim
 [Gentoo]: https://packages.gentoo.org/packages/app-editors/neovim
+[Homebrew]: https://formulae.brew.sh/formula/neovim
 
 <!-- vim: set tw=80: -->

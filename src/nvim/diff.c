@@ -58,6 +58,7 @@ static bool diff_need_update = false;  // ex_diffupdate needs to be called
 #define DIFF_HIDDEN_OFF 0x100   // diffoff when hidden
 #define DIFF_INTERNAL   0x200   // use internal xdiff algorithm
 #define DIFF_CLOSE_OFF  0x400   // diffoff when closing window
+#define DIFF_FOLLOWWRAP 0x800   // follow the wrap option
 #define ALL_WHITE_DIFF (DIFF_IWHITE | DIFF_IWHITEALL | DIFF_IWHITEEOL)
 static int diff_flags = DIFF_INTERNAL | DIFF_FILLER | DIFF_CLOSE_OFF;
 
@@ -805,7 +806,7 @@ static void diff_try_update(diffio_T    *dio,
     for (idx_new = idx_orig; idx_new < DB_COUNT; idx_new++) {
       buf = curtab->tp_diffbuf[idx_new];
       if (buf_valid(buf)) {
-        buf_check_timestamp(buf, false);
+        buf_check_timestamp(buf);
       }
     }
   }
@@ -1225,8 +1226,7 @@ void ex_diffpatch(exarg_T *eap)
     EMSG(_("E816: Cannot read patch output"));
   } else {
     if (curbuf->b_fname != NULL) {
-      newname = vim_strnsave(curbuf->b_fname,
-                             (int)(STRLEN(curbuf->b_fname) + 4));
+      newname = vim_strnsave(curbuf->b_fname, STRLEN(curbuf->b_fname) + 4);
       STRCAT(newname, ".new");
     }
 
@@ -1362,11 +1362,12 @@ void diff_win_options(win_T *wp, int addbuf)
     wp->w_p_crb_save = wp->w_p_crb;
   }
   wp->w_p_crb = true;
-
-  if (!wp->w_p_diff) {
-    wp->w_p_wrap_save = wp->w_p_wrap;
+  if (!(diff_flags & DIFF_FOLLOWWRAP)) {
+    if (!wp->w_p_diff) {
+      wp->w_p_wrap_save = wp->w_p_wrap;
+    }
+    wp->w_p_wrap = false;
   }
-  wp->w_p_wrap = false;
   curwin = wp;  // -V519
   curbuf = curwin->w_buffer;
 
@@ -1376,7 +1377,7 @@ void diff_win_options(win_T *wp, int addbuf)
     }
     wp->w_p_fdm_save = vim_strsave(wp->w_p_fdm);
   }
-  set_string_option_direct((char_u *)"fdm", -1, (char_u *)"diff",
+  set_string_option_direct("fdm", -1, (char_u *)"diff",
                            OPT_LOCAL | OPT_FREE, 0);
   curwin = old_curwin;
   curbuf = curwin->w_buffer;
@@ -1438,11 +1439,11 @@ void ex_diffoff(exarg_T *eap)
         if (wp->w_p_crb) {
           wp->w_p_crb = wp->w_p_crb_save;
         }
-
-        if (!wp->w_p_wrap) {
-          wp->w_p_wrap = wp->w_p_wrap_save;
+        if (!(diff_flags & DIFF_FOLLOWWRAP)) {
+          if (!wp->w_p_wrap) {
+            wp->w_p_wrap = wp->w_p_wrap_save;
+          }
         }
-
         free_string_option(wp->w_p_fdm);
         wp->w_p_fdm = vim_strsave(*wp->w_p_fdm_save
                                   ? wp->w_p_fdm_save
@@ -2159,6 +2160,9 @@ int diffopt_changed(void)
     } else if (STRNCMP(p, "closeoff", 8) == 0) {
       p += 8;
       diff_flags_new |= DIFF_CLOSE_OFF;
+    } else if (STRNCMP(p, "followwrap", 10) == 0) {
+      p += 10;
+      diff_flags_new |= DIFF_FOLLOWWRAP;
     } else if (STRNCMP(p, "indent-heuristic", 16) == 0) {
       p += 16;
       diff_indent_heuristic = XDF_INDENT_HEURISTIC;

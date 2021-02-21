@@ -139,9 +139,8 @@ EXTERN int mod_mask INIT(= 0x0);  // current key modifiers
 EXTERN int cmdline_row;
 
 EXTERN int redraw_cmdline INIT(= false);          // cmdline must be redrawn
-EXTERN bool redraw_mode INIT(= false);            // mode must be redrawn
 EXTERN int clear_cmdline INIT(= false);           // cmdline must be cleared
-EXTERN bool mode_displayed INIT(= false);         // mode is being displayed
+EXTERN int mode_displayed INIT(= false);          // mode is being displayed
 EXTERN int cmdline_star INIT(= false);            // cmdline is crypted
 EXTERN int redrawing_cmdline INIT(= false);       // cmdline is being redrawn
 EXTERN int cmdline_was_last_drawn INIT(= false);  // cmdline was last drawn
@@ -200,7 +199,7 @@ EXTERN int keep_msg_attr INIT(= 0);         // highlight attr for keep_msg
 EXTERN int keep_msg_more INIT(= false);     // keep_msg was set by msgmore()
 EXTERN int need_fileinfo INIT(= false);     // do fileinfo() after redraw
 EXTERN int msg_scroll INIT(= false);        // msg_start() will scroll
-EXTERN bool msg_didout INIT(= false);       // msg_outstr() was used in line
+EXTERN int msg_didout INIT(= false);        // msg_outstr() was used in line
 EXTERN int msg_didany INIT(= false);        // msg_outstr() was used at all
 EXTERN int msg_nowait INIT(= false);        // don't wait for this msg
 EXTERN int emsg_off INIT(= 0);              // don't display errors for now,
@@ -216,6 +215,8 @@ EXTERN bool emsg_severe INIT(= false);      // use message of next of several
 EXTERN int did_endif INIT(= false);         // just had ":endif"
 EXTERN dict_T vimvardict;                   // Dictionary with v: variables
 EXTERN dict_T globvardict;                  // Dictionary with g: variables
+/// g: value
+#define globvarht globvardict.dv_hashtab
 EXTERN int did_emsg;                        // set by emsg() when the message
                                             // is displayed or thrown
 EXTERN bool called_vim_beep;                // set if vim_beep() is called
@@ -865,7 +866,6 @@ EXTERN char_u e_failed[] INIT(= N_("E472: Command failed"));
 EXTERN char_u e_internal[] INIT(= N_("E473: Internal error"));
 EXTERN char_u e_intern2[] INIT(= N_("E685: Internal error: %s"));
 EXTERN char_u e_interr[] INIT(= N_("Interrupted"));
-EXTERN char_u e_invaddr[] INIT(= N_("E14: Invalid address"));
 EXTERN char_u e_invarg[] INIT(= N_("E474: Invalid argument"));
 EXTERN char_u e_invarg2[] INIT(= N_("E475: Invalid argument: %s"));
 EXTERN char_u e_invargval[] INIT(= N_("E475: Invalid value for argument %s"));
@@ -1009,6 +1009,8 @@ EXTERN char_u e_floatonly[] INIT(=N_(
 EXTERN char_u e_floatexchange[] INIT(=N_(
     "E5602: Cannot exchange or rotate float"));
 
+EXTERN char e_cannot_define_autocommands_for_all_events[] INIT(= N_(
+    "E1155: Cannot define autocommands for ALL events"));
 
 EXTERN char top_bot_msg[] INIT(= N_("search hit TOP, continuing at BOTTOM"));
 EXTERN char bot_top_msg[] INIT(= N_("search hit BOTTOM, continuing at TOP"));

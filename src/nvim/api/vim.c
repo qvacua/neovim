@@ -546,6 +546,26 @@ Object nvim_exec_lua(String code, Array args, Error *err)
   return nlua_exec(code, args, err);
 }
 
+/// Notify the user with a message
+///
+/// Relays the call to vim.notify . By default forwards your message in the
+/// echo area but can be overriden to trigger desktop notifications.
+///
+/// @param msg        Message to display to the user
+/// @param log_level  The log level
+/// @param opts       Reserved for future use.
+/// @param[out] err   Error details, if any
+Object nvim_notify(String msg, Integer log_level, Dictionary opts, Error *err)
+  FUNC_API_SINCE(7)
+{
+  FIXED_TEMP_ARRAY(args, 3);
+  args.items[0] = STRING_OBJ(msg);
+  args.items[1] = INTEGER_OBJ(log_level);
+  args.items[2] = DICTIONARY_OBJ(opts);
+
+  return nlua_exec(STATIC_CSTR_AS_STRING("return vim.notify(...)"), args, err);
+}
+
 /// Calls a VimL function.
 ///
 /// @param fn Function name
@@ -989,6 +1009,48 @@ void nvim_set_option(uint64_t channel_id, String name, Object value, Error *err)
   FUNC_API_SINCE(1)
 {
   set_option_to(channel_id, NULL, SREQ_GLOBAL, name, value, err);
+}
+
+/// Echo a message.
+///
+/// @param chunks  A list of [text, hl_group] arrays, each representing a
+///                text chunk with specified highlight. `hl_group` element
+///                can be omitted for no highlight.
+/// @param history  if true, add to |message-history|.
+/// @param opts  Optional parameters. Reserved for future use.
+void nvim_echo(Array chunks, Boolean history, Dictionary opts, Error *err)
+  FUNC_API_SINCE(7)
+{
+  HlMessage hl_msg = parse_hl_msg(chunks, err);
+  if (ERROR_SET(err)) {
+    goto error;
+  }
+
+  if (opts.size > 0) {
+    api_set_error(err, kErrorTypeValidation, "opts dict isn't empty");
+    goto error;
+  }
+
+  no_wait_return++;
+  msg_start();
+  msg_clr_eos();
+  bool need_clear = false;
+  for (uint32_t i = 0; i < kv_size(hl_msg); i++) {
+    HlMessageChunk chunk = kv_A(hl_msg, i);
+    msg_multiline_attr((const char *)chunk.text.data, chunk.attr,
+                       false, &need_clear);
+  }
+  if (history) {
+    msg_ext_set_kind("echomsg");
+    add_hl_msg_hist(hl_msg);
+  } else {
+    msg_ext_set_kind("echo");
+  }
+  no_wait_return--;
+  msg_end();
+
+error:
+  clear_hl_msg(&hl_msg);
 }
 
 /// Writes a message to the Vim output buffer. Does not append "\n", the

@@ -30,7 +30,7 @@ jobs:
       - name: Build release
         id: build
         run: |
-          make CMAKE_BUILD_TYPE=RelWithDebinfo CMAKE_EXTRA_FLAGS="-DCMAKE_INSTALL_PREFIX:PATH="
+          make CMAKE_BUILD_TYPE=RelWithDebInfo CMAKE_EXTRA_FLAGS="-DCMAKE_INSTALL_PREFIX:PATH="
           printf '::set-output name=version::%s\n' "$(./build/bin/nvim --version | head -n 3 | sed -z 's/\n/%0A/g')"
           printf '::set-output name=release::%s\n' "$(./build/bin/nvim --version | head -n 1)"
           make DESTDIR="$GITHUB_WORKSPACE/build/release/nvim-linux64" install
@@ -76,7 +76,9 @@ jobs:
       - name: Install brew packages
         run: |
           rm -f /usr/local/bin/2to3
+          brew unlink gcc@8 gcc@9
           brew update >/dev/null
+          brew upgrade
           brew install automake ninja
       - name: Build release
         run: |
@@ -105,8 +107,35 @@ jobs:
           path: build/release/nvim-macos.tar.gz
           retention-days: 1
 
+  windows:
+    runs-on: windows-2016
+    env:
+      DEPS_BUILD_DIR: "C:/projects/nvim-deps"
+      DEPS_PREFIX: "C:/projects/nvim-deps/usr"
+    strategy:
+      matrix:
+        include:
+          - config: MSVC_64
+            archive: nvim-win64
+          - config: MSVC_32
+            archive: nvim-win32
+    name: windows (${{ matrix.config }})
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: powershell ci\build.ps1 -NoTests
+        env:
+          CONFIGURATION: ${{ matrix.config }}
+      - run: move build\Neovim.zip build\${{ matrix.archive }}.zip
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.archive }}
+          path: build/${{ matrix.archive }}.zip
+          retention-days: 1
+
   publish:
-    needs: [linux, appimage, macOS]
+    needs: [linux, appimage, macOS, windows]
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/download-artifact@v2
@@ -127,7 +156,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          delete_release: false
+          delete_release: ''
           tag_name: nightly
       - uses: meeDamian/github-release@2.0
         with:
@@ -143,6 +172,8 @@ jobs:
             nvim-linux64.tar.gz:./nvim-linux64/nvim-linux64.tar.gz
             nvim.appimage:./appimage/nvim.appimage
             nvim.appimage.zsync:./appimage/nvim.appimage.zsync
+            nvim-win32.zip:./nvim-win32/nvim-win32.zip
+            nvim-win64.zip:./nvim-win64/nvim-win64.zip
           body: |
             ${{ env.SUBJECT }}
             ```

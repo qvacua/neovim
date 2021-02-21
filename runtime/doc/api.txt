@@ -376,7 +376,7 @@ on writing and loading a buffer to file, nor in undo/redo cycles.
 Highlights are registered using the |nvim_buf_add_highlight()| function. If an
 external highlighter plugin wants to add many highlights in a batch,
 performance can be improved by calling |nvim_buf_add_highlight()| as an
-asynchronous notification, after first (synchronously) reqesting a source id.
+asynchronous notification, after first (synchronously) requesting a source id.
 
 Example using the Python API client (|pynvim|):
 >
@@ -662,6 +662,17 @@ nvim_del_var({name})                                          *nvim_del_var()*
 
                 Parameters: ~
                     {name}  Variable name
+
+nvim_echo({chunks}, {history}, {opts})                           *nvim_echo()*
+                Echo a message.
+
+                Parameters: ~
+                    {chunks}   A list of [text, hl_group] arrays, each
+                               representing a text chunk with specified
+                               highlight. `hl_group` element can be omitted
+                               for no highlight.
+                    {history}  if true, add to |message-history|.
+                    {opts}     Optional parameters. Reserved for future use.
 
 nvim_err_write({str})                                       *nvim_err_write()*
                 Writes a message to the Vim error buffer. Does not append
@@ -1136,6 +1147,18 @@ nvim_load_context({dict})                                *nvim_load_context()*
 
                 Parameters: ~
                     {dict}  |Context| map.
+
+nvim_notify({msg}, {log_level}, {opts})                        *nvim_notify()*
+                Notify the user with a message
+
+                Relays the call to vim.notify . By default forwards your
+                message in the echo area but can be overriden to trigger
+                desktop notifications.
+
+                Parameters: ~
+                    {msg}        Message to display to the user
+                    {log_level}  The log level
+                    {opts}       Reserved for future use.
 
 nvim_open_win({buffer}, {enter}, {config})                   *nvim_open_win()*
                 Open a new window.
@@ -1789,6 +1812,25 @@ nvim_buf_attach({buffer}, {send_buffer}, {opts})           *nvim_buf_attach()*
                                      • deleted_codeunits (if `utf_sizes` is
                                        true)
 
+                                   • on_bytes: lua callback invoked on change.
+                                     This callback receives more granular
+                                     information about the change compared to
+                                     on_lines. Return`true`to detach. Args:
+                                     • the string "bytes"
+                                     • buffer handle
+                                     • b:changedtick
+                                     • start row of the changed text
+                                       (zero-indexed)
+                                     • start column of the changed text
+                                     • byte offset of the changed text (from
+                                       the start of the buffer)
+                                     • old end row of the changed text
+                                     • old end column of the changed text
+                                     • old end byte length of the changed text
+                                     • new end row of the changed text
+                                     • new end column of the changed text
+                                     • new end byte length of the changed text
+
                                    • on_changedtick: Lua callback invoked on
                                      changedtick increment without text
                                      change. Args:
@@ -1801,9 +1843,17 @@ nvim_buf_attach({buffer}, {send_buffer}, {opts})           *nvim_buf_attach()*
                                      • the string "detach"
                                      • buffer handle
 
+                                   • on_reload: Lua callback invoked on
+                                     reload. The entire buffer content should
+                                     be considered changed. Args:
+                                     • the string "detach"
+                                     • buffer handle
+
                                    • utf_sizes: include UTF-32 and UTF-16 size
                                      of the replaced region, as args to
                                      `on_lines` .
+                                   • preview: also attach to command preview
+                                     (i.e. 'inccommand') events.
 
                 Return: ~
                     False if attach failed (invalid parameter, or buffer isn't
@@ -1935,8 +1985,7 @@ nvim_buf_get_extmark_by_id({buffer}, {ns_id}, {id}, {opts})
                     {ns_id}   Namespace id from |nvim_create_namespace()|
                     {id}      Extmark id
                     {opts}    Optional parameters. Keys:
-                              • limit: Maximum number of marks to return
-                              • details Whether to include the details dict
+                              • details: Whether to include the details dict
 
                 Return: ~
                     (row, col) tuple or empty list () if extmark id was absent
@@ -2151,6 +2200,15 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {opts})
                                 mark will only be used for the current redraw
                                 cycle, and not be permantently stored in the
                                 buffer.
+                              • right_gravity : boolean that indicates the
+                                direction the extmark will be shifted in when
+                                new text is inserted (true for right, false
+                                for left). defaults to true.
+                              • end_right_gravity : boolean that indicates the
+                                direction the extmark end position (if it
+                                exists) will be shifted in when new text is
+                                inserted (true for right, false for left).
+                                Defaults to false.
 
                 Return: ~
                     Id of the created/updated extmark
@@ -2207,6 +2265,32 @@ nvim_buf_set_option({buffer}, {name}, {value})         *nvim_buf_set_option()*
                     {buffer}  Buffer handle, or 0 for current buffer
                     {name}    Option name
                     {value}   Option value
+
+                                                         *nvim_buf_set_text()*
+nvim_buf_set_text({buffer}, {start_row}, {start_col}, {end_row}, {end_col},
+                  {replacement})
+                Sets (replaces) a range in the buffer
+
+                This is recommended over nvim_buf_set_lines when only
+                modifying parts of a line, as extmarks will be preserved on
+                non-modified parts of the touched lines.
+
+                Indexing is zero-based and end-exclusive.
+
+                To insert text at a given index, set `start` and `end` ranges
+                to the same index. To delete a range, set `replacement` to an
+                array containing an empty string, or simply an empty array.
+
+                Prefer nvim_buf_set_lines when adding or deleting entire lines
+                only.
+
+                Parameters: ~
+                    {buffer}        Buffer handle, or 0 for current buffer
+                    {start_row}     First line index
+                    {start_column}  Last column
+                    {end_row}       Last line index
+                    {end_column}    Last column
+                    {replacement}   Array of lines to use as replacement
 
 nvim_buf_set_var({buffer}, {name}, {value})               *nvim_buf_set_var()*
                 Sets a buffer-scoped (b:) variable

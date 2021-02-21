@@ -890,6 +890,40 @@ char_u *msg_may_trunc(int force, char_u *s)
   return s;
 }
 
+void clear_hl_msg(HlMessage *hl_msg)
+{
+  for (size_t i = 0; i < kv_size(*hl_msg); i++) {
+    xfree(kv_A(*hl_msg, i).text.data);
+  }
+  kv_destroy(*hl_msg);
+  *hl_msg = (HlMessage)KV_INITIAL_VALUE;
+}
+
+#define LINE_BUFFER_SIZE 4096
+
+void add_hl_msg_hist(HlMessage hl_msg)
+{
+  // TODO(notomo): support multi highlighted message history
+  size_t pos = 0;
+  char buf[LINE_BUFFER_SIZE];
+  for (uint32_t i = 0; i < kv_size(hl_msg); i++) {
+    HlMessageChunk chunk = kv_A(hl_msg, i);
+    for (uint32_t j = 0; j < chunk.text.size; j++) {
+      if (pos == LINE_BUFFER_SIZE - 1) {
+        buf[pos] = NUL;
+        add_msg_hist((const char *)buf, -1, MSG_HIST, true);
+        pos = 0;
+        continue;
+      }
+      buf[pos++] = chunk.text.data[j];
+    }
+  }
+  if (pos != 0) {
+    buf[pos] = NUL;
+    add_msg_hist((const char *)buf, -1, MSG_HIST, true);
+  }
+}
+
 /// @param[in]  len  Length of s or -1.
 static void add_msg_hist(const char *s, int len, int attr, bool multiline)
 {
@@ -1128,11 +1162,11 @@ void wait_return(int redraw)
       if (p_more) {
         if (c == 'b' || c == 'k' || c == 'u' || c == 'g'
             || c == K_UP || c == K_PAGEUP) {
-          if (msg_scrolled > Rows) {
-            // scroll back to show older messages
+          if (msg_scrolled > Rows)
+            /* scroll back to show older messages */
             do_more_prompt(c);
-          } else {
-            msg_didout = false;
+          else {
+            msg_didout = FALSE;
             c = K_IGNORE;
             msg_col =
               cmdmsg_rl ? Columns - 1 :
@@ -1157,15 +1191,7 @@ void wait_return(int redraw)
              || c == K_MIDDLEDRAG || c == K_MIDDLERELEASE
              || c == K_RIGHTDRAG  || c == K_RIGHTRELEASE
              || c == K_MOUSELEFT  || c == K_MOUSERIGHT
-             || c == K_MOUSEDOWN  || c == K_MOUSEUP
-             || (!mouse_has(MOUSE_RETURN)
-                 && mouse_row < msg_row
-                 && (c == K_LEFTMOUSE
-                     || c == K_MIDDLEMOUSE
-                     || c == K_RIGHTMOUSE
-                     || c == K_X1MOUSE
-                     || c == K_X2MOUSE))
-             );
+             || c == K_MOUSEDOWN  || c == K_MOUSEUP);
     os_breakcheck();
     /*
      * Avoid that the mouse-up event causes visual mode to start.
@@ -2097,17 +2123,15 @@ static void msg_puts_display(const char_u *str, int maxlen, int attr,
       store_sb_text((char_u **)&sb_str, (char_u *)s, attr, &sb_col, true);
     }
 
-    if (*s == '\n') {             // go to next line
-      msg_didout = false;         // remember that line is empty
-      if (cmdmsg_rl) {
+    if (*s == '\n') {               /* go to next line */
+      msg_didout = FALSE;           /* remember that line is empty */
+      if (cmdmsg_rl)
         msg_col = Columns - 1;
-      } else {
+      else
         msg_col = 0;
-      }
-      if (++msg_row >= Rows) {    // safety check
+      if (++msg_row >= Rows)        /* safety check */
         msg_row = Rows - 1;
-      }
-    } else if (*s == '\r') {      // go to column 0
+    } else if (*s == '\r') {      /* go to column 0 */
       msg_col = 0;
     } else if (*s == '\b') {      /* go to previous char */
       if (msg_col)
@@ -2880,10 +2904,10 @@ void repeat_message(void)
     ui_cursor_goto(msg_row, msg_col);     /* put cursor back */
   } else if (State == HITRETURN || State == SETWSIZE) {
     if (msg_row == Rows - 1) {
-      // Avoid drawing the "hit-enter" prompt below the previous one,
-      // overwrite it.  Esp. useful when regaining focus and a
-      // FocusGained autocmd exists but didn't draw anything.
-      msg_didout = false;
+      /* Avoid drawing the "hit-enter" prompt below the previous one,
+       * overwrite it.  Esp. useful when regaining focus and a
+       * FocusGained autocmd exists but didn't draw anything. */
+      msg_didout = FALSE;
       msg_col = 0;
       msg_clr_eos();
     }

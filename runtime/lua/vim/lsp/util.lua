@@ -211,7 +211,7 @@ function M.apply_text_edits(text_edits, bufnr)
   local lines = api.nvim_buf_get_lines(bufnr, start_line, finish_line + 1, false)
   local fix_eol = api.nvim_buf_get_option(bufnr, 'fixeol')
   local set_eol = fix_eol and api.nvim_buf_line_count(bufnr) <= finish_line + 1
-  if set_eol and #lines[#lines] ~= 0 then
+  if set_eol and (#lines == 0 or #lines[#lines] ~= 0) then
     table.insert(lines, '')
   end
 
@@ -254,19 +254,27 @@ function M.extract_completion_items(result)
 end
 
 --- Applies a `TextDocumentEdit`, which is a list of changes to a single
--- document.
+--- document.
 ---
---@param text_document_edit (table) a `TextDocumentEdit` object
---@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentEdit
-function M.apply_text_document_edit(text_document_edit)
+---@param text_document_edit table: a `TextDocumentEdit` object
+---@param index number: Optional index of the edit, if from a list of edits (or nil, if not from a list)
+---@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentEdit
+function M.apply_text_document_edit(text_document_edit, index)
   local text_document = text_document_edit.textDocument
   local bufnr = vim.uri_to_bufnr(text_document.uri)
 
+  -- For lists of text document edits,
+  -- do not check the version after the first edit.
+  local should_check_version = true
+  if index and index > 1 then
+    should_check_version = false
+  end
+
   -- `VersionedTextDocumentIdentifier`s version may be null
   --  https://microsoft.github.io/language-server-protocol/specification#versionedTextDocumentIdentifier
-  if text_document.version
+  if should_check_version and (text_document.version
       and M.buf_versions[bufnr]
-      and M.buf_versions[bufnr] > text_document.version then
+      and M.buf_versions[bufnr] > text_document.version) then
     print("Buffer ", text_document.uri, " newer than edits.")
     return
   end
@@ -459,12 +467,12 @@ end
 -- @see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_applyEdit
 function M.apply_workspace_edit(workspace_edit)
   if workspace_edit.documentChanges then
-    for _, change in ipairs(workspace_edit.documentChanges) do
+    for idx, change in ipairs(workspace_edit.documentChanges) do
       if change.kind then
         -- TODO(ashkan) handle CreateFile/RenameFile/DeleteFile
         error(string.format("Unsupported change: %q", vim.inspect(change)))
       else
-        M.apply_text_document_edit(change)
+        M.apply_text_document_edit(change, idx)
       end
     end
     return
@@ -718,7 +726,7 @@ function M.focusable_float(unique_name, fn)
   local bufnr = api.nvim_get_current_buf()
   do
     local win = find_window_by_var(unique_name, bufnr)
-    if win and api.nvim_win_is_valid(win) and not vim.fn.pumvisible() then
+    if win and api.nvim_win_is_valid(win) and vim.fn.pumvisible() == 0 then
       api.nvim_set_current_win(win)
       api.nvim_command("stopinsert")
       return
@@ -1420,6 +1428,21 @@ function M.character_offset(buf, row, col)
     return str_utfindex(line)
   end
   return str_utfindex(line, col)
+end
+
+--- Helper function to return nested values in language server settings
+---
+--@param settings a table of language server settings
+--@param section  a string indicating the field of the settings table
+--@returns (table or string) The value of settings accessed via section
+function M.lookup_section(settings, section)
+  for part in vim.gsplit(section, '.', true) do
+    settings = settings[part]
+    if not settings then
+      return
+    end
+  end
+  return settings
 end
 
 M._get_line_byte_from_position = get_line_byte_from_position

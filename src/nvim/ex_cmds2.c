@@ -29,6 +29,7 @@
 #include "nvim/getchar.h"
 #include "nvim/mark.h"
 #include "nvim/mbyte.h"
+#include "nvim/memline.h"
 #include "nvim/message.h"
 #include "nvim/misc1.h"
 #include "nvim/garray.h"
@@ -1639,10 +1640,10 @@ int get_arglist_exp(char_u *str, int *fcountp, char_u ***fnamesp, bool wig)
 
   if (wig) {
     i = expand_wildcards(ga.ga_len, (char_u **)ga.ga_data,
-                         fcountp, fnamesp, EW_FILE|EW_NOTFOUND);
+                         fcountp, fnamesp, EW_FILE|EW_NOTFOUND|EW_NOTWILD);
   } else {
     i = gen_expand_wildcards(ga.ga_len, (char_u **)ga.ga_data,
-                             fcountp, fnamesp, EW_FILE|EW_NOTFOUND);
+                             fcountp, fnamesp, EW_FILE|EW_NOTFOUND|EW_NOTWILD);
   }
 
   ga_clear(&ga);
@@ -1657,9 +1658,11 @@ int get_arglist_exp(char_u *str, int *fcountp, char_u ***fnamesp, bool wig)
 ///         AL_DEL: remove files in 'str' from the argument list.
 /// @param after
 ///         0 means before first one
+/// @param will_edit  will edit added argument
 ///
 /// @return FAIL for failure, OK otherwise.
-static int do_arglist(char_u *str, int what, int after)
+static int do_arglist(char_u *str, int what, int after, bool will_edit)
+  FUNC_ATTR_NONNULL_ALL
 {
   garray_T new_ga;
   int exp_count;
@@ -1733,10 +1736,11 @@ static int do_arglist(char_u *str, int what, int after)
     }
 
     if (what == AL_ADD) {
-      (void)alist_add_list(exp_count, exp_files, after);
+      alist_add_list(exp_count, exp_files, after, will_edit);
       xfree(exp_files);
-    } else {  // what == AL_SET
-      alist_set(ALIST(curwin), exp_count, exp_files, false, NULL, 0);
+    } else {
+      assert(what == AL_SET);
+      alist_set(ALIST(curwin), exp_count, exp_files, will_edit, NULL, 0);
     }
   }
 
@@ -1956,7 +1960,7 @@ void ex_next(exarg_T *eap)
                         | (eap->forceit ? CCGD_FORCEIT : 0)
                         | CCGD_EXCMD)) {
     if (*eap->arg != NUL) {                 // redefine file list
-      if (do_arglist(eap->arg, AL_SET, 0) == FAIL) {
+      if (do_arglist(eap->arg, AL_SET, 0, true) == FAIL) {
         return;
       }
       i = 0;
@@ -1974,7 +1978,7 @@ void ex_argedit(exarg_T *eap)
   // Whether curbuf will be reused, curbuf->b_ffname will be set.
   bool curbuf_is_reusable = curbuf_reusable();
 
-  if (do_arglist(eap->arg, AL_ADD, i) == FAIL) {
+  if (do_arglist(eap->arg, AL_ADD, i, true) == FAIL) {
     return;
   }
   maketitle();
@@ -1994,7 +1998,8 @@ void ex_argedit(exarg_T *eap)
 void ex_argadd(exarg_T *eap)
 {
   do_arglist(eap->arg, AL_ADD,
-             eap->addr_count > 0 ? (int)eap->line2 : curwin->w_arg_idx + 1);
+             eap->addr_count > 0 ? (int)eap->line2 : curwin->w_arg_idx + 1,
+             false);
   maketitle();
 }
 
@@ -2041,7 +2046,7 @@ void ex_argdelete(exarg_T *eap)
       }
     }
   } else {
-    do_arglist(eap->arg, AL_DEL, 0);
+    do_arglist(eap->arg, AL_DEL, 0, false);
   }
   maketitle();
 }
@@ -2113,7 +2118,7 @@ void ex_listdo(exarg_T *eap)
       }
     } else if (eap->cmdidx == CMD_cdo || eap->cmdidx == CMD_ldo
                || eap->cmdidx == CMD_cfdo || eap->cmdidx == CMD_lfdo) {
-      qf_size = qf_get_size(eap);
+      qf_size = qf_get_valid_size(eap);
       assert(eap->line1 >= 0);
       if (qf_size == 0 || (size_t)eap->line1 > qf_size) {
         buf = NULL;
@@ -2292,9 +2297,9 @@ void ex_listdo(exarg_T *eap)
 /// Files[] itself is not taken over.
 ///
 /// @param after: where to add: 0 = before first one
-///
-/// @return index of first added argument
-static int alist_add_list(int count, char_u **files, int after)
+/// @param will_edit  will edit adding argument
+static void alist_add_list(int count, char_u **files, int after, bool will_edit)
+  FUNC_ATTR_NONNULL_ALL
 {
   int old_argcount = ARGCOUNT;
   ga_grow(&ALIST(curwin)->al_ga, count);
@@ -2310,15 +2315,15 @@ static int alist_add_list(int count, char_u **files, int after)
               (size_t)(ARGCOUNT - after) * sizeof(aentry_T));
     }
     for (int i = 0; i < count; i++) {
+      const int flags = BLN_LISTED | (will_edit ? BLN_CURBUF : 0);
       ARGLIST[after + i].ae_fname = files[i];
-      ARGLIST[after + i].ae_fnum = buflist_add(files[i],
-                                               BLN_LISTED | BLN_CURBUF);
+      ARGLIST[after + i].ae_fnum = buflist_add(files[i], flags);
     }
     ALIST(curwin)->al_ga.ga_len += count;
     if (old_argcount > 0 && curwin->w_arg_idx >= after) {
       curwin->w_arg_idx += count;
     }
-    return after;
+    return;
   }
 }
 
@@ -2375,13 +2380,13 @@ void ex_compiler(exarg_T *eap)
     // Set "b:current_compiler" from "current_compiler".
     p = get_var_value("g:current_compiler");
     if (p != NULL) {
-      set_internal_string_var((char_u *)"b:current_compiler", p);
+      set_internal_string_var("b:current_compiler", p);
     }
 
     // Restore "current_compiler" for ":compiler {name}".
     if (!eap->forceit) {
       if (old_cur_comp != NULL) {
-        set_internal_string_var((char_u *)"g:current_compiler",
+        set_internal_string_var("g:current_compiler",
                                 old_cur_comp);
         xfree(old_cur_comp);
       } else {
@@ -2522,7 +2527,7 @@ void ex_pyxdo(exarg_T *eap)
   }
 }
 
-/// ":source {fname}"
+/// ":source [{fname}]"
 void ex_source(exarg_T *eap)
 {
   cmd_source(eap->arg, eap);
@@ -2531,7 +2536,7 @@ void ex_source(exarg_T *eap)
 static void cmd_source(char_u *fname, exarg_T *eap)
 {
   if (*fname == NUL) {
-    EMSG(_(e_argreq));
+    cmd_source_buffer(eap);
   } else if (eap != NULL && eap->forceit) {
     // ":source!": read Normal mode commands
     // Need to execute the commands directly.  This is required at least
@@ -2547,6 +2552,37 @@ static void cmd_source(char_u *fname, exarg_T *eap)
   } else if (do_source(fname, false, DOSO_NONE) == FAIL) {
     EMSG2(_(e_notopen), fname);
   }
+}
+
+typedef struct {
+  linenr_T curr_lnum;
+  const linenr_T final_lnum;
+} GetBufferLineCookie;
+
+/// Get one line from the current selection in the buffer.
+/// Called by do_cmdline() when it's called from cmd_source_buffer().
+///
+/// @return pointer to allocated line, or NULL for end-of-file or
+///         some error.
+static char_u *get_buffer_line(int c, void *cookie, int indent, bool do_concat)
+{
+  GetBufferLineCookie *p = cookie;
+  if (p->curr_lnum > p->final_lnum) {
+    return NULL;
+  }
+  char_u *curr_line = ml_get(p->curr_lnum);
+  p->curr_lnum++;
+  return (char_u *)xstrdup((const char *)curr_line);
+}
+
+static void cmd_source_buffer(exarg_T *eap)
+{
+  GetBufferLineCookie cookie = {
+      .curr_lnum = eap->line1,
+      .final_lnum = eap->line2,
+  };
+  source_using_linegetter((void *)&cookie, get_buffer_line,
+                          ":source (no file)");
 }
 
 /// ":source" and associated commands.
@@ -2620,10 +2656,9 @@ static char_u *get_str_line(int c, void *cookie, int indent, bool do_concat)
   return (char_u *)xstrdup(buf);
 }
 
-/// Executes lines in `src` as Ex commands.
-///
-/// @see do_source()
-int do_source_str(const char *cmd, const char *traceback_name)
+static int source_using_linegetter(void *cookie,
+                                   LineGetter fgetline,
+                                   const char *traceback_name)
 {
   char_u *save_sourcing_name = sourcing_name;
   linenr_T save_sourcing_lnum = sourcing_lnum;
@@ -2638,20 +2673,31 @@ int do_source_str(const char *cmd, const char *traceback_name)
   }
   sourcing_lnum = 0;
 
-  GetStrLineCookie cookie = {
-    .buf = (char_u *)cmd,
-    .offset = 0,
-  };
   const sctx_T save_current_sctx = current_sctx;
   current_sctx.sc_sid = SID_STR;
   current_sctx.sc_seq = 0;
   current_sctx.sc_lnum = save_sourcing_lnum;
-  int retval = do_cmdline(NULL, get_str_line, (void *)&cookie,
+  funccal_entry_T entry;
+  save_funccal(&entry);
+  int retval = do_cmdline(NULL, fgetline, cookie,
                           DOCMD_VERBOSE | DOCMD_NOWAIT | DOCMD_REPEAT);
-  current_sctx = save_current_sctx;
   sourcing_lnum = save_sourcing_lnum;
   sourcing_name = save_sourcing_name;
+  current_sctx = save_current_sctx;
+  restore_funccal();
   return retval;
+}
+
+/// Executes lines in `src` as Ex commands.
+///
+/// @see do_source()
+int do_source_str(const char *cmd, const char *traceback_name)
+{
+  GetStrLineCookie cookie = {
+      .buf = (char_u *)cmd,
+      .offset = 0,
+  };
+  return source_using_linegetter((void *)&cookie, get_str_line, traceback_name);
 }
 
 /// Reads the file `fname` and executes its lines as Ex commands.
@@ -3392,7 +3438,7 @@ void ex_checktime(exarg_T *eap)
   } else {
     buf = buflist_findnr((int)eap->line2);
     if (buf != NULL) {           // cannot happen?
-      (void)buf_check_timestamp(buf, false);
+      (void)buf_check_timestamp(buf);
     }
   }
   no_check_timestamps = save_no_check_timestamps;
@@ -3766,7 +3812,7 @@ void ex_drop(exarg_T   *eap)
   // and mostly only one file is dropped.
   // This also ignores wildcards, since it is very unlikely the user is
   // editing a file name with a wildcard character.
-  do_arglist(eap->arg, AL_SET, 0);
+  do_arglist(eap->arg, AL_SET, 0, false);
 
   // Expanding wildcards may result in an empty argument list.  E.g. when
   // editing "foo.pyc" and ".pyc" is in 'wildignore'.  Assume that we
@@ -3790,6 +3836,14 @@ void ex_drop(exarg_T   *eap)
       if (wp->w_buffer == buf) {
         goto_tabpage_win(tp, wp);
         curwin->w_arg_idx = 0;
+        if (!bufIsChanged(curbuf)) {
+          const int save_ar = curbuf->b_p_ar;
+
+          // reload the file if it is newer
+          curbuf->b_p_ar = 1;
+          buf_check_timestamp(curbuf);
+          curbuf->b_p_ar = save_ar;
+        }
         return;
       }
     }

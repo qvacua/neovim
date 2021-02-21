@@ -629,6 +629,8 @@ void ex_sort(exarg_T *eap)
   if (sort_abort)
     goto sortend;
 
+  bcount_t old_count = 0, new_count = 0;
+
   // Insert the lines in the sorted order below the last one.
   lnum = eap->line2;
   for (i = 0; i < count; i++) {
@@ -641,6 +643,8 @@ void ex_sort(exarg_T *eap)
     }
 
     s = ml_get(get_lnum);
+    size_t bytelen = STRLEN(s) + 1;  // include EOL in bytelen
+    old_count += bytelen;
     if (!unique || i == 0
         || (sort_ic ? STRICMP(s, sortbuf1) : STRCMP(s, sortbuf1)) != 0) {
       // Copy the line into a buffer, it may become invalid in
@@ -649,6 +653,7 @@ void ex_sort(exarg_T *eap)
       if (ml_append(lnum++, sortbuf1, (colnr_T)0, false) == FAIL) {
         break;
       }
+      new_count += bytelen;
     }
     fast_breakcheck();
     if (got_int)
@@ -668,11 +673,16 @@ void ex_sort(exarg_T *eap)
   deleted = (long)(count - (lnum - eap->line2));
   if (deleted > 0) {
     mark_adjust(eap->line2 - deleted, eap->line2, (long)MAXLNUM, -deleted,
-                kExtmarkUndo);
+                kExtmarkNOOP);
     msgmore(-deleted);
   } else if (deleted < 0) {
-    mark_adjust(eap->line2, MAXLNUM, -deleted, 0L, kExtmarkUndo);
+    mark_adjust(eap->line2, MAXLNUM, -deleted, 0L, kExtmarkNOOP);
   }
+
+  extmark_splice(curbuf, eap->line1-1, 0,
+                 count, 0, old_count,
+                 lnum - eap->line2, 0, new_count, kExtmarkUndo);
+
   if (change_occurred || deleted != 0) {
     changed_lines(eap->line1, 0, eap->line2 + 1, -deleted, true);
   }
@@ -780,7 +790,10 @@ void ex_retab(exarg_T *eap)
             for (col = 0; col < len; col++) {
               ptr[col] = (col < num_tabs) ? '\t' : ' ';
             }
-            ml_replace(lnum, new_line, false);
+            if (ml_replace(lnum, new_line, false) == OK) {
+              // "new_line" may have been copied
+              new_line = curbuf->b_ml.ml_line_ptr;
+            }
             if (first_line == 0) {
               first_line = lnum;
             }
@@ -1032,14 +1045,15 @@ void free_prev_shellcmd(void)
  * Bangs in the argument are replaced with the previously entered command.
  * Remember the argument.
  */
-void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
+void do_bang(int addr_count, exarg_T *eap, bool forceit,
+             bool do_in, bool do_out)
+  FUNC_ATTR_NONNULL_ALL
 {
-  char_u              *arg = eap->arg;          /* command */
-  linenr_T line1 = eap->line1;                  /* start of range */
-  linenr_T line2 = eap->line2;                  /* end of range */
-  char_u              *newcmd = NULL;           /* the new command */
-  int free_newcmd = FALSE;                      /* need to free() newcmd */
-  int ins_prevcmd;
+  char_u *arg = eap->arg;             // command
+  linenr_T line1 = eap->line1;        // start of range
+  linenr_T line2 = eap->line2;        // end of range
+  char_u *newcmd = NULL;              // the new command
+  bool free_newcmd = false;           // need to free() newcmd
   char_u              *t;
   char_u              *p;
   char_u              *trailarg;
@@ -1064,7 +1078,7 @@ void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
    * Try to find an embedded bang, like in :!<cmd> ! [args]
    * (:!! is indicated by the 'forceit' variable)
    */
-  ins_prevcmd = forceit;
+  bool ins_prevcmd = forceit;
   trailarg = arg;
   do {
     len = (int)STRLEN(trailarg) + 1;
@@ -1101,7 +1115,7 @@ void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
         else {
           trailarg = p;
           *trailarg++ = NUL;
-          ins_prevcmd = TRUE;
+          ins_prevcmd = true;
           break;
         }
       }
@@ -1131,7 +1145,7 @@ void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
     STRCPY(newcmd, p_shq);
     STRCAT(newcmd, prevcmd);
     STRCAT(newcmd, p_shq);
-    free_newcmd = TRUE;
+    free_newcmd = true;
   }
   if (addr_count == 0) {                /* :! */
     /* echo the command */
@@ -1164,15 +1178,15 @@ void do_bang(int addr_count, exarg_T *eap, int forceit, int do_in, int do_out)
 // do this.
 // Alternatively, if on Unix and redirecting input or output, but not both,
 // and the 'shelltemp' option isn't set, use pipes.
-// We use input redirection if do_in is TRUE.
-// We use output redirection if do_out is TRUE.
+// We use input redirection if do_in is true.
+// We use output redirection if do_out is true.
 static void do_filter(
     linenr_T line1,
     linenr_T line2,
     exarg_T *eap,               /* for forced 'ff' and 'fenc' */
     char_u *cmd,
-    int do_in,
-    int do_out)
+    bool do_in,
+    bool do_out)
 {
   char_u      *itmp = NULL;
   char_u      *otmp = NULL;
@@ -1669,10 +1683,17 @@ void ex_update(exarg_T *eap)
  */
 void ex_write(exarg_T *eap)
 {
-  if (eap->usefilter)           /* input lines to shell command */
-    do_bang(1, eap, FALSE, TRUE, FALSE);
-  else
+  if (eap->cmdidx == CMD_saveas) {
+    // :saveas does not take a range, uses all lines.
+    eap->line1 = 1;
+    eap->line2 = curbuf->b_ml.ml_line_count;
+  }
+
+  if (eap->usefilter) {  // input lines to shell command
+    do_bang(1, eap, false, true, false);
+  } else {
     (void)do_write(eap);
+  }
 }
 
 /*
@@ -2160,6 +2181,8 @@ theend:
 ///                 ECMD_OLDBUF: use existing buffer if it exists
 ///                 ECMD_FORCEIT: ! used for Ex command
 ///                 ECMD_ADDBUF: don't edit, just add to buffer list
+///                 ECMD_ALTBUF: like ECMD_ADDBUF and also set the alternate
+///                 file
 /// @param oldwin   Should be "curwin" when editing a new buffer in the current
 ///                 window, NULL when splitting the window first.  When not NULL
 ///                 info of the previous buffer for "oldwin" is stored.
@@ -2216,8 +2239,10 @@ int do_ecmd(
       path_fix_case(sfname);             // set correct case for sfname
 #endif
 
-    if ((flags & ECMD_ADDBUF) && (ffname == NULL || *ffname == NUL))
+    if ((flags & (ECMD_ADDBUF | ECMD_ALTBUF))
+        && (ffname == NULL || *ffname == NUL)) {
       goto theend;
+    }
 
     if (ffname == NULL)
       other_file = TRUE;
@@ -2247,15 +2272,16 @@ int do_ecmd(
   // If the file was changed we may not be allowed to abandon it:
   // - if we are going to re-edit the same file
   // - or if we are the only window on this file and if ECMD_HIDE is FALSE
-  if (  ((!other_file && !(flags & ECMD_OLDBUF))
-         || (curbuf->b_nwindows == 1
-             && !(flags & (ECMD_HIDE | ECMD_ADDBUF))))
-        && check_changed(curbuf, (p_awa ? CCGD_AW : 0)
-            | (other_file ? 0 : CCGD_MULTWIN)
-            | ((flags & ECMD_FORCEIT) ? CCGD_FORCEIT : 0)
-            | (eap == NULL ? 0 : CCGD_EXCMD))) {
-    if (fnum == 0 && other_file && ffname != NULL)
+  if (((!other_file && !(flags & ECMD_OLDBUF))
+       || (curbuf->b_nwindows == 1
+           && !(flags & (ECMD_HIDE | ECMD_ADDBUF | ECMD_ALTBUF))))
+      && check_changed(curbuf, (p_awa ? CCGD_AW : 0)
+                       | (other_file ? 0 : CCGD_MULTWIN)
+                       | ((flags & ECMD_FORCEIT) ? CCGD_FORCEIT : 0)
+                       | (eap == NULL ? 0 : CCGD_EXCMD))) {
+    if (fnum == 0 && other_file && ffname != NULL) {
       (void)setaltfname(ffname, sfname, newlnum < 0 ? 0 : newlnum);
+    }
     goto theend;
   }
 
@@ -2285,25 +2311,35 @@ int do_ecmd(
    * Otherwise we re-use the current buffer.
    */
   if (other_file) {
-    if (!(flags & ECMD_ADDBUF)) {
-      if (!cmdmod.keepalt)
+    if (!(flags & (ECMD_ADDBUF | ECMD_ALTBUF))) {
+      if (!cmdmod.keepalt) {
         curwin->w_alt_fnum = curbuf->b_fnum;
-      if (oldwin != NULL)
+      }
+      if (oldwin != NULL) {
         buflist_altfpos(oldwin);
+      }
     }
 
     if (fnum) {
       buf = buflist_findnr(fnum);
     } else {
-      if (flags & ECMD_ADDBUF) {
-        linenr_T tlnum = 1L;
+      if (flags & (ECMD_ADDBUF | ECMD_ALTBUF)) {
+        // Default the line number to zero to avoid that a wininfo item
+        // is added for the current window.
+        linenr_T tlnum = 0;
 
         if (command != NULL) {
           tlnum = atol((char *)command);
           if (tlnum <= 0)
             tlnum = 1L;
         }
-        (void)buflist_new(ffname, sfname, tlnum, BLN_LISTED);
+        // Add BLN_NOCURWIN to avoid a new wininfo items are associated
+        // with the current window.
+        const buf_T *const newbuf
+            = buflist_new(ffname, sfname, tlnum, BLN_LISTED | BLN_NOCURWIN);
+        if (newbuf != NULL && (flags & ECMD_ALTBUF)) {
+          curwin->w_alt_fnum = newbuf->b_fnum;
+        }
         goto theend;
       }
       buf = buflist_new(ffname, sfname, 0L,
@@ -2323,7 +2359,7 @@ int do_ecmd(
       // Existing memfile.
       oldbuf = true;
       set_bufref(&bufref, buf);
-      (void)buf_check_timestamp(buf, false);
+      (void)buf_check_timestamp(buf);
       // Check if autocommands made buffer invalid or changed the current
       // buffer.
       if (!bufref_valid(&bufref) || curbuf != old_curbuf.br_buf) {
@@ -2395,7 +2431,10 @@ int do_ecmd(
                      (flags & ECMD_HIDE) || curbuf->terminal ? 0 : DOBUF_UNLOAD,
                      false);
 
-        the_curwin->w_closing = false;
+        // Autocommands may have closed the window.
+        if (win_valid(the_curwin)) {
+          the_curwin->w_closing = false;
+        }
         buf->b_locked--;
 
         // autocmds may abort script processing
@@ -2446,8 +2485,7 @@ int do_ecmd(
     curwin->w_pcmark.lnum = 1;
     curwin->w_pcmark.col = 0;
   } else {  // !other_file
-    if ((flags & ECMD_ADDBUF)
-        || check_fname() == FAIL) {
+    if ((flags & (ECMD_ADDBUF | ECMD_ALTBUF)) || check_fname() == FAIL) {
       goto theend;
     }
     oldbuf = (flags & ECMD_OLDBUF);
@@ -2513,13 +2551,13 @@ int do_ecmd(
         goto theend;
       }
       u_unchanged(curbuf);
-      buf_updates_unregister_all(curbuf);
+      buf_updates_unload(curbuf, false);
       buf_freeall(curbuf, BFA_KEEP_UNDO);
 
       // Tell readfile() not to clear or reload undo info.
       readfile_flags = READ_KEEP_UNDO;
     } else {
-      buf_updates_unregister_all(curbuf);
+      buf_updates_unload(curbuf, false);
       buf_freeall(curbuf, 0);  // Free all things for buffer.
     }
     // If autocommands deleted the buffer we were going to re-edit, give
@@ -2796,9 +2834,10 @@ void ex_append(exarg_T *eap)
       p = vim_strchr(eap->nextcmd, NL);
       if (p == NULL)
         p = eap->nextcmd + STRLEN(eap->nextcmd);
-      theline = vim_strnsave(eap->nextcmd, (int)(p - eap->nextcmd));
-      if (*p != NUL)
-        ++p;
+      theline = vim_strnsave(eap->nextcmd, p - eap->nextcmd);
+      if (*p != NUL) {
+        p++;
+      }
       eap->nextcmd = p;
     } else {
       // Set State to avoid the cursor shape to be set to INSERT mode
@@ -3107,6 +3146,9 @@ static bool sub_joining_lines(exarg_T *eap, char_u *pat, char_u *sub,
                               || *cmd == 'l'
                               || *cmd == 'p'
                               || *cmd == '#')))) {
+    if (eap->skip) {
+      return true;
+    }
     curwin->w_cursor.lnum = eap->line1;
     if (*cmd == 'l') {
       eap->flags = EXFLAG_LIST;
@@ -3288,11 +3330,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
   int save_b_changed = curbuf->b_changed;
   bool preview = (State & CMDPREVIEW);
 
-  // inccommand tests fail without this check
-  if (!preview) {
-    // Required for Undo to work for extmarks.
-    u_save_cursor();
-  }
+  bool did_save = false;
 
   if (!global_busy) {
     sub_nsubs = 0;
@@ -3674,6 +3712,7 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
             } else {
               char_u *orig_line = NULL;
               int len_change = 0;
+              const bool save_p_lz = p_lz;
               int save_p_fen = curwin->w_p_fen;
 
               curwin->w_p_fen = FALSE;
@@ -3681,6 +3720,9 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
                * Remove the inversion afterwards. */
               int temp = RedrawingDisabled;
               RedrawingDisabled = 0;
+
+              // avoid calling update_screen() in vgetorpeek()
+              p_lz = false;
 
               if (new_start != NULL) {
                 /* There already was a substitution, we would
@@ -3712,9 +3754,8 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               redraw_later(curwin, SOME_VALID);
 
               curwin->w_p_fen = save_p_fen;
-              if (msg_row == Rows - 1) {
-                msg_didout = false;  // avoid a scroll-up
-              }
+              if (msg_row == Rows - 1)
+                msg_didout = FALSE;                     /* avoid a scroll-up */
               msg_starthere();
               i = msg_scroll;
               msg_scroll = 0;                           /* truncate msg when
@@ -3733,10 +3774,11 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
               typed = plain_vgetc();
               no_mapping--;
 
-              // clear the question
-              msg_didout = false;  // don't scroll up
+              /* clear the question */
+              msg_didout = FALSE;               /* don't scroll up */
               msg_col = 0;
-              gotocmdline(TRUE);
+              gotocmdline(true);
+              p_lz = save_p_lz;
 
               // restore the line
               if (orig_line != NULL) {
@@ -3965,6 +4007,11 @@ static buf_T *do_sub(exarg_T *eap, proftime_T timeout,
           int matchcols = end.col - ((end.lnum == start.lnum)
                                      ? start.col : 0);
           int subcols = new_endcol - ((lnum == lnum_start) ? start_col : 0);
+          if (!did_save) {
+            // Required for Undo to work for extmarks.
+            u_save_cursor();
+            did_save = true;
+          }
           extmark_splice(curbuf, lnum_start-1, start_col,
                          end.lnum-start.lnum, matchcols, replaced_bytes,
                          lnum-lnum_start, subcols, sublen-1, kExtmarkUndo);
@@ -4194,7 +4241,7 @@ skip:
   size_t subsize = preview_lines.subresults.size;
   if (preview && !aborting()) {
     if (got_quit || profile_passed_limit(timeout)) {  // Too slow, disable.
-      set_string_option_direct((char_u *)"icm", -1, (char_u *)"", OPT_FREE,
+      set_string_option_direct("icm", -1, (char_u *)"", OPT_FREE,
                                SID_NONE);
     } else if (*p_icm != NUL &&  pat != NULL) {
       if (pre_src_id == 0) {
@@ -4495,7 +4542,7 @@ prepare_tagpreview (
       RESET_BINDING(curwin);                /* don't take over 'scrollbind'
                                                and 'cursorbind' */
       curwin->w_p_diff = false;             // no 'diff'
-      set_string_option_direct((char_u *)"fdc", -1,     // no 'foldcolumn'
+      set_string_option_direct("fdc", -1,     // no 'foldcolumn'
                                (char_u *)"0", OPT_FREE, SID_NONE);
       return true;
     }
@@ -4990,7 +5037,7 @@ int find_help_tags(const char_u *arg, int *num_matches, char_u ***matches,
 static void prepare_help_buffer(void)
 {
   curbuf->b_help = true;
-  set_string_option_direct((char_u *)"buftype", -1, (char_u *)"help",
+  set_string_option_direct("buftype", -1, (char_u *)"help",
                            OPT_FREE|OPT_LOCAL, 0);
 
   // Always set these options after jumping to a help tag, because the
@@ -5000,13 +5047,13 @@ static void prepare_help_buffer(void)
   // Only set it when needed, buf_init_chartab() is some work.
   char_u *p = (char_u *)"!-~,^*,^|,^\",192-255";
   if (STRCMP(curbuf->b_p_isk, p) != 0) {
-    set_string_option_direct((char_u *)"isk", -1, p, OPT_FREE|OPT_LOCAL, 0);
+    set_string_option_direct("isk", -1, p, OPT_FREE|OPT_LOCAL, 0);
     check_buf_options(curbuf);
     (void)buf_init_chartab(curbuf, FALSE);
   }
 
   // Don't use the global foldmethod.
-  set_string_option_direct((char_u *)"fdm", -1, (char_u *)"manual",
+  set_string_option_direct("fdm", -1, (char_u *)"manual",
                            OPT_FREE|OPT_LOCAL, 0);
 
   curbuf->b_p_ts = 8;         // 'tabstop' is 8.
@@ -5626,7 +5673,7 @@ static buf_T *show_sub(exarg_T *eap, pos_T old_cusr,
   cmdmod.tab = 0;                 // disable :tab modifier
   cmdmod.noswapfile = true;       // disable swap for preview buffer
   // disable file info message
-  set_string_option_direct((char_u *)"shm", -1, (char_u *)"F", OPT_FREE,
+  set_string_option_direct("shm", -1, (char_u *)"F", OPT_FREE,
                            SID_NONE);
 
   bool outside_curline = (eap->line1 != old_cusr.lnum
@@ -5749,7 +5796,7 @@ static buf_T *show_sub(exarg_T *eap, pos_T old_cusr,
   update_screen(SOME_VALID);
   RedrawingDisabled = save_rd;
 
-  set_string_option_direct((char_u *)"shm", -1, save_shm_p, OPT_FREE, SID_NONE);
+  set_string_option_direct("shm", -1, save_shm_p, OPT_FREE, SID_NONE);
   xfree(save_shm_p);
 
   cmdmod = save_cmdmod;

@@ -620,7 +620,7 @@ int update_screen(int type)
 
   /* Clear or redraw the command line.  Done last, because scrolling may
    * mess up the command line. */
-  if (clear_cmdline || redraw_cmdline || redraw_mode) {
+  if (clear_cmdline || redraw_cmdline) {
     showmode();
   }
 
@@ -2013,6 +2013,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
                                              // end-of-line
   int lcs_eol_one = wp->w_p_lcs_chars.eol;     // 'eol'  until it's been used
   int lcs_prec_todo = wp->w_p_lcs_chars.prec;  // 'prec' until it's been used
+  bool has_fold = foldinfo.fi_level != 0 && foldinfo.fi_lines > 0;
 
   // saved "extra" items for when draw_state becomes WL_LINE (again)
   int saved_n_extra = 0;
@@ -2081,7 +2082,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
   int line_attr_lowprio = 0;            // low-priority attribute for the line
   matchitem_T *cur;                     // points to the match list
   match_T     *shl;                     // points to search_hl or a match
-  int shl_flag;                         // flag to indicate whether search_hl
+  bool shl_flag;                        // flag to indicate whether search_hl
                                         // has been processed or not
   bool prevcol_hl_flag;                 // flag to indicate whether prevcol
                                         // equals startcol of search_hl or one
@@ -2196,7 +2197,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
 
     if (wp->w_p_spell
-        && foldinfo.fi_lines == 0
+        && !has_fold
         && *wp->w_s->b_p_spl != NUL
         && !GA_EMPTY(&wp->w_s->b_langp)
         && *(char **)(wp->w_s->b_langp.ga_data) != NULL) {
@@ -2299,6 +2300,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     // handle 'incsearch' and ":s///c" highlighting
     } else if (highlight_match
                && wp == curwin
+               && !has_fold
                && lnum >= curwin->w_cursor.lnum
                && lnum <= curwin->w_cursor.lnum + search_match_lines) {
       if (lnum == curwin->w_cursor.lnum) {
@@ -2415,8 +2417,8 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
   }
 
-  if (wp->w_p_list) {
-    if (curwin->w_p_lcs_chars.space
+  if (wp->w_p_list && !has_fold) {
+    if (wp->w_p_lcs_chars.space
         || wp->w_p_lcs_chars.trail
         || wp->w_p_lcs_chars.nbsp) {
       extra_check = true;
@@ -2551,7 +2553,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
   cur = wp->w_match_head;
   shl_flag = false;
   while ((cur != NULL || !shl_flag) && !number_only
-         && foldinfo.fi_lines == 0
+         && !has_fold
          ) {
     if (!shl_flag) {
       shl = &search_hl;
@@ -2663,7 +2665,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
         }
       }
 
-      //sign column
+      // sign column, this is hit until sign_idx reaches count
       if (draw_state == WL_SIGN - 1 && n_extra == 0) {
           draw_state = WL_SIGN;
           /* Show the sign column when there are any signs in this
@@ -2881,8 +2883,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
 
     if (draw_state == WL_LINE
-        && foldinfo.fi_level != 0
-        && foldinfo.fi_lines > 0
+        && has_fold
         && vcol == 0
         && n_extra == 0
         && row == startrow) {
@@ -2903,8 +2904,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
 
     if (draw_state == WL_LINE
-        && foldinfo.fi_level != 0
-        && foldinfo.fi_lines > 0
+        && has_fold
         && col < grid->Columns
         && n_extra == 0
         && row == startrow) {
@@ -2916,8 +2916,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
     }
 
     if (draw_state == WL_LINE
-        && foldinfo.fi_level != 0
-        && foldinfo.fi_lines > 0
+        && has_fold
         && col >= grid->Columns
         && n_extra != 0
         && row == startrow) {
@@ -2951,16 +2950,15 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
          */
         v = (long)(ptr - line);
         cur = wp->w_match_head;
-        shl_flag = FALSE;
-        while (cur != NULL || shl_flag == FALSE) {
-          if (shl_flag == FALSE
-              && ((cur != NULL
-                   && cur->priority > SEARCH_HL_PRIORITY)
-                  || cur == NULL)) {
+        shl_flag = false;
+        while (cur != NULL || !shl_flag) {
+          if (!shl_flag
+              && (cur == NULL || cur->priority > SEARCH_HL_PRIORITY)) {
             shl = &search_hl;
-            shl_flag = TRUE;
-          } else
+            shl_flag = true;
+          } else {
             shl = &cur->hl;
+          }
           if (cur != NULL) {
             cur->pos.cur = 0;
           }
@@ -2985,7 +2983,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
                 has_match_conc = v == (long)shl->startcol ? 2 : 1;
                 match_conc = cur->conceal_char;
               } else {
-                has_match_conc = match_conc = 0;
+                has_match_conc = 0;
               }
             } else if (v == (long)shl->endcol) {
               shl->attr_cur = 0;
@@ -3027,16 +3025,15 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
         search_attr_from_match = false;
         search_attr = search_hl.attr_cur;
         cur = wp->w_match_head;
-        shl_flag = FALSE;
-        while (cur != NULL || shl_flag == FALSE) {
-          if (shl_flag == FALSE
-              && ((cur != NULL
-                   && cur->priority > SEARCH_HL_PRIORITY)
-                  || cur == NULL)) {
+        shl_flag = false;
+        while (cur != NULL || !shl_flag) {
+          if (!shl_flag
+              && (cur == NULL || cur->priority > SEARCH_HL_PRIORITY)) {
             shl = &search_hl;
-            shl_flag = TRUE;
-          } else
+            shl_flag = true;
+          } else {
             shl = &cur->hl;
+          }
           if (shl->attr_cur != 0) {
             search_attr = shl->attr_cur;
             search_attr_from_match = shl != &search_hl;
@@ -3048,6 +3045,12 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
         if (*ptr == NUL
             && (wp->w_p_list && lcs_eol_one == -1)) {
           search_attr = 0;
+        }
+
+        // Do not allow a conceal over EOL otherwise EOL will be missed
+        // and bad things happen.
+        if (*ptr == NUL) {
+          has_match_conc = 0;
         }
       }
 
@@ -3085,7 +3088,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
                                   || vcol < fromcol || vcol_prev < fromcol_prev
                                   || vcol >= tocol)) {
         char_attr = line_attr;
-    } else {
+      } else {
         attr_pri = false;
         if (has_syntax) {
           char_attr = syntax_attr;
@@ -3673,12 +3676,13 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
                && vim_strchr(wp->w_p_cocu, 'v') == NULL)) {
         char_attr = conceal_attr;
         if ((prev_syntax_id != syntax_seqnr || has_match_conc > 1)
-            && (syn_get_sub_char() != NUL || match_conc
+            && (syn_get_sub_char() != NUL
+                || (has_match_conc && match_conc)
                 || wp->w_p_cole == 1)
             && wp->w_p_cole != 3) {
           // First time at this concealed item: display one
           // character.
-          if (match_conc) {
+          if (has_match_conc && match_conc) {
             c = match_conc;
           } else if (syn_get_sub_char() != NUL) {
             c = syn_get_sub_char();
@@ -3740,7 +3744,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
       }
       wp->w_wrow = row;
       did_wcol = true;
-      curwin->w_valid |= VALID_WCOL|VALID_WROW|VALID_VIRTCOL;
+      wp->w_valid |= VALID_WCOL|VALID_WROW|VALID_VIRTCOL;
     }
 
     // Don't override visual selection highlighting.
@@ -3833,21 +3837,20 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
           // Add a blank character to highlight.
           schar_from_ascii(linebuf_char[off], ' ');
         }
-        if (area_attr == 0) {
-          /* Use attributes from match with highest priority among
-           * 'search_hl' and the match list. */
+        if (area_attr == 0 && !has_fold) {
+          // Use attributes from match with highest priority among
+          // 'search_hl' and the match list.
           char_attr = search_hl.attr;
           cur = wp->w_match_head;
-          shl_flag = FALSE;
-          while (cur != NULL || shl_flag == FALSE) {
-            if (shl_flag == FALSE
-                && ((cur != NULL
-                     && cur->priority > SEARCH_HL_PRIORITY)
-                    || cur == NULL)) {
+          shl_flag = false;
+          while (cur != NULL || !shl_flag) {
+            if (!shl_flag
+                && (cur == NULL || cur->priority > SEARCH_HL_PRIORITY)) {
               shl = &search_hl;
-              shl_flag = TRUE;
-            } else
+              shl_flag = true;
+            } else {
               shl = &cur->hl;
+            }
             if ((ptr - line) - 1 == (long)shl->startcol
                 && (shl == &search_hl || !shl->is_addpos)) {
               char_attr = shl->attr;
@@ -3883,8 +3886,8 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
       /* check if line ends before left margin */
       if (vcol < v + col - win_col_off(wp))
         vcol = v + col - win_col_off(wp);
-      /* Get rid of the boguscols now, we want to draw until the right
-       * edge for 'cursorcolumn'. */
+      // Get rid of the boguscols now, we want to draw until the right
+      // edge for 'cursorcolumn'.
       col -= boguscols;
       // boguscols = 0;  // Disabled because value never read after this
 
@@ -4051,6 +4054,7 @@ static int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow,
         && !wp->w_p_wrap
         && filler_todo <= 0
         && (wp->w_p_rl ? col == 0 : col == grid->Columns - 1)
+        && !has_fold
         && (*ptr != NUL
             || lcs_eol_one > 0
             || (n_extra && (c_extra != NUL || *p_extra != NUL)))) {
@@ -4345,6 +4349,10 @@ void screen_adjust_grid(ScreenGrid **grid, int *row_off, int *col_off)
 // Get information needed to display the sign in line 'lnum' in window 'wp'.
 // If 'nrcol' is TRUE, the sign is going to be displayed in the number column.
 // Otherwise the sign is going to be displayed in the sign column.
+//
+// @param count max number of signs
+// @param[out] n_extrap number of characters from pp_extra to display
+// @param[in, out] sign_idxp Index of the displayed sign
 static void get_sign_display_info(
     bool nrcol,
     win_T *wp,
@@ -4421,6 +4429,8 @@ static void get_sign_display_info(
   (*sign_idxp)++;
   if (*sign_idxp < count) {
     *draw_statep = WL_SIGN - 1;
+  } else {
+    *sign_idxp = 0;
   }
 }
 
@@ -5086,9 +5096,9 @@ static void redraw_custom_statusline(win_T *wp)
     // When there is an error disable the statusline, otherwise the
     // display is messed up with errors and a redraw triggers the problem
     // again and again.
-    set_string_option_direct((char_u *)"statusline", -1,
-        (char_u *)"", OPT_FREE | (*wp->w_p_stl != NUL
-                                  ? OPT_LOCAL : OPT_GLOBAL), SID_ERROR);
+    set_string_option_direct("statusline", -1, (char_u *)"",
+                             OPT_FREE | (*wp->w_p_stl != NUL
+                                         ? OPT_LOCAL : OPT_GLOBAL), SID_ERROR);
   }
   did_emsg |= saved_did_emsg;
   entered = false;
@@ -5169,7 +5179,7 @@ get_keymap_str (
 static void
 win_redr_custom (
     win_T *wp,
-    int draw_ruler                 /* TRUE or FALSE */
+    bool draw_ruler
 )
 {
   static int entered = FALSE;
@@ -6557,28 +6567,12 @@ void grid_del_lines(ScreenGrid *grid, int row, int line_count, int end, int col,
   return;
 }
 
-// Return true when postponing displaying the mode message: when not redrawing
-// or inside a mapping.
-bool skip_showmode(void)
-{
-  // Call char_avail() only when we are going to show something, because it
-  // takes a bit of time.  redrawing() may also call char_avail_avail().
-  if (global_busy
-      || msg_silent != 0
-      || !redrawing()
-      || (char_avail() && !KeyTyped)) {
-    redraw_mode = true;  // show mode later
-    return true;
-  }
-  return false;
-}
 
 // Show the current mode and ruler.
 //
 // If clear_cmdline is TRUE, clear the rest of the cmdline.
 // If clear_cmdline is FALSE there may be a message there that needs to be
 // cleared only if a mode is shown.
-// If redraw_mode is true show or clear the mode.
 // Return the length of the message (0 if no message).
 int showmode(void)
 {
@@ -6604,8 +6598,12 @@ int showmode(void)
                  || restart_edit
                  || VIsual_active));
   if (do_mode || reg_recording != 0) {
-    if (skip_showmode()) {
-      return 0;  // show mode later
+    // Don't show mode right now, when not redrawing or inside a mapping.
+    // Call char_avail() only when we are going to show something, because
+    // it takes a bit of time.
+    if (!redrawing() || (char_avail() && !KeyTyped) || msg_silent != 0) {
+      redraw_cmdline = TRUE;                    /* show mode later */
+      return 0;
     }
 
     nwr_save = need_wait_return;
@@ -6725,11 +6723,10 @@ int showmode(void)
       need_clear = true;
     }
 
-    mode_displayed = true;
-    if (need_clear || clear_cmdline || redraw_mode) {
+    mode_displayed = TRUE;
+    if (need_clear || clear_cmdline)
       msg_clr_eos();
-    }
-    msg_didout = false;  // overwrite this message
+    msg_didout = FALSE;                 /* overwrite this message */
     length = msg_col;
     msg_col = 0;
     msg_no_more = false;
@@ -6738,9 +6735,6 @@ int showmode(void)
   } else if (clear_cmdline && msg_silent == 0) {
     // Clear the whole command line.  Will reset "clear_cmdline".
     msg_clr_cmdline();
-  } else if (redraw_mode) {
-    msg_pos_mode();
-    msg_clr_eos();
   }
 
   // NB: also handles clearing the showmode if it was emtpy or disabled
@@ -6757,7 +6751,6 @@ int showmode(void)
     win_redr_ruler(last, true);
   }
   redraw_cmdline = false;
-  redraw_mode = false;
   clear_cmdline = false;
 
   return length;
@@ -6863,7 +6856,7 @@ void draw_tabline(void)
     did_emsg = false;
     win_redr_custom(NULL, false);
     if (did_emsg) {
-      set_string_option_direct((char_u *)"tabline", -1,
+      set_string_option_direct("tabline", -1,
                                (char_u *)"", OPT_FREE, SID_ERROR);
     }
     did_emsg |= saved_did_emsg;
@@ -7125,11 +7118,12 @@ static void win_redr_ruler(win_T *wp, int always)
   if (*p_ruf) {
     int save_called_emsg = called_emsg;
 
-    called_emsg = FALSE;
-    win_redr_custom(wp, TRUE);
-    if (called_emsg)
-      set_string_option_direct((char_u *)"rulerformat", -1,
-          (char_u *)"", OPT_FREE, SID_ERROR);
+    called_emsg = false;
+    win_redr_custom(wp, true);
+    if (called_emsg) {
+      set_string_option_direct("rulerformat", -1, (char_u *)"",
+                               OPT_FREE, SID_ERROR);
+    }
     called_emsg |= save_called_emsg;
     return;
   }

@@ -69,6 +69,7 @@
 #include "nvim/lib/kvec.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/highlight_defs.h"
+#include "nvim/lua/executor.h"
 #include "nvim/viml/parser/parser.h"
 #include "nvim/viml/parser/expressions.h"
 
@@ -885,7 +886,7 @@ static uint8_t *command_line_enter(int firstc, long count, int indent)
     need_wait_return = false;
   }
 
-  set_string_option_direct((char_u *)"icm", -1, s->save_p_icm, OPT_FREE,
+  set_string_option_direct("icm", -1, s->save_p_icm, OPT_FREE,
                            SID_NONE);
   State = s->save_State;
   setmouse();
@@ -1082,6 +1083,7 @@ static int command_line_execute(VimState *state, int key)
     if (s->c == K_DOWN && ccline.cmdpos > 0
         && ccline.cmdbuff[ccline.cmdpos - 1] == '.') {
       s->c = (int)p_wc;
+      KeyTyped = true;  // in case the key was mapped
     } else if (s->c == K_UP) {
       // Hitting <Up>: Remove one submenu name in front of the
       // cursor
@@ -1112,6 +1114,7 @@ static int command_line_execute(VimState *state, int key)
         cmdline_del(i);
       }
       s->c = (int)p_wc;
+      KeyTyped = true;  // in case the key was mapped
       s->xpc.xp_context = EXPAND_NOTHING;
     }
   }
@@ -1134,6 +1137,7 @@ static int command_line_execute(VimState *state, int key)
             || ccline.cmdbuff[ccline.cmdpos - 3] != '.')) {
       // go down a directory
       s->c = (int)p_wc;
+      KeyTyped = true;  // in case the key was mapped
     } else if (STRNCMP(s->xpc.xp_pattern, upseg + 1, 3) == 0
         && s->c == K_DOWN) {
       // If in a direct ancestor, strip off one ../ to go down
@@ -1154,6 +1158,7 @@ static int command_line_execute(VimState *state, int key)
           && (vim_ispathsep(ccline.cmdbuff[j - 3]) || j == i + 2)) {
         cmdline_del(j - 2);
         s->c = (int)p_wc;
+        KeyTyped = true;  // in case the key was mapped
       }
     } else if (s->c == K_UP) {
       // go up a directory
@@ -1880,9 +1885,6 @@ static int command_line_handle_key(CommandLineState *s)
     return command_line_not_changed(s);                 // Ignore mouse
 
   case K_MIDDLEMOUSE:
-    if (!mouse_has(MOUSE_COMMAND)) {
-      return command_line_not_changed(s);                   // Ignore mouse
-    }
     cmdline_paste(eval_has_provider("clipboard") ? '*' : 0, true, true);
     redrawcmd();
     return command_line_changed(s);
@@ -1904,10 +1906,6 @@ static int command_line_handle_key(CommandLineState *s)
       s->ignore_drag_release = true;
     } else {
       s->ignore_drag_release = false;
-    }
-
-    if (!mouse_has(MOUSE_COMMAND)) {
-      return command_line_not_changed(s);                   // Ignore mouse
     }
 
     ccline.cmdspos = cmd_startcol();
@@ -2251,7 +2249,9 @@ static int command_line_changed(CommandLineState *s)
     close_preview_windows();
     update_screen(SOME_VALID);  // Clear 'inccommand' preview.
   } else {
-    may_do_incsearch_highlighting(s->firstc, s->count, &s->is_state);
+    if (s->xpc.xp_context == EXPAND_NOTHING) {
+      may_do_incsearch_highlighting(s->firstc, s->count, &s->is_state);
+    }
   }
 
   if (cmdmsg_rl || (p_arshape && !p_tbidi)) {
@@ -2740,8 +2740,8 @@ redraw:
 
   no_mapping--;
 
-  // make following messages go to the next line
-  msg_didout = false;
+  /* make following messages go to the next line */
+  msg_didout = FALSE;
   msg_col = 0;
   if (msg_row < Rows - 1) {
     msg_row++;
@@ -3829,7 +3829,7 @@ static void cmd_cursor_goto(int row, int col)
   ui_grid_cursor_goto(grid->handle, row, col);
 }
 
-void gotocmdline(int clr)
+void gotocmdline(bool clr)
 {
   if (ui_has(kUICmdline)) {
     return;
@@ -3946,6 +3946,12 @@ nextwild (
     p2 = ExpandOne(xp, p1, vim_strnsave(&ccline.cmdbuff[i], xp->xp_pattern_len),
                    use_options, type);
     xfree(p1);
+
+    // xp->xp_pattern might have been modified by ExpandOne (for example,
+    // in lua completion), so recompute the pattern index and length
+    i = (int)(xp->xp_pattern - ccline.cmdbuff);
+    xp->xp_pattern_len = (size_t)ccline.cmdpos - (size_t)i;
+
     // Longest match: make sure it is not shorter, happens with :help.
     if (p2 != NULL && type == WILD_LONGEST) {
       for (j = 0; (size_t)j < xp->xp_pattern_len; j++) {
@@ -3961,7 +3967,7 @@ nextwild (
   }
 
   if (p2 != NULL && !got_int) {
-    difflen = (int)STRLEN(p2) - (int)xp->xp_pattern_len;
+    difflen = (int)STRLEN(p2) - (int)(xp->xp_pattern_len);
     if (ccline.cmdlen + difflen + 4 > ccline.cmdbufflen) {
       realloc_cmdbuff(ccline.cmdlen + difflen + 4);
       xp->xp_pattern = ccline.cmdbuff + i;
@@ -4781,7 +4787,7 @@ char_u *addstar(char_u *fname, size_t len, int context)
  *  EXPAND_COMMANDS	    Cursor is still touching the command, so complete
  *			    it.
  *  EXPAND_BUFFERS	    Complete file names for :buf and :sbuf commands.
- *  EXPAND_FILES	    After command with XFILE set, or after setting
+ *  EXPAND_FILES	    After command with EX_XFILE set, or after setting
  *			    with P_EXPAND set.	eg :e ^I, :w>>^I
  *  EXPAND_DIRECTORIES	    In some cases this is used instead of the latter
  *			    when we know only directories are of interest.  eg
@@ -5078,9 +5084,13 @@ ExpandFromContext (
   }
   if (xp->xp_context == EXPAND_BUFFERS)
     return ExpandBufnames(pat, num_file, file, options);
+  if (xp->xp_context == EXPAND_DIFF_BUFFERS) {
+    return ExpandBufnames(pat, num_file, file, options | BUF_DIFF_FILTER);
+  }
   if (xp->xp_context == EXPAND_TAGS
-      || xp->xp_context == EXPAND_TAGS_LISTFILES)
+      || xp->xp_context == EXPAND_TAGS_LISTFILES) {
     return expand_tags(xp->xp_context == EXPAND_TAGS, pat, num_file, file);
+  }
   if (xp->xp_context == EXPAND_COLORS) {
     char *directories[] = { "colors", NULL };
     return ExpandRTDir(pat, DIP_START + DIP_OPT, num_file, file, directories);
@@ -5106,6 +5116,10 @@ ExpandFromContext (
   }
   if (xp->xp_context == EXPAND_PACKADD) {
     return ExpandPackAddDir(pat, num_file, file);
+  }
+  if (xp->xp_context == EXPAND_LUA) {
+    ILOG("PAT %s", pat);
+    return nlua_expand_pat(xp, pat, num_file, file);
   }
 
   regmatch.regprog = vim_regcomp(pat, p_magic ? RE_MAGIC : 0);
@@ -6373,7 +6387,7 @@ int hist_type2char(int type)
       return '>';
     }
     default: {
-      assert(false);
+      abort();
     }
   }
   return NUL;
@@ -6431,7 +6445,7 @@ static int open_cmdwin(void)
   cmdwin_level = ccline.level;
 
   // Create empty command-line buffer.
-  buf_open_scratch(0, "[Command Line]");
+  buf_open_scratch(0, _("[Command Line]"));
   // Command-line buffer has bufhidden=wipe, unlike a true "scratch" buffer.
   set_option_value("bh", 0L, "wipe", OPT_LOCAL);
   curwin->w_p_rl = cmdmsg_rl;

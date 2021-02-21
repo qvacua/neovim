@@ -306,7 +306,7 @@ static char *(p_buftype_values[]) =   { "nofile", "nowrite", "quickfix",
 
 static char *(p_bufhidden_values[]) = { "hide", "unload", "delete",
                                         "wipe", NULL };
-static char *(p_bs_values[]) =        { "indent", "eol", "start", NULL };
+static char *(p_bs_values[]) = { "indent", "eol", "start", "nostop", NULL };
 static char *(p_fdm_values[]) =       { "manual", "expr", "marker", "indent",
                                         "syntax",  "diff", NULL };
 static char *(p_fcl_values[]) =       { "all", NULL };
@@ -1366,6 +1366,10 @@ int do_set(
                   *(char_u **)varp = vim_strsave(
                       (char_u *)"indent,eol,start");
                   break;
+                case 3:
+                  *(char_u **)varp = vim_strsave(
+                      (char_u *)"indent,eol,nostop");
+                  break;
                 }
                 xfree(oldval);
                 if (origval == oldval) {
@@ -1938,6 +1942,7 @@ static void didset_options(void)
   (void)opt_strings_flags(p_dy, p_dy_values, &dy_flags, true);
   (void)opt_strings_flags(p_rdb, p_rdb_values, &rdb_flags, true);
   (void)opt_strings_flags(p_tc, p_tc_values, &tc_flags, false);
+  (void)opt_strings_flags(p_tpf, p_tpf_values, &tpf_flags, true);
   (void)opt_strings_flags(p_ve, p_ve_values, &ve_flags, true);
   (void)opt_strings_flags(p_wop, p_wop_values, &wop_flags, true);
   (void)opt_strings_flags(p_jop, p_jop_values, &jop_flags, true);
@@ -2115,9 +2120,9 @@ static int shada_idx = -1;
 // "set_sid".
 void
 set_string_option_direct(
-    char_u *name,
+    const char *name,
     int opt_idx,
-    char_u *val,
+    const char_u *val,
     int opt_flags,                  // OPT_FREE, OPT_LOCAL and/or OPT_GLOBAL
     int set_sid
 )
@@ -2128,7 +2133,7 @@ set_string_option_direct(
   int idx = opt_idx;
 
   if (idx == -1) {  // Use name.
-    idx = findoption((const char *)name);
+    idx = findoption(name);
     if (idx < 0) {  // Not found (should not happen).
       internal_error("set_string_option_direct()");
       IEMSG2(_("For option %s"), name);
@@ -2909,7 +2914,7 @@ ambw_end:
 #endif
   } else if (varp == &curwin->w_p_scl) {
     // 'signcolumn'
-    if (check_opt_strings(*varp, p_scl_values, false) != OK) {
+    if (check_signcolumn(*varp) != OK) {
       errmsg = e_invarg;
     }
     // When changing the 'signcolumn' to or from 'number', recompute the
@@ -2939,7 +2944,7 @@ ambw_end:
     }
   } else if (varp == &p_bs) {  // 'backspace'
     if (ascii_isdigit(*p_bs)) {
-      if (*p_bs >'2' || p_bs[1] != NUL) {
+      if (*p_bs > '3' || p_bs[1] != NUL) {
         errmsg = e_invarg;
       }
     } else if (check_opt_strings(p_bs, p_bs_values, true) != OK) {
@@ -3071,6 +3076,10 @@ ambw_end:
     }
   } else if (varp == &curwin->w_p_winhl) {
     if (!parse_winhl_opt(curwin)) {
+      errmsg = e_invarg;
+    }
+  } else if (varp == &p_tpf) {
+    if (opt_strings_flags(p_tpf, p_tpf_values, &tpf_flags, true) != OK) {
       errmsg = e_invarg;
     }
   } else {
@@ -3210,11 +3219,7 @@ ambw_end:
   }
 
   if (varp == &p_mouse) {
-    if (*p_mouse == NUL) {
-      ui_call_mouse_off();
-    } else {
-      setmouse();  // in case 'mouse' changed
-    }
+    setmouse();  // in case 'mouse' changed
   }
 
   if (curwin->w_curswant != MAXCOL
@@ -3230,6 +3235,34 @@ ambw_end:
 static int int_cmp(const void *a, const void *b)
 {
   return *(const int *)a - *(const int *)b;
+}
+
+/// Handle setting 'signcolumn' for value 'val'
+///
+/// @return OK when the value is valid, FAIL otherwise
+int check_signcolumn(char_u *val)
+{
+  // check for basic match
+  if (check_opt_strings(val, p_scl_values, false) == OK) {
+    return OK;
+  }
+
+  // check for 'auto:<NUMBER>-<NUMBER>'
+  if (STRLEN(val) == 8
+      && !STRNCMP(val, "auto:", 5)
+      && ascii_isdigit(val[5])
+      && val[6] == '-'
+      && ascii_isdigit(val[7])
+      ) {
+    int min = val[5] - '0';
+    int max = val[7] - '0';
+    if (min < 1 || max < 2 || min > 8 || max > 9 || min >= max) {
+      return FAIL;
+    }
+    return OK;
+  }
+
+  return FAIL;
 }
 
 /// Handle setting 'colorcolumn' or 'textwidth' in window "wp".
@@ -3758,7 +3791,7 @@ static char *set_bool_option(const int opt_idx, char_u *const varp,
     if (p_terse && p == NULL) {
       STRCPY(IObuff, p_shm);
       STRCAT(IObuff, "s");
-      set_string_option_direct((char_u *)"shm", -1, IObuff, OPT_FREE, 0);
+      set_string_option_direct("shm", -1, IObuff, OPT_FREE, 0);
     } else if (!p_terse && p != NULL) {  // remove 's' from p_shm
       STRMOVE(p, p + 1);
     }
@@ -4338,6 +4371,7 @@ static char *set_num_option(int opt_idx, char_u *varp, long value,
     char buf_old[NUMBUFLEN];
     char buf_new[NUMBUFLEN];
     char buf_type[7];
+
     vim_snprintf(buf_old, ARRAY_SIZE(buf_old), "%ld", old_value);
     vim_snprintf(buf_new, ARRAY_SIZE(buf_new), "%ld", value);
     vim_snprintf(buf_type, ARRAY_SIZE(buf_type), "%s",
@@ -4497,7 +4531,7 @@ bool is_tty_option(const char *name)
 #define TCO_BUFFER_SIZE 8
 /// @param name TUI-related option
 /// @param[out,allocated] value option string value
-bool get_tty_option(char *name, char **value)
+bool get_tty_option(const char *name, char **value)
 {
   if (strequal(name, "t_Co")) {
     if (value) {
@@ -4563,6 +4597,7 @@ bool set_tty_option(const char *name, char *value)
 ///
 /// @return Option index or -1 if option was not found.
 static int findoption(const char *const arg)
+  FUNC_ATTR_NONNULL_ALL
 {
   return findoption_len(arg, strlen(arg));
 }
@@ -4576,17 +4611,17 @@ static int findoption(const char *const arg)
 ///           hidden String option: -2.
 ///                 unknown option: -3.
 int get_option_value(
-    char_u *name,
+    const char *name,
     long *numval,
     char_u **stringval,            ///< NULL when only checking existence
     int opt_flags
 )
 {
-  if (get_tty_option((char *)name, (char **)stringval)) {
+  if (get_tty_option(name, (char **)stringval)) {
     return 0;
   }
 
-  int opt_idx = findoption((const char *)name);
+  int opt_idx = findoption(name);
   if (opt_idx < 0) {  // Unknown option.
     return -3;
   }
@@ -4983,11 +5018,7 @@ void ui_refresh_options(void)
     ui_call_option_set(name, value);
   }
   if (p_mouse != NULL) {
-    if (*p_mouse == NUL) {
-      ui_call_mouse_off();
-    } else {
-      setmouse();
-    }
+    setmouse();
   }
 }
 
@@ -6808,15 +6839,15 @@ static int check_opt_wim(void)
 }
 
 /// Check if backspacing over something is allowed.
-/// The parameter what is one of the following: whatBS_INDENT, BS_EOL
-/// or BS_START
+/// @param  what  BS_INDENT, BS_EOL, BS_START, or BS_NOSTOP
 bool can_bs(int what)
 {
   if (what == BS_START && bt_prompt(curbuf)) {
     return false;
   }
   switch (*p_bs) {
-    case '2':       return true;
+    case '3':       return true;
+    case '2':       return what != BS_NOSTOP;
     case '1':       return what != BS_START;
     case '0':       return false;
   }
@@ -7024,7 +7055,7 @@ void set_fileformat(int eol_style, int opt_flags)
 
   // p is NULL if "eol_style" is EOL_UNKNOWN.
   if (p != NULL) {
-    set_string_option_direct((char_u *)"ff",
+    set_string_option_direct("ff",
                              -1,
                              (char_u *)p,
                              OPT_FREE | opt_flags,
@@ -7098,7 +7129,7 @@ int csh_like_shell(void)
 /// buffer signs and on user configuration.
 int win_signcol_count(win_T *wp)
 {
-  int maximum = 1, needed_signcols;
+  int minimum = 0, maximum = 1, needed_signcols;
   const char *scl = (const char *)wp->w_p_scl;
 
   // Note: It checks "no" or "number" in 'signcolumn' option
@@ -7122,9 +7153,14 @@ int win_signcol_count(win_T *wp)
   if (!strncmp(scl, "auto:", 5)) {
     // Variable depending on a configuration
     maximum = scl[5] - '0';
+    // auto:<NUM>-<NUM>
+    if (strlen(scl) == 8 && *(scl + 6) == '-') {
+      minimum = maximum;
+      maximum = scl[7] - '0';
+    }
   }
 
-  return MIN(maximum, needed_signcols);
+  return MAX(minimum, MIN(maximum, needed_signcols));
 }
 
 /// Get window or buffer local options

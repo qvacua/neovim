@@ -596,7 +596,7 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
 
   // Disable buffer-updates for the current buffer.
   // No need to check `unload_buf`: in that case the function returned above.
-  buf_updates_unregister_all(buf);
+  buf_updates_unload(buf, false);
 
   /*
    * Remove the buffer from the list.
@@ -821,7 +821,7 @@ static void free_buffer_stuff(buf_T *buf, int free_flags)
   map_clear_int(buf, MAP_ALL_MODES, true, true);     // clear local abbrevs
   XFREE_CLEAR(buf->b_start_fenc);
 
-  buf_updates_unregister_all(buf);
+  buf_updates_unload(buf, false);
 }
 
 /*
@@ -1587,7 +1587,7 @@ void enter_buffer(buf_T *buf)
       need_fileinfo = true;             // display file info after redraw
     }
     // check if file changed
-    (void)buf_check_timestamp(curbuf, false);
+    (void)buf_check_timestamp(curbuf);
 
     curwin->w_topline = 1;
     curwin->w_topfill = 0;
@@ -1726,7 +1726,8 @@ buf_T *buflist_new(char_u *ffname_arg, char_u *sfname_arg, linenr_T lnum,
                                          file_id_valid)) != NULL) {
     xfree(ffname);
     if (lnum != 0) {
-      buflist_setfpos(buf, curwin, lnum, (colnr_T)0, false);
+      buflist_setfpos(buf, (flags & BLN_NOCURWIN) ? NULL : curwin,
+                      lnum, (colnr_T)0, false);
     }
     if ((flags & BLN_NOOPT) == 0) {
       // Copy the options now, if 'cpo' doesn't have 's' and not done already.
@@ -2159,10 +2160,11 @@ static buf_T *buflist_findname_file_id(char_u *ffname, FileID *file_id,
 int buflist_findpat(
     const char_u *pattern,
     const char_u *pattern_end,  // pointer to first char after pattern
-    int unlisted,               // find unlisted buffers
-    int diffmode,               // find diff-mode buffers only
-    int curtab_only             // find buffers in current tab only
+    bool unlisted,              // find unlisted buffers
+    bool diffmode,              // find diff-mode buffers only
+    bool curtab_only            // find buffers in current tab only
 )
+  FUNC_ATTR_NONNULL_ARG(1)
 {
   int match = -1;
   int find_listed;
@@ -2307,6 +2309,10 @@ int ExpandBufnames(char_u *pat, int *num_file, char_u ***file, int options)
   *num_file = 0;                    // return values in case of FAIL
   *file = NULL;
 
+  if ((options & BUF_DIFF_FILTER) && !curwin->w_p_diff) {
+    return FAIL;
+  }
+
   // Make a copy of "pat" and change "^" to "\(^\|[\/]\)".
   if (*pat == '^') {
     patc = xmalloc(STRLEN(pat) + 11);
@@ -2342,6 +2348,13 @@ int ExpandBufnames(char_u *pat, int *num_file, char_u ***file, int options)
       FOR_ALL_BUFFERS(buf) {
         if (!buf->b_p_bl) {             // skip unlisted buffers
           continue;
+        }
+        if (options & BUF_DIFF_FILTER) {
+          // Skip buffers not suitable for
+          // :diffget or :diffput completion.
+          if (buf == curbuf || !diff_mode_buf(buf)) {
+            continue;
+          }
         }
         p = buflist_match(&regmatch, buf, p_wic);
         if (p != NULL) {
@@ -2485,6 +2498,7 @@ buflist_nr2name(
 ///
 /// @param[in,out]  buf           Buffer for which line and column are set.
 /// @param[in,out]  win           Window for which line and column are set.
+///                               May be NULL when using :badd.
 /// @param[in]      lnum          Line number to be set. If it is zero then only
 ///                               options are touched.
 /// @param[in]      col           Column number to be set.
@@ -2492,7 +2506,7 @@ buflist_nr2name(
 void buflist_setfpos(buf_T *const buf, win_T *const win,
                      linenr_T lnum, colnr_T col,
                      bool copy_options)
-  FUNC_ATTR_NONNULL_ALL
+  FUNC_ATTR_NONNULL_ARG(1)
 {
   wininfo_T   *wip;
 
@@ -2527,7 +2541,7 @@ void buflist_setfpos(buf_T *const buf, win_T *const win,
     wip->wi_fpos.lnum = lnum;
     wip->wi_fpos.col = col;
   }
-  if (copy_options) {
+  if (copy_options && win != NULL) {
     // Save the window-specific option values.
     copy_winopt(&win->w_onebuf_opt, &wip->wi_opt);
     wip->wi_fold_manual = win->w_fold_manual;
@@ -2565,29 +2579,39 @@ static bool wininfo_other_tab_diff(wininfo_T *wip)
   return false;
 }
 
-/*
- * Find info for the current window in buffer "buf".
- * If not found, return the info for the most recently used window.
- * When "skip_diff_buffer" is true avoid windows with 'diff' set that is in
- * another tab page.
- * Returns NULL when there isn't any info.
- */
-static wininfo_T *find_wininfo(buf_T *buf, int skip_diff_buffer)
+// Find info for the current window in buffer "buf".
+// If not found, return the info for the most recently used window.
+// When "need_options" is true skip entries where wi_optset is false.
+// When "skip_diff_buffer" is true avoid windows with 'diff' set that is in
+// another tab page.
+// Returns NULL when there isn't any info.
+static wininfo_T *find_wininfo(buf_T *buf, bool need_options,
+                               bool skip_diff_buffer)
+  FUNC_ATTR_NONNULL_ALL
 {
   wininfo_T   *wip;
 
-  for (wip = buf->b_wininfo; wip != NULL; wip = wip->wi_next)
+  for (wip = buf->b_wininfo; wip != NULL; wip = wip->wi_next) {
     if (wip->wi_win == curwin
         && (!skip_diff_buffer || !wininfo_other_tab_diff(wip))
-        )
+        && (!need_options || wip->wi_optset)) {
       break;
+    }
+  }
 
-  /* If no wininfo for curwin, use the first in the list (that doesn't have
-   * 'diff' set and is in another tab page). */
+  // If no wininfo for curwin, use the first in the list (that doesn't have
+  // 'diff' set and is in another tab page).
+  // If "need_options" is true skip entries that don't have options set,
+  // unless the window is editing "buf", so we can copy from the window
+  // itself.
   if (wip == NULL) {
     if (skip_diff_buffer) {
       for (wip = buf->b_wininfo; wip != NULL; wip = wip->wi_next) {
-        if (!wininfo_other_tab_diff(wip)) {
+        if (!wininfo_other_tab_diff(wip)
+            && (!need_options
+                || wip->wi_optset
+                || (wip->wi_win != NULL
+                    && wip->wi_win->w_buffer == buf))) {
           break;
         }
       }
@@ -2606,12 +2630,10 @@ static wininfo_T *find_wininfo(buf_T *buf, int skip_diff_buffer)
  */
 void get_winopts(buf_T *buf)
 {
-  wininfo_T   *wip;
-
   clear_winopt(&curwin->w_onebuf_opt);
   clearFolding(curwin);
 
-  wip = find_wininfo(buf, true);
+  wininfo_T *const wip = find_wininfo(buf, true, true);
   if (wip != NULL && wip->wi_win != curwin && wip->wi_win != NULL
       && wip->wi_win->w_buffer == buf) {
     win_T *wp = wip->wi_win;
@@ -2648,7 +2670,7 @@ pos_T *buflist_findfpos(buf_T *buf)
 {
   static pos_T no_position = { 1, 0, 0 };
 
-  wininfo_T *wip = find_wininfo(buf, false);
+  wininfo_T *const wip = find_wininfo(buf, false, false);
   return (wip == NULL) ? &no_position : &(wip->wi_fpos);
 }
 
@@ -3235,7 +3257,7 @@ void maketitle(void)
                          0, maxlen, NULL, NULL);
         title_str = (char_u *)buf;
         if (called_emsg) {
-          set_string_option_direct((char_u *)"titlestring", -1, (char_u *)"",
+          set_string_option_direct("titlestring", -1, (char_u *)"",
                                    OPT_FREE, SID_ERROR);
         }
         called_emsg |= save_called_emsg;
@@ -3269,7 +3291,7 @@ void maketitle(void)
         case 6: buf_p = strappend(buf_p, " -"); break;
         case 5:
         case 7: buf_p = strappend(buf_p, " -+"); break;
-        default: assert(false);
+        default: abort();
       }
 
       if (curbuf->b_fname != NULL) {
@@ -3345,7 +3367,7 @@ void maketitle(void)
                          p_iconstring, use_sandbox,
                          0, 0, NULL, NULL);
         if (called_emsg) {
-          set_string_option_direct((char_u *)"iconstring", -1,
+          set_string_option_direct("iconstring", -1,
                                    (char_u *)"", OPT_FREE, SID_ERROR);
         }
         called_emsg |= save_called_emsg;
@@ -3485,7 +3507,7 @@ int build_stl_str_hl(
     stl_items = xmalloc(sizeof(stl_item_t) * stl_items_len);
     stl_groupitems = xmalloc(sizeof(int) * stl_items_len);
     stl_hltab  = xmalloc(sizeof(stl_hlrec_t) * stl_items_len);
-    stl_tabtab = xmalloc(sizeof(stl_hlrec_t) * stl_items_len);
+    stl_tabtab = xmalloc(sizeof(StlClickRecord) * stl_items_len);
     stl_separator_locations = xmalloc(sizeof(int) * stl_items_len);
   }
 
@@ -3939,9 +3961,9 @@ int build_stl_str_hl(
 
       // Store the current buffer number as a string variable
       vim_snprintf((char *)buf_tmp, sizeof(buf_tmp), "%d", curbuf->b_fnum);
-      set_internal_string_var((char_u *)"g:actual_curbuf", buf_tmp);
+      set_internal_string_var("g:actual_curbuf", buf_tmp);
       vim_snprintf((char *)win_tmp, sizeof(win_tmp), "%d", curwin->handle);
-      set_internal_string_var((char_u *)"g:actual_curwin", win_tmp);
+      set_internal_string_var("g:actual_curwin", win_tmp);
 
       buf_T *const save_curbuf = curbuf;
       win_T *const save_curwin = curwin;
@@ -4481,22 +4503,15 @@ int build_stl_str_hl(
     int num_separators = 0;
     for (int i = 0; i < itemcnt; i++) {
       if (stl_items[i].type == Separate) {
+        // Create an array of the start location for each
+        // separator mark.
+        stl_separator_locations[num_separators] = i;
         num_separators++;
       }
     }
 
     // If we have separated groups, then we deal with it now
     if (num_separators) {
-      // Create an array of the start location for each
-      // separator mark.
-      int index = 0;
-      for (int i = 0; i < itemcnt; i++) {
-        if (stl_items[i].type == Separate) {
-          stl_separator_locations[index] = i;
-          index++;
-        }
-      }
-
       int standard_spaces = (maxwidth - width) / num_separators;
       int final_spaces = (maxwidth - width) -
         standard_spaces * (num_separators - 1);

@@ -313,6 +313,11 @@ static void insert_enter(InsertState *s)
     set_vim_var_string(VV_CHAR, NULL, -1);
     ins_apply_autocmds(EVENT_INSERTENTER);
 
+    // Check for changed highlighting, e.g. for ModeMsg.
+    if (need_highlight_changed) {
+      highlight_changed();
+    }
+
     // Make sure the cursor didn't move.  Do call check_cursor_col() in
     // case the text was modified.  Since Insert mode was not started yet
     // a call to check_cursor_col() may move the cursor, especially with
@@ -3425,7 +3430,7 @@ static void ins_compl_addleader(int c)
 
   xfree(compl_leader);
   compl_leader = vim_strnsave(get_cursor_line_ptr() + compl_col,
-      (int)(curwin->w_cursor.col - compl_col));
+                              curwin->w_cursor.col - compl_col);
   ins_compl_new_leader();
 }
 
@@ -3812,10 +3817,10 @@ static void ins_compl_fixRedoBufForLeader(char_u *ptr_arg)
  */
 static buf_T *ins_compl_next_buf(buf_T *buf, int flag)
 {
-  static win_T *wp;
+  static win_T *wp = NULL;
 
   if (flag == 'w') {            // just windows
-    if (buf == curbuf) {        // first call for this flag/expansion
+    if (buf == curbuf || wp == NULL) {  // first call for this flag/expansion
       wp = curwin;
     }
     assert(wp);
@@ -7805,7 +7810,7 @@ static bool ins_esc(long *count, int cmdchar, bool nomove)
   // Otherwise remove the mode message.
   if (reg_recording != 0 || restart_edit != NUL) {
     showmode();
-  } else if (p_smd && (got_int || !skip_showmode())) {
+  } else if (p_smd) {
     MSG("");
   }
   // Exit Insert mode
@@ -8284,8 +8289,9 @@ static bool ins_bs(int c, int mode, int *inserted_space_p)
         }
       } while (revins_on
                || (curwin->w_cursor.col > mincol
-                   && (curwin->w_cursor.lnum != Insstart_orig.lnum
-                       || curwin->w_cursor.col != Insstart_orig.col)));
+                   && (can_bs(BS_NOSTOP)
+                       || (curwin->w_cursor.lnum != Insstart_orig.lnum
+                           || curwin->w_cursor.col != Insstart_orig.col))));
     }
     did_backspace = true;
   }
@@ -8330,9 +8336,6 @@ static void ins_mouse(int c)
 {
   pos_T tpos;
   win_T       *old_curwin = curwin;
-
-  if (!mouse_has(MOUSE_INSERT))
-    return;
 
   undisplay_dollar();
   tpos = curwin->w_cursor;

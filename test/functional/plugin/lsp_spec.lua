@@ -193,6 +193,12 @@ describe('LSP', function()
   end)
 
   describe('basic_init test', function()
+    after_each(function()
+      stop()
+      exec_lua("lsp.stop_client(lsp.get_active_clients())")
+      exec_lua("lsp._vim_exit_handler()")
+    end)
+
     it('should run correctly', function()
       local expected_callbacks = {
         {NIL, "test", {}, 1};
@@ -260,6 +266,61 @@ describe('LSP', function()
           eq(table.remove(expected_callbacks), {...}, "expected callback")
         end;
       }
+    end)
+
+    it('client should return settings via workspace/configuration handler', function()
+      local expected_callbacks = {
+        {NIL, "shutdown", {}, 1};
+        {NIL, "workspace/configuration", { items = {
+              { section = "testSetting1" };
+              { section = "testSetting2" };
+          }}, 1};
+        {NIL, "start", {}, 1};
+      }
+      local client
+      test_rpc_server {
+        test_name = "check_workspace_configuration";
+        on_init = function(_client)
+          client = _client
+        end;
+        on_exit = function(code, signal)
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
+        end;
+        on_callback = function(err, method, params, client_id)
+          eq(table.remove(expected_callbacks), {err, method, params, client_id}, "expected callback")
+          if method == 'start' then
+            exec_lua([=[
+              local client = vim.lsp.get_client_by_id(TEST_RPC_CLIENT_ID)
+              client.config.settings = {
+                testSetting1 = true;
+                testSetting2 = false;
+            }]=])
+          end
+          if method == 'workspace/configuration' then
+            local result = exec_lua([=[
+              local method, params = ...
+              return require'vim.lsp.handlers'['workspace/configuration'](err, method, params, TEST_RPC_CLIENT_ID)]=], method, params)
+            client.notify('workspace/configuration', result)
+          end
+          if method == 'shutdown' then
+            client.stop()
+          end
+        end;
+      }
+    end)
+    it('workspace/configuration returns NIL per section if client was started without config.settings', function()
+      clear()
+      fake_lsp_server_setup('workspace/configuration no settings')
+      eq({ NIL, NIL, }, exec_lua [[
+        local params = {
+          items = {
+            {section = 'foo'},
+            {section = 'bar'},
+          }
+        }
+        return vim.lsp.handlers['workspace/configuration'](nil, nil, params, TEST_RPC_CLIENT_ID)
+      ]])
     end)
 
     it('should verify capabilities sent', function()
@@ -971,6 +1032,20 @@ describe('LSP', function()
         'å ä ɧ 汉语 ↥ 🤦 🦄';
       }, buf_lines(1))
     end)
+    it('applies text edits at the end of the document', function()
+      local edits = {
+        make_edit(5, 0, 5, 0, "foobar");
+      }
+      exec_lua('vim.lsp.util.apply_text_edits(...)', edits, 1)
+      eq({
+        'First line of text';
+        'Second line of text';
+        'Third line of text';
+        'Fourth line of text';
+        'å å ɧ 汉语 ↥ 🤦 🦄';
+        'foobar';
+      }, buf_lines(1))
+    end)
 
     describe('with LSP end line after what Vim considers to be the end line', function()
       it('applies edits when the last linebreak is considered a new line', function()
@@ -1003,7 +1078,7 @@ describe('LSP', function()
       return {
         edits = {
           make_edit(0, 0, 0, 3, "First ↥ 🤦 🦄")
-      },
+        },
         textDocument = {
           uri = "file://fake/uri";
           version = editVersion
@@ -1044,7 +1119,7 @@ describe('LSP', function()
           local args = {...}
           local versionedBuf = args[2]
           vim.lsp.util.buf_versions[versionedBuf.bufnr] = versionedBuf.currentVersion
-          vim.lsp.util.apply_text_document_edit(...)
+          vim.lsp.util.apply_text_document_edit(args[1])
         ]], edit, versionedBuf)
       end
 
@@ -1067,6 +1142,7 @@ describe('LSP', function()
       }, buf_lines(target_bufnr))
     end)
   end)
+
   describe('workspace_apply_edit', function()
     it('workspace/applyEdit returns ApplyWorkspaceEditResponse', function()
       local expected = {
@@ -1082,6 +1158,106 @@ describe('LSP', function()
       ]])
     end)
   end)
+
+  describe('apply_workspace_edit', function()
+    local replace_line_edit = function(row, new_line, editVersion)
+      return {
+        edits = {
+          -- NOTE: This is a hack if you have a line longer than 1000 it won't replace it
+          make_edit(row, 0, row, 1000, new_line)
+        },
+        textDocument = {
+          uri = "file://fake/uri";
+          version = editVersion
+        }
+      }
+    end
+
+    -- Some servers send all the edits separately, but with the same version.
+    -- We should not stop applying the edits
+    local make_workspace_edit = function(changes)
+      return {
+        documentChanges = changes
+      }
+    end
+
+    local target_bufnr, changedtick = nil, nil
+
+    before_each(function()
+      local ret = exec_lua [[
+        local bufnr = vim.uri_to_bufnr("file://fake/uri")
+        local lines = {
+          "Original Line #1",
+          "Original Line #2"
+        }
+
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+
+        local update_changed_tick = function()
+          vim.lsp.util.buf_versions[bufnr] = vim.api.nvim_buf_get_var(bufnr, 'changedtick')
+        end
+
+        update_changed_tick()
+        vim.api.nvim_buf_attach(bufnr, false, {
+          on_changedtick = function()
+            update_changed_tick()
+          end
+        })
+
+        return {bufnr, vim.api.nvim_buf_get_var(bufnr, 'changedtick')}
+      ]]
+
+      target_bufnr = ret[1]
+      changedtick = ret[2]
+    end)
+
+    it('apply_workspace_edit applies a single edit', function()
+      local new_lines = {
+        "First Line",
+      }
+
+      local edits = {}
+      for row, line in ipairs(new_lines) do
+        table.insert(edits, replace_line_edit(row - 1, line, changedtick))
+      end
+
+      eq({
+        "First Line",
+        "Original Line #2",
+      }, exec_lua([[
+        local args = {...}
+        local workspace_edits = args[1]
+        local target_bufnr = args[2]
+
+        vim.lsp.util.apply_workspace_edit(workspace_edits)
+
+        return vim.api.nvim_buf_get_lines(target_bufnr, 0, -1, false)
+      ]], make_workspace_edit(edits), target_bufnr))
+    end)
+
+    it('apply_workspace_edit applies multiple edits', function()
+      local new_lines = {
+        "First Line",
+        "Second Line",
+      }
+
+      local edits = {}
+      for row, line in ipairs(new_lines) do
+        table.insert(edits, replace_line_edit(row - 1, line, changedtick))
+      end
+
+      eq(new_lines, exec_lua([[
+        local args = {...}
+        local workspace_edits = args[1]
+        local target_bufnr = args[2]
+
+        vim.lsp.util.apply_workspace_edit(workspace_edits)
+
+        return vim.api.nvim_buf_get_lines(target_bufnr, 0, -1, false)
+      ]], make_workspace_edit(edits), target_bufnr))
+    end)
+  end)
+
   describe('completion_list_to_complete_items', function()
     -- Completion option precedence:
     -- textEdit.newText > insertText > label

@@ -282,9 +282,14 @@ enum {
 #define WIM_BUFLASTUSED 8
 
 // arguments for can_bs()
+// each defined char should be unique over all values
+// except for BS_START, that intentionally also matches BS_NOSTOP
+// because BS_NOSTOP behaves exactly the same except it
+// does not stop at the start of the insert point
 #define BS_INDENT       'i'     // "Indent"
-#define BS_EOL          'o'     // "eOl"
+#define BS_EOL          'l'     // "eoL"
 #define BS_START        's'     // "Start"
+#define BS_NOSTOP       'p'     // "nostoP
 
 #define LISPWORD_VALUE \
   "defun,define,defmacro,set!,lambda,if,case,let,flet,let*,letrec,do,do*,define-syntax,let-syntax,letrec-syntax,destructuring-bind,defpackage,defparameter,defstruct,deftype,defvar,do-all-symbols,do-external-symbols,do-symbols,dolist,dotimes,ecase,etypecase,eval-when,labels,macrolet,multiple-value-bind,multiple-value-call,multiple-value-prog1,multiple-value-setq,prog1,progv,typecase,unless,unwind-protect,when,with-input-from-string,with-open-file,with-open-stream,with-output-to-string,with-package-iterator,define-condition,handler-bind,handler-case,restart-bind,restart-case,with-simple-restart,store-value,use-value,muffle-warning,abort,continue,with-slots,with-slots*,with-accessors,with-accessors*,defclass,defmethod,print-unreadable-object"
@@ -616,6 +621,19 @@ EXTERN int p_sta;               // 'smarttab'
 EXTERN int p_sb;                // 'splitbelow'
 EXTERN long p_tpm;              // 'tabpagemax'
 EXTERN char_u   *p_tal;         // 'tabline'
+EXTERN char_u   *p_tpf;         // 'termpastefilter'
+EXTERN unsigned int tpf_flags;  ///< flags from 'termpastefilter'
+#ifdef IN_OPTION_C
+static char *(p_tpf_values[]) =
+  { "BS", "HT", "FF", "ESC", "DEL", "C0", "C1", NULL };
+#endif
+# define TPF_BS                 0x001
+# define TPF_HT                 0x002
+# define TPF_FF                 0x004
+# define TPF_ESC                0x008
+# define TPF_DEL                0x010
+# define TPF_C0                 0x020
+# define TPF_C1                 0x040
 EXTERN char_u   *p_sps;         // 'spellsuggest'
 EXTERN int p_spr;               // 'splitright'
 EXTERN int p_sol;               // 'startofline'

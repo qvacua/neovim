@@ -1541,7 +1541,10 @@ v:dying		Normally zero.  When a deadly signal is caught it's set to
 		VimLeave autocommands will not be executed.
 
 					*v:exiting* *exiting-variable*
-v:exiting	Exit code, or |v:null| if not exiting. |VimLeave|
+v:exiting	Exit code, or |v:null| before invoking the |VimLeavePre|
+		and |VimLeave| autocmds.  See |:q|, |:x| and |:cquit|.
+		Example: >
+			:au VimLeave * echo "Exit value is " .. v:exiting
 
 					*v:echospace* *echospace-variable*
 v:echospace	Number of screen cells that can be used for an `:echo` message
@@ -1600,7 +1603,7 @@ v:event		Dictionary of event data for the current |autocommand|.  Valid
 			regtype		Type of register as returned by
 					|getregtype()|.
 			visual		Selection is visual (as opposed to,
-					e.g., via motion).	
+					e.g., via motion).
 			completed_item    Current selected complete item on
 					|CompleteChanged|, Is `{}` when no complete
 					item selected.
@@ -1783,7 +1786,7 @@ v:msgpack_types	Dictionary containing msgpack types used by |msgpackparse()|
 		of msgpack types, use |is| operator.
 
 					*v:null* *null-variable*
-v:null		Special value used to put "null" in JSON and NIL in msgpack. 
+v:null		Special value used to put "null" in JSON and NIL in msgpack.
 		See |json_encode()|.  This value is converted to "v:null" when
 		used as a String (e.g. in |expr5| with string concatenation
 		operator) and to zero when used as a Number (e.g. in |expr5|
@@ -2184,6 +2187,7 @@ getjumplist([{winnr} [, {tabnr}]])
 getline({lnum})			String	line {lnum} of current buffer
 getline({lnum}, {end})		List	lines {lnum} to {end} of current buffer
 getloclist({nr} [, {what}])	List	list of location list items
+getmarklist([{expr}])		List	list of global/local marks
 getmatches([{win}])		List	list of current matches
 getpid()			Number	process ID of Vim
 getpos({expr})			List	position of cursor, mark, etc.
@@ -4149,7 +4153,7 @@ function({name} [, {arglist}] [, {dict}])
 garbagecollect([{atexit}])				*garbagecollect()*
 		Cleanup unused |Lists| and |Dictionaries| that have circular
 		references.
-		
+
 		There is hardly ever a need to invoke this function, as it is
 		automatically done when Vim runs out of memory or is waiting
 		for the user to press a key after 'updatetime'.  Items without
@@ -4448,11 +4452,12 @@ getcompletion({pat}, {type} [, {filtered}])		*getcompletion()*
 		augroup		autocmd groups
 		buffer		buffer names
 		behave		:behave suboptions
-		cmdline		|cmdline-completion|
+		cmdline		|cmdline-completion| result
 		color		color schemes
 		command		Ex command (and arguments)
 		compiler	compilers
 		cscope		|:cscope| suboptions
+		diff_buffer     |:diffget| and |:diffput| completion
 		dir		directory names
 		environment	environment variable names
 		event		autocommand events
@@ -4480,14 +4485,19 @@ getcompletion({pat}, {type} [, {filtered}])		*getcompletion()*
 		user		user names
 		var		user variables
 
-		If {pat} is an empty string then all matches are returned.
-		Otherwise only items matching {pat} are returned. See
-		|wildcards| for the use of special characters in {pat}.
+		If {pat} is an empty string, then all the matches are
+		returned.  Otherwise only items matching {pat} are returned.
+		See |wildcards| for the use of special characters in {pat}.
 
 		If the optional {filtered} flag is set to 1, then 'wildignore'
 		is applied to filter the results.  Otherwise all the matches
 		are returned. The 'wildignorecase' option always applies.
 
+		If {type} is "cmdline", then the |cmdline-completion| result is
+		returned.  For example, to complete the possible values after
+		a ":call" command: >
+			echo getcompletion('call ', 'cmdline')
+<
 		If there are no matches, an empty list is returned.  An
 		invalid value for {type} produces an error.
 
@@ -4648,6 +4658,24 @@ getloclist({nr},[, {what}])				*getloclist()*
 		window used to display files from the location list. This
 		field is applicable only when called from a location list
 		window. See |location-list-file-window| for more details.
+
+getmarklist([{expr}]					*getmarklist()*
+		Without the {expr} argument returns a |List| with information
+		about all the global marks. |mark|
+
+		If the optional {expr} argument is specified, returns the
+		local marks defined in buffer {expr}.  For the use of {expr},
+		see |bufname()|.
+
+		Each item in the retuned List is a |Dict| with the following:
+		    name - name of the mark prefixed by "'"
+		    pos - a |List| with the position of the mark:
+				[bufnum, lnum, col, off]
+			  Refer to |getpos()| for more information.
+		    file - file name
+
+		Refer to |getpos()| for getting information about a specific
+		mark.
 
 getmatches([{win}])					*getmatches()*
 		Returns a |List| with all matches previously defined for the
@@ -4915,7 +4943,7 @@ getwininfo([{winid}])					*getwininfo()*
 			quickfix	1 if quickfix or location list window
 			terminal	1 if a terminal window
 			tabnr		tab page number
-			topline		first displayed buffer line 
+			topline		first displayed buffer line
 			variables	a reference to the dictionary with
 					window-local variables
 			width		window width
@@ -5055,7 +5083,7 @@ has({feature})	Returns 1 if {feature} is supported, 0 otherwise.  The
 
 		Vim's compile-time feature-names (prefixed with "+") are not
 		recognized because Nvim is always compiled with all possible
-		features. |feature-compile| 
+		features. |feature-compile|
 
 		Feature names can be:
 		1.  Nvim version. For example the "nvim-0.2.1" feature means
@@ -5080,7 +5108,7 @@ has({feature})	Returns 1 if {feature} is supported, 0 otherwise.  The
 			ttyin		input is a terminal (tty)
 			ttyout		output is a terminal (tty)
 			unix		Unix system.
-			*vim_starting*	True during |startup|. 
+			*vim_starting*	True during |startup|.
 			win32		Windows system (32 or 64 bit).
 			win64		Windows system (64 bit).
 			wsl		WSL (Windows Subsystem for Linux) system
@@ -5588,7 +5616,6 @@ jobstart({cmd}[, {opts}])				*jobstart()*
 			      before invoking `on_stderr`. |channel-buffered|
 		  stdout_buffered: (boolean) Collect data until EOF (stream
 			      closed) before invoking `on_stdout`. |channel-buffered|
-		  TERM:	      (string) Sets the `pty` $TERM environment variable.
 		  width:      (number) Width of the `pty` terminal.
 
 		{opts} is passed as |self| dictionary to the callback; the
@@ -5665,7 +5692,7 @@ json_encode({expr})					*json_encode()*
 		|msgpack-special-dict|), values with self-referencing
 		containers, strings which contain non-UTF-8 characters,
 		pseudo-UTF-8 strings which contain codepoints reserved for
-		surrogate pairs (such strings are not valid UTF-8 strings). 
+		surrogate pairs (such strings are not valid UTF-8 strings).
 		Non-printable characters are converted into "\u1234" escapes
 		or special escapes like "\t", other are dumped as-is.
 
@@ -5828,7 +5855,7 @@ map({expr1}, {expr2})					*map()*
 		{expr1} must be a |List| or a |Dictionary|.
 		Replace each item in {expr1} with the result of evaluating
 		{expr2}. {expr2} must be a |string| or |Funcref|.
-		
+
 		If {expr2} is a |string|, inside {expr2} |v:val| has the value
 		of the current item. For a |Dictionary| |v:key| has the key
 		of the current item and for a |List| |v:key| has the index of
@@ -6095,8 +6122,8 @@ matchaddpos({group}, {pos} [, {priority} [, {id} [, {dict}]]])
 		- A list with three numbers, e.g., [23, 11, 3]. As above, but
 		  the third number gives the length of the highlight in bytes.
 
-		Entries with zero and negative line numbers are silently 
-		ignored, as well as entries with negative column numbers and 
+		Entries with zero and negative line numbers are silently
+		ignored, as well as entries with negative column numbers and
 		lengths.
 
 		The maximum number of positions is 8.
@@ -7589,7 +7616,7 @@ setpos({expr}, {list})
 
 setqflist({list} [, {action}[, {what}]])		*setqflist()*
 		Create or replace or add to the quickfix list.
-		
+
 		When {what} is not present, use the items in {list}.  Each
 		item must be a dictionary.  Non-dictionary items in {list} are
 		ignored.  Each dictionary item can contain the following
@@ -7630,12 +7657,12 @@ setqflist({list} [, {action}[, {what}]])		*setqflist()*
 		'a'	The items from {list} are added to the existing
 			quickfix list. If there is no existing list, then a
 			new list is created.
-		
+
 		'r'	The items from the current quickfix list are replaced
 			with the items from {list}.  This can also be used to
 			clear the list: >
 				:call setqflist([], 'r')
-<	
+<
 		'f'	All the quickfix lists in the quickfix stack are
 			freed.
 
@@ -8004,7 +8031,7 @@ sign_place({id}, {group}, {name}, {expr} [, {dict}])
 		empty string.  {group} functions as a namespace for {id}, thus
 		two groups can use the same IDs. Refer to |sign-identifier|
 		for more information.
-		
+
 		{name} refers to a defined sign.
 		{expr} refers to a buffer name or number. For the accepted
 		values, see |bufname()|.
@@ -8784,7 +8811,7 @@ system({cmd} [, {input}])				*system()* *E677*
 
 		Note: Use |shellescape()| or |::S| with |expand()| or
 		|fnamemodify()| to escape special characters in a command
-		argument.  Newlines in {cmd} may cause the command to fail. 
+		argument.  Newlines in {cmd} may cause the command to fail.
 		The characters in 'shellquote' and 'shellxquote' may also
 		cause trouble.
 
