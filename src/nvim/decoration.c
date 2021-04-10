@@ -2,6 +2,7 @@
 // it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 
 #include "nvim/vim.h"
+#include "nvim/lua/executor.h"
 #include "nvim/extmark.h"
 #include "nvim/decoration.h"
 #include "nvim/screen.h"
@@ -145,8 +146,7 @@ bool decor_redraw_reset(buf_T *buf, DecorState *state)
   for (size_t i = 0; i < kv_size(state->active); i++) {
     HlRange item = kv_A(state->active, i);
     if (item.virt_text_owned) {
-      clear_virttext(item.virt_text);
-      xfree(item.virt_text);
+      clear_virttext(&item.virt_text);
     }
   }
   kv_size(state->active) = 0;
@@ -188,20 +188,21 @@ bool decor_redraw_start(buf_T *buf, int top_row, DecorState *state)
       goto next_mark;
     }
 
-    int attr_id = decor->hl_id > 0 ? syn_id2attr(decor->hl_id) : 0;
-    VirtText *vt = kv_size(decor->virt_text) ? &decor->virt_text : NULL;
-    HlRange range;
     if (mark.id&MARKTREE_END_FLAG) {
-      range = (HlRange){ altpos.row, altpos.col, mark.row, mark.col,
-                         attr_id, decor->priority, vt, false };
+      decor_add(state, altpos.row, altpos.col, mark.row, mark.col,
+                decor, false, 0);
     } else {
-      range = (HlRange){ mark.row, mark.col, altpos.row,
-                         altpos.col, attr_id, decor->priority, vt, false };
+      if (altpos.row == -1) {
+        altpos.row = mark.row;
+        altpos.col = mark.col;
+      }
+      decor_add(state, mark.row, mark.col, altpos.row, altpos.col,
+                decor, false, 0);
     }
-    hlrange_activate(range, state);
 
 next_mark:
     if (marktree_itr_node_done(state->itr)) {
+      marktree_itr_next(buf->b_marktree, state->itr);
       break;
     }
     marktree_itr_next(buf->b_marktree, state->itr);
@@ -220,41 +221,40 @@ bool decor_redraw_line(buf_T *buf, int row, DecorState *state)
   return true;  // TODO(bfredl): be more precise
 }
 
-static void hlrange_activate(HlRange range, DecorState *state)
+static void decor_add(DecorState *state, int start_row, int start_col,
+                      int end_row, int end_col, Decoration *decor, bool owned,
+                      DecorPriority priority)
 {
-  // Get size before preparing the push, to have the number of elements
-  size_t s = kv_size(state->active);
+  int attr_id = decor->hl_id > 0 ? syn_id2attr(decor->hl_id) : 0;
+
+  HlRange range = { start_row, start_col, end_row, end_col,
+                    attr_id, MAX(priority, decor->priority),
+                    decor->virt_text,
+                    decor->virt_text_pos, decor->virt_text_hide, decor->hl_mode,
+                    kv_size(decor->virt_text) && owned, -1 };
 
   kv_pushp(state->active);
-
-  size_t dest_index = 0;
-
-  // Determine insertion dest_index
-  while (dest_index < s) {
-    HlRange item = kv_A(state->active, dest_index);
-    if (item.priority > range.priority) {
+  size_t index;
+  for (index = kv_size(state->active)-1; index > 0; index--) {
+    HlRange item = kv_A(state->active, index-1);
+    if (item.priority <= range.priority) {
       break;
     }
-
-    dest_index++;
-  }
-
-  // Splice
-  for (size_t index = s; index > dest_index; index--) {
     kv_A(state->active, index) = kv_A(state->active, index-1);
   }
-
-  // Insert
-  kv_A(state->active, dest_index) = range;
+  kv_A(state->active, index) = range;
 }
 
-int decor_redraw_col(buf_T *buf, int col, DecorState *state)
+int decor_redraw_col(buf_T *buf, int col, int virt_col, bool hidden,
+                     DecorState *state)
 {
   if (col <= state->col_until) {
     return state->current;
   }
   state->col_until = MAXCOL;
   while (true) {
+    // TODO(bfredl): check duplicate entry in "intersection"
+    // branch
     mtmark_t mark = marktree_itr_current(state->itr);
     if (mark.row < 0 || mark.row > state->row) {
       break;
@@ -278,6 +278,11 @@ int decor_redraw_col(buf_T *buf, int col, DecorState *state)
     }
     Decoration *decor = item->decor;
 
+    if (endpos.row == -1) {
+      endpos.row = mark.row;
+      endpos.col = mark.col;
+    }
+
     if (endpos.row < mark.row
         || (endpos.row == mark.row && endpos.col <= mark.col)) {
       if (!kv_size(decor->virt_text)) {
@@ -285,12 +290,8 @@ int decor_redraw_col(buf_T *buf, int col, DecorState *state)
       }
     }
 
-    int attr_id = decor->hl_id > 0 ? syn_id2attr(decor->hl_id) : 0;
-    VirtText *vt = kv_size(decor->virt_text) ? &decor->virt_text : NULL;
-    hlrange_activate((HlRange){ mark.row, mark.col,
-                                endpos.row, endpos.col,
-                                attr_id, decor->priority,
-                                vt, false }, state);
+    decor_add(state, mark.row, mark.col, endpos.row, endpos.col,
+              decor, false, 0);
 
 next_mark:
     marktree_itr_next(buf->b_marktree, state->itr);
@@ -303,14 +304,14 @@ next_mark:
     bool active = false, keep = true;
     if (item.end_row < state->row
         || (item.end_row == state->row && item.end_col <= col)) {
-      if (!(item.start_row >= state->row && item.virt_text)) {
+      if (!(item.start_row >= state->row && kv_size(item.virt_text))) {
         keep = false;
       }
     } else {
       if (item.start_row < state->row
           || (item.start_row == state->row && item.start_col <= col)) {
         active = true;
-        if (item.end_row == state->row) {
+        if (item.end_row == state->row && item.end_col > col) {
           state->col_until = MIN(state->col_until, item.end_col-1);
         }
       } else {
@@ -322,11 +323,14 @@ next_mark:
     if (active && item.attr_id > 0) {
       attr = hl_combine_attr(attr, item.attr_id);
     }
+    if ((item.start_row == state->row && item.start_col <= col)
+        && kv_size(item.virt_text) && item.virt_col == -1) {
+      item.virt_col = (item.virt_text_hide && hidden) ? -2 : virt_col;
+    }
     if (keep) {
-      kv_A(state->active, j++) = kv_A(state->active, i);
+      kv_A(state->active, j++) = item;
     } else if (item.virt_text_owned) {
-      clear_virttext(item.virt_text);
-      xfree(item.virt_text);
+      clear_virttext(&item.virt_text);
     }
   }
   kv_size(state->active) = j;
@@ -339,23 +343,75 @@ void decor_redraw_end(DecorState *state)
   state->buf = NULL;
 }
 
-VirtText *decor_redraw_virt_text(buf_T *buf, DecorState *state)
+VirtText decor_redraw_virt_text(buf_T *buf, DecorState *state)
 {
-  decor_redraw_col(buf, MAXCOL, state);
+  decor_redraw_col(buf, MAXCOL, MAXCOL, false, state);
   for (size_t i = 0; i < kv_size(state->active); i++) {
     HlRange item = kv_A(state->active, i);
-    if (item.start_row == state->row && item.virt_text) {
+    if (item.start_row == state->row && kv_size(item.virt_text)
+        && item.virt_text_pos == kVTEndOfLine) {
       return item.virt_text;
     }
   }
-  return NULL;
+  return VIRTTEXT_EMPTY;
 }
 
-void decor_add_ephemeral(int attr_id, int start_row, int start_col,
-                         int end_row, int end_col, DecorPriority priority,
-                         VirtText *virt_text)
+void decor_add_ephemeral(int start_row, int start_col, int end_row, int end_col,
+                         Decoration *decor, DecorPriority priority)
 {
-hlrange_activate(((HlRange){ start_row, start_col, end_row, end_col, attr_id,
-                             priority, virt_text, virt_text != NULL }),
-                 &decor_state);
+  if (end_row == -1) {
+    end_row = start_row;
+    end_col = start_col;
+  }
+  decor_add(&decor_state, start_row, start_col, end_row, end_col, decor, true,
+            priority);
+}
+
+
+DecorProvider *get_decor_provider(NS ns_id, bool force)
+{
+  ssize_t i;
+  for (i = 0; i < (ssize_t)kv_size(decor_providers); i++) {
+    DecorProvider *item = &kv_A(decor_providers, i);
+    if (item->ns_id == ns_id) {
+      return item;
+    } else if (item->ns_id > ns_id) {
+      break;
+    }
+  }
+
+  if (!force) {
+    return NULL;
+  }
+
+  for (ssize_t j = (ssize_t)kv_size(decor_providers)-1; j >= i; j++) {
+    // allocates if needed:
+    (void)kv_a(decor_providers, (size_t)j+1);
+    kv_A(decor_providers, (size_t)j+1) = kv_A(decor_providers, j);
+  }
+  DecorProvider *item = &kv_a(decor_providers, (size_t)i);
+  *item = DECORATION_PROVIDER_INIT(ns_id);
+
+  return item;
+}
+
+void decor_provider_clear(DecorProvider *p)
+{
+  if (p == NULL) {
+    return;
+  }
+  NLUA_CLEAR_REF(p->redraw_start);
+  NLUA_CLEAR_REF(p->redraw_buf);
+  NLUA_CLEAR_REF(p->redraw_win);
+  NLUA_CLEAR_REF(p->redraw_line);
+  NLUA_CLEAR_REF(p->redraw_end);
+  p->active = false;
+}
+
+void decor_free_all_mem(void)
+{
+  for (size_t i = 0; i < kv_size(decor_providers); i++) {
+    decor_provider_clear(&kv_A(decor_providers, i));
+  }
+  kv_destroy(decor_providers);
 }

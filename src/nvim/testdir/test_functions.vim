@@ -1,5 +1,7 @@
 " Tests for various functions.
+
 source shared.vim
+source check.vim
 
 " Must be done first, since the alternate buffer must be unset.
 func Test_00_bufexists()
@@ -171,9 +173,8 @@ func Test_str2nr()
 endfunc
 
 func Test_strftime()
-  if !exists('*strftime')
-    return
-  endif
+  CheckFunction strftime
+
   " Format of strftime() depends on system. We assume
   " that basic formats tested here are available and
   " identical on all systems which support strftime().
@@ -207,6 +208,33 @@ func Test_strftime()
   endif
 
   " If we cached a timezone value, put it back, otherwise clear it
+  if exists('tz')
+    let $TZ = tz
+  else
+    unlet $TZ
+  endif
+endfunc
+
+func Test_strptime()
+  CheckFunction strptime
+  CheckNotMSWindows
+
+  if exists('$TZ')
+    let tz = $TZ
+  endif
+  let $TZ = 'UTC'
+
+  call assert_equal(1484653763, strptime('%Y-%m-%d %T', '2017-01-17 11:49:23'))
+
+  " Force DST and check that it's considered
+  let $TZ = 'WINTER0SUMMER,J1,J365'
+  call assert_equal(1484653763 - 3600, strptime('%Y-%m-%d %T', '2017-01-17 11:49:23'))
+
+  call assert_fails('call strptime()', 'E119:')
+  call assert_fails('call strptime("xxx")', 'E119:')
+  call assert_equal(0, strptime("%Y", ''))
+  call assert_equal(0, strptime("%Y", "xxx"))
+
   if exists('tz')
     let $TZ = tz
   else
@@ -831,6 +859,31 @@ func Test_byte2line_line2byte()
 
   set endofline& fixendofline& fileformat&
   bw!
+endfunc
+
+" Test for charidx()
+func Test_charidx()
+  let a = 'xáb́y'
+  call assert_equal(0, charidx(a, 0))
+  call assert_equal(1, charidx(a, 3))
+  call assert_equal(2, charidx(a, 4))
+  call assert_equal(3, charidx(a, 7))
+  call assert_equal(-1, charidx(a, 8))
+  call assert_equal(-1, charidx('', 0))
+
+  " count composing characters
+  call assert_equal(0, charidx(a, 0, 1))
+  call assert_equal(2, charidx(a, 2, 1))
+  call assert_equal(3, charidx(a, 4, 1))
+  call assert_equal(5, charidx(a, 7, 1))
+  call assert_equal(-1, charidx(a, 8, 1))
+  call assert_equal(-1, charidx('', 0, 1))
+
+  call assert_fails('let x = charidx([], 1)', 'E474:')
+  call assert_fails('let x = charidx("abc", [])', 'E474:')
+  call assert_fails('let x = charidx("abc", 1, [])', 'E474:')
+  call assert_fails('let x = charidx("abc", 1, -1)', 'E474:')
+  call assert_fails('let x = charidx("abc", 1, 2)', 'E474:')
 endfunc
 
 func Test_count()

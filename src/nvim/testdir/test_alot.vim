@@ -33,11 +33,10 @@ source test_move.vim
 source test_partial.vim
 source test_popup.vim
 source test_put.vim
-source test_recover.vim
+source test_rename.vim
 source test_scroll_opt.vim
 source test_sort.vim
 source test_sha256.vim
-source test_statusline.vim
 source test_suspend.vim
 source test_syn_attr.vim
 source test_tabline.vim

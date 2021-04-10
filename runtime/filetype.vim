@@ -1,7 +1,7 @@
 " Vim support file to detect file types
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2020 Apr 29
+" Last Change:	2021 Apr 05
 
 " Listen very carefully, I will say this only once
 if exists("did_load_filetypes")
@@ -163,6 +163,9 @@ au BufNewFile,BufRead *.mar			setf vmasm
 
 " Atlas
 au BufNewFile,BufRead *.atl,*.as		setf atlas
+
+" Atom is based on XML
+au BufNewFile,BufRead *.atom			setf xml
 
 " Autoit v3
 au BufNewFile,BufRead *.au3			setf autoit
@@ -1272,6 +1275,11 @@ au BufNewFile,BufRead .povrayrc			setf povini
 " Povray, Pascal, PHP or assembly
 au BufNewFile,BufRead *.inc			call dist#ft#FTinc()
 
+" PowerShell
+au BufNewFile,BufRead	*.ps1,*.psd1,*.psm1,*.pssc	setf ps1
+au BufNewFile,BufRead	*.ps1xml			setf ps1xml
+au BufNewFile,BufRead	*.cdxml,*.psc1			setf xml
+
 " Printcap and Termcap
 au BufNewFile,BufRead *printcap
 	\ let b:ptcap_type = "print" | setf ptcap
@@ -1329,6 +1337,9 @@ au BufNewFile,BufRead *.pml			setf promela
 " Google protocol buffers
 au BufNewFile,BufRead *.proto			setf proto
 au BufNewFile,BufRead *.pbtxt			setf pbtxt
+
+" Poke
+au BufNewFile,BufRead *.pk      		setf poke
 
 " Protocols
 au BufNewFile,BufRead */etc/protocols		setf protocols
@@ -1393,6 +1404,9 @@ if has("fname_case")
 else
   au BufNewFile,BufRead *.rmd,*.smd			setf rmd
 endif
+
+" RSS looks like XML
+au BufNewFile,BufRead *.rss				setf xml
 
 " R reStructuredText file
 if has("fname_case")
@@ -1545,10 +1559,9 @@ au BufNewFile,BufRead catalog			setf catalog
 " Shell scripts (sh, ksh, bash, bash2, csh); Allow .profile_foo etc.
 " Gentoo ebuilds and Arch Linux PKGBUILDs are actually bash scripts
 " NOTE: Patterns ending in a star are further down, these have lower priority.
-au BufNewFile,BufRead .bashrc,bashrc,bash.bashrc,.bash[_-]profile,.bash[_-]logout,.bash[_-]aliases,bash-fc[-.],*.bash,*/{,.}bash[_-]completion{,.d,.sh}{,/*},*.ebuild,*.eclass,PKGBUILD call dist#ft#SetFileTypeSH("bash")
+au BufNewFile,BufRead .bashrc,bashrc,bash.bashrc,.bash[_-]profile,.bash[_-]logout,.bash[_-]aliases,bash-fc[-.],*.ebuild,*.bash,*.eclass,PKGBUILD,APKBUILD call dist#ft#SetFileTypeSH("bash")
 au BufNewFile,BufRead .kshrc,*.ksh call dist#ft#SetFileTypeSH("ksh")
 au BufNewFile,BufRead */etc/profile,.profile,*.sh,*.env call dist#ft#SetFileTypeSH(getline(1))
-
 
 " Shell script (Arch Linux) or PHP file (Drupal)
 au BufNewFile,BufRead *.install
@@ -2223,8 +2236,11 @@ au BufNewFile,BufRead .reminders*		call s:StarSetf('remind')
 " SGML catalog file
 au BufNewFile,BufRead sgml.catalog*		call s:StarSetf('catalog')
 
+" avoid doc files being recognized a shell files
+au BufNewFile,BufRead */doc/{,.}bash[_-]completion{,.d,.sh}{,/*} setf text
+
 " Shell scripts ending in a star
-au BufNewFile,BufRead .bashrc*,.bash[_-]profile*,.bash[_-]logout*,.bash[_-]aliases*,bash-fc[-.]*,,PKGBUILD* call dist#ft#SetFileTypeSH("bash")
+au BufNewFile,BufRead .bashrc*,.bash[_-]profile*,.bash[_-]logout*,.bash[_-]aliases*,bash-fc[-.]*,PKGBUILD*,APKBUILD*,*/{,.}bash[_-]completion{,.d,.sh}{,/*} call dist#ft#SetFileTypeSH("bash")
 au BufNewFile,BufRead .kshrc* call dist#ft#SetFileTypeSH("ksh")
 au BufNewFile,BufRead .profile* call dist#ft#SetFileTypeSH(getline(1))
 

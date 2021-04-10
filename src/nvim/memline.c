@@ -3859,8 +3859,8 @@ static void ml_updatechunk(buf_T *buf, linenr_T line, long len, int updtype)
     /* May resize here so we don't have to do it in both cases below */
     if (buf->b_ml.ml_usedchunks + 1 >= buf->b_ml.ml_numchunks) {
       buf->b_ml.ml_numchunks = buf->b_ml.ml_numchunks * 3 / 2;
-      buf->b_ml.ml_chunksize = (chunksize_T *)
-                               xrealloc(buf->b_ml.ml_chunksize,
+      buf->b_ml.ml_chunksize = xrealloc(
+          buf->b_ml.ml_chunksize,
           sizeof(chunksize_T) * buf->b_ml.ml_numchunks);
     }
 
@@ -4142,7 +4142,7 @@ void goto_byte(long cnt)
   if (lnum < 1) {         // past the end
     curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
     curwin->w_curswant = MAXCOL;
-    coladvance((colnr_T)MAXCOL);
+    coladvance(MAXCOL);
   } else {
     curwin->w_cursor.lnum = lnum;
     curwin->w_cursor.col = (colnr_T)boff;

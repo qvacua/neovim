@@ -3928,7 +3928,7 @@ static linenr_T get_address(exarg_T *eap,
         }
         searchcmdlen = 0;
         flags = silent ? 0 : SEARCH_HIS | SEARCH_MSG;
-        if (!do_search(NULL, c, cmd, 1L, flags, NULL)) {
+        if (!do_search(NULL, c, c, cmd, 1L, flags, NULL)) {
           curwin->w_cursor = pos;
           cmd = NULL;
           goto error;
@@ -7498,7 +7498,7 @@ static void ex_syncbind(exarg_T *eap)
 
       ctrl_o[0] = Ctrl_O;
       ctrl_o[1] = 0;
-      ins_typebuf(ctrl_o, REMAP_NONE, 0, TRUE, FALSE);
+      ins_typebuf(ctrl_o, REMAP_NONE, 0, true, false);
     }
   }
 }

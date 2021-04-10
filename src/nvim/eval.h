@@ -158,6 +158,7 @@ typedef enum {
     // Neovim
     VV_STDERR,
     VV_MSGPACK_TYPES,
+    VV__NULL_STRING,  // String with NULL value. For test purposes only.
     VV__NULL_LIST,  // List with NULL value. For test purposes only.
     VV__NULL_DICT,  // Dictionary with NULL value. For test purposes only.
     VV_LUA,
@@ -226,6 +227,19 @@ typedef enum
   ASSERT_INRANGE,
   ASSERT_OTHER,
 } assert_type_T;
+
+/// types for expressions.
+typedef enum {
+  TYPE_UNKNOWN = 0,
+  TYPE_EQUAL,         ///< ==
+  TYPE_NEQUAL,        ///< !=
+  TYPE_GREATER,       ///< >
+  TYPE_GEQUAL,        ///< >=
+  TYPE_SMALLER,       ///< <
+  TYPE_SEQUAL,        ///< <=
+  TYPE_MATCH,         ///< =~
+  TYPE_NOMATCH,       ///< !~
+} exptype_T;
 
 /// Type for dict_list function
 typedef enum {

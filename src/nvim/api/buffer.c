@@ -222,11 +222,7 @@ Boolean nvim_buf_attach(uint64_t channel_id,
   return buf_updates_register(buf, channel_id, cb, send_buffer);
 
 error:
-  // TODO(bfredl): ASAN build should check that the ref table is empty?
-  api_free_luaref(cb.on_lines);
-  api_free_luaref(cb.on_bytes);
-  api_free_luaref(cb.on_changedtick);
-  api_free_luaref(cb.on_detach);
+  buffer_update_callbacks_free(cb);
   return false;
 }
 
@@ -1425,6 +1421,23 @@ Array nvim_buf_get_extmarks(Buffer buffer, Integer ns_id,
 ///               - hl_group : name of the highlight group used to highlight
 ///                   this mark.
 ///               - virt_text : virtual text to link to this mark.
+///               - virt_text_pos : positioning of virtual text. Possible
+///                                 values:
+///                 - "eol": right after eol character (default)
+///                 - "overlay": display over the specified column, without
+///                              shifting the underlying text.
+///               - virt_text_hide : hide the virtual text when the background
+///                                  text is selected or hidden due to
+///                                  horizontal scroll 'nowrap'
+///               - hl_mode : control how highlights are combined with the
+///                           highlights of the text. Currently only affects
+///                           virt_text highlights, but might affect `hl_group`
+///                           in later versions.
+///                 - "replace": only show the virt_text color. This is the
+///                              default
+///                 - "combine": combine with background text color
+///                 - "blend": blend with background text color.
+///
 ///               - ephemeral : for use with |nvim_set_decoration_provider|
 ///                   callbacks. The mark will only be used for the current
 ///                   redraw cycle, and not be permantently stored in the
@@ -1436,6 +1449,8 @@ Array nvim_buf_get_extmarks(Buffer buffer, Integer ns_id,
 ///                   the extmark end position (if it exists) will be shifted
 ///                   in when new text is inserted (true for right, false
 ///                   for left). Defaults to false.
+///               - priority: a priority value for the highlight group. For
+///                   example treesitter highlighting uses a value of 100.
 /// @param[out]  err   Error details, if any
 /// @return Id of the created/updated extmark
 Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
@@ -1472,10 +1487,10 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
   bool ephemeral = false;
 
   uint64_t id = 0;
-  int line2 = -1, hl_id = 0;
-  DecorPriority priority = DECOR_PRIORITY_BASE;
-  colnr_T col2 = 0;
-  VirtText virt_text = KV_INITIAL_VALUE;
+  int line2 = -1;
+  Decoration decor = DECORATION_INIT;
+  colnr_T col2 = -1;
+
   bool right_gravity = true;
   bool end_right_gravity = false;
   bool end_gravity_set = false;
@@ -1522,12 +1537,12 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
       switch (v->type) {
         case kObjectTypeString:
           hl_group = v->data.string;
-          hl_id = syn_check_group(
+          decor.hl_id = syn_check_group(
               (char_u *)(hl_group.data),
               (int)hl_group.size);
           break;
         case kObjectTypeInteger:
-          hl_id = (int)v->data.integer;
+          decor.hl_id = (int)v->data.integer;
           break;
         default:
           api_set_error(err, kErrorTypeValidation,
@@ -1540,8 +1555,48 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
                       "virt_text is not an Array");
         goto error;
       }
-      virt_text = parse_virt_text(v->data.array, err);
+      decor.virt_text = parse_virt_text(v->data.array, err);
       if (ERROR_SET(err)) {
+        goto error;
+      }
+    } else if (strequal("virt_text_pos", k.data)) {
+      if (v->type != kObjectTypeString) {
+        api_set_error(err, kErrorTypeValidation,
+                      "virt_text_pos is not a String");
+        goto error;
+      }
+      String str = v->data.string;
+      if (strequal("eol", str.data)) {
+        decor.virt_text_pos = kVTEndOfLine;
+      } else if (strequal("overlay", str.data)) {
+        decor.virt_text_pos = kVTOverlay;
+      } else {
+        api_set_error(err, kErrorTypeValidation,
+                      "virt_text_pos: invalid value");
+        goto error;
+      }
+    } else if (strequal("virt_text_hide", k.data)) {
+      decor.virt_text_hide = api_object_to_bool(*v,
+                                                "virt_text_hide", false, err);
+      if (ERROR_SET(err)) {
+        goto error;
+      }
+    } else if (strequal("hl_mode", k.data)) {
+      if (v->type != kObjectTypeString) {
+        api_set_error(err, kErrorTypeValidation,
+                      "hl_mode is not a String");
+        goto error;
+      }
+      String str = v->data.string;
+      if (strequal("replace", str.data)) {
+        decor.hl_mode = kHlModeReplace;
+      } else if (strequal("combine", str.data)) {
+        decor.hl_mode = kHlModeCombine;
+      } else if (strequal("blend", str.data)) {
+        decor.hl_mode = kHlModeBlend;
+      } else {
+        api_set_error(err, kErrorTypeValidation,
+                      "virt_text_pos: invalid value");
         goto error;
       }
     } else if (strequal("ephemeral", k.data)) {
@@ -1561,7 +1616,7 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
                       "priority is not a valid value");
         goto error;
       }
-      priority = (DecorPriority)v->data.integer;
+      decor.priority = (DecorPriority)v->data.integer;
     } else if (strequal("right_gravity", k.data)) {
       if (v->type != kObjectTypeBoolean) {
         api_set_error(err, kErrorTypeValidation,
@@ -1585,7 +1640,7 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
 
   // Only error out if they try to set end_right_gravity without
   // setting end_col or end_line
-  if (line2 == -1 && col2 == 0 && end_gravity_set) {
+  if (line2 == -1 && col2 == -1 && end_gravity_set) {
     api_set_error(err, kErrorTypeValidation,
                   "cannot set end_right_gravity "
                   "without setting end_line or end_col");
@@ -1609,40 +1664,38 @@ Integer nvim_buf_set_extmark(Buffer buffer, Integer ns_id,
     col2 = 0;
   }
 
+  Decoration *d = NULL;
+
+  if (ephemeral) {
+    d = &decor;
+  } else if (kv_size(decor.virt_text)
+             || decor.priority != DECOR_PRIORITY_BASE) {
+    // TODO(bfredl): this is a bit sketchy. eventually we should
+    // have predefined decorations for both marks/ephemerals
+    d = xcalloc(1, sizeof(*d));
+    *d = decor;
+  } else if (decor.hl_id) {
+    d = decor_hl(decor.hl_id);
+  }
+
   // TODO(bfredl): synergize these two branches even more
   if (ephemeral && decor_state.buf == buf) {
-    int attr_id = hl_id > 0 ? syn_id2attr(hl_id) : 0;
-    VirtText *vt_allocated = NULL;
-    if (kv_size(virt_text)) {
-      vt_allocated = xmalloc(sizeof *vt_allocated);
-      *vt_allocated = virt_text;
-    }
-    decor_add_ephemeral(attr_id, (int)line, (colnr_T)col,
-                        (int)line2, (colnr_T)col2, priority, vt_allocated);
+    decor_add_ephemeral((int)line, (int)col, line2, col2, &decor, 0);
   } else {
     if (ephemeral) {
       api_set_error(err, kErrorTypeException, "not yet implemented");
       goto error;
     }
-    Decoration *decor = NULL;
-    if (kv_size(virt_text)) {
-      decor = xcalloc(1, sizeof(*decor));
-      decor->hl_id = hl_id;
-      decor->virt_text = virt_text;
-    } else if (hl_id) {
-      decor = decor_hl(hl_id);
-      decor->priority = priority;
-    }
 
     id = extmark_set(buf, (uint64_t)ns_id, id, (int)line, (colnr_T)col,
-                     line2, col2, decor, right_gravity,
+                     line2, col2, d, right_gravity,
                      end_right_gravity, kExtmarkNoUndo);
   }
 
   return (Integer)id;
 
 error:
-  clear_virttext(&virt_text);
+  clear_virttext(&decor.virt_text);
   return 0;
 }
 
@@ -1703,7 +1756,7 @@ Boolean nvim_buf_del_extmark(Buffer buffer,
 /// @param[out] err   Error details, if any
 /// @return The ns_id that was used
 Integer nvim_buf_add_highlight(Buffer buffer,
-                               Integer src_id,
+                               Integer ns_id,
                                String hl_group,
                                Integer line,
                                Integer col_start,
@@ -1728,18 +1781,18 @@ Integer nvim_buf_add_highlight(Buffer buffer,
     col_end = MAXCOL;
   }
 
-  uint64_t ns_id = src2ns(&src_id);
+  uint64_t ns = src2ns(&ns_id);
 
   if (!(line < buf->b_ml.ml_line_count)) {
     // safety check, we can't add marks outside the range
-    return src_id;
+    return ns_id;
   }
 
   int hl_id = 0;
   if (hl_group.size > 0) {
     hl_id = syn_check_group((char_u *)hl_group.data, (int)hl_group.size);
   } else {
-    return src_id;
+    return ns_id;
   }
 
   int end_line = (int)line;
@@ -1748,11 +1801,11 @@ Integer nvim_buf_add_highlight(Buffer buffer,
     end_line++;
   }
 
-  extmark_set(buf, ns_id, 0,
+  extmark_set(buf, ns, 0,
               (int)line, (colnr_T)col_start,
               end_line, (colnr_T)col_end,
               decor_hl(hl_id), true, false, kExtmarkNoUndo);
-  return src_id;
+  return ns_id;
 }
 
 /// Clears namespaced objects (highlights, extmarks, virtual text) from

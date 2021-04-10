@@ -2404,8 +2404,8 @@ do_mouse (
 
   start_visual.lnum = 0;
 
-  /* Check for clicking in the tab page line. */
-  if (mouse_row == 0 && firstwin->w_winrow > 0) {
+  // Check for clicking in the tab page line.
+  if (mouse_grid <= 1 && mouse_row == 0 && firstwin->w_winrow > 0) {
     if (is_drag) {
       if (in_tab_line) {
         move_tab_to_mouse();
@@ -3971,7 +3971,8 @@ static bool nv_screengo(oparg_T *oap, int dir, long dist)
 
     while (dist--) {
       if (dir == BACKWARD) {
-        if (curwin->w_curswant >= width1) {
+        if (curwin->w_curswant >= width1
+            && !hasFolding(curwin->w_cursor.lnum, NULL, NULL)) {
           // Move back within the line. This can give a negative value
           // for w_curswant if width1 < width2 (with cpoptions+=n),
           // which will get clipped to column 0.
@@ -4003,14 +4004,16 @@ static bool nv_screengo(oparg_T *oap, int dir, long dist)
           n = ((linelen - width1 - 1) / width2 + 1) * width2 + width1;
         else
           n = width1;
-        if (curwin->w_curswant + width2 < (colnr_T)n)
-          /* move forward within line */
+        if (curwin->w_curswant + width2 < (colnr_T)n
+            && !hasFolding(curwin->w_cursor.lnum, NULL, NULL)) {
+          // move forward within line
           curwin->w_curswant += width2;
-        else {
-          /* to next line */
-          /* Move to the end of a closed fold. */
+        } else {
+          // to next line
+
+          // Move to the end of a closed fold.
           (void)hasFolding(curwin->w_cursor.lnum, NULL,
-              &curwin->w_cursor.lnum);
+                           &curwin->w_cursor.lnum);
           if (curwin->w_cursor.lnum == curbuf->b_ml.ml_line_count) {
             retval = false;
             break;
@@ -5225,16 +5228,13 @@ static void nv_left(cmdarg_T *cap)
        *		 'h' wraps to previous line if 'whichwrap' has 'h'.
        *	   CURS_LEFT wraps to previous line if 'whichwrap' has '<'.
        */
-      if (       (((cap->cmdchar == K_BS
-                    || cap->cmdchar == Ctrl_H)
-                   && vim_strchr(p_ww, 'b') != NULL)
-                  || (cap->cmdchar == 'h'
-                      && vim_strchr(p_ww, 'h') != NULL)
-                  || (cap->cmdchar == K_LEFT
-                      && vim_strchr(p_ww, '<') != NULL))
-                 && curwin->w_cursor.lnum > 1) {
-        --(curwin->w_cursor.lnum);
-        coladvance((colnr_T)MAXCOL);
+      if ((((cap->cmdchar == K_BS || cap->cmdchar == Ctrl_H)
+            && vim_strchr(p_ww, 'b') != NULL)
+           || (cap->cmdchar == 'h' && vim_strchr(p_ww, 'h') != NULL)
+           || (cap->cmdchar == K_LEFT && vim_strchr(p_ww, '<') != NULL))
+          && curwin->w_cursor.lnum > 1) {
+        curwin->w_cursor.lnum--;
+        coladvance(MAXCOL);
         curwin->w_set_curswant = true;
 
         // When the NL before the first char has to be deleted we
@@ -5462,7 +5462,7 @@ static int normal_search(
   curwin->w_set_curswant = true;
 
   memset(&sia, 0, sizeof(sia));
-  i = do_search(cap->oap, dir, pat, cap->count1,
+  i = do_search(cap->oap, dir, dir, pat, cap->count1,
                 opt | SEARCH_OPT | SEARCH_ECHO | SEARCH_MSG, &sia);
   if (wrapped != NULL) {
     *wrapped = sia.sa_wrapped;
@@ -5792,16 +5792,20 @@ static void nv_percent(cmdarg_T *cap)
     } else {
       cap->oap->motion_type = kMTLineWise;
       setpcmark();
-      /* Round up, so CTRL-G will give same value.  Watch out for a
-       * large line count, the line number must not go negative! */
-      if (curbuf->b_ml.ml_line_count > 1000000)
+      // Round up, so 'normal 100%' always jumps at the line line.
+      // Beyond 21474836 lines, (ml_line_count * 100 + 99) would
+      // overflow on 32-bits, so use a formula with less accuracy
+      // to avoid overflows.
+      if (curbuf->b_ml.ml_line_count >= 21474836) {
         curwin->w_cursor.lnum = (curbuf->b_ml.ml_line_count + 99L)
                                 / 100L * cap->count0;
-      else
+      } else {
         curwin->w_cursor.lnum = (curbuf->b_ml.ml_line_count *
                                  cap->count0 + 99L) / 100L;
-      if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count)
+      }
+      if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count) {
         curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
+      }
       beginline(BL_SOL | BL_FIX);
     }
   } else {  // "%" : go to matching paren
@@ -6467,7 +6471,7 @@ static void nv_visual(cmdarg_T *cap)
       }
       if (resel_VIsual_vcol == MAXCOL) {
         curwin->w_curswant = MAXCOL;
-        coladvance((colnr_T)MAXCOL);
+        coladvance(MAXCOL);
       } else if (VIsual_mode == Ctrl_V) {
         validate_virtcol();
         assert(cap->count0 >= INT_MIN && cap->count0 <= INT_MAX);
@@ -6780,9 +6784,10 @@ static void nv_g_cmd(cmdarg_T *cap)
     }
     coladvance((colnr_T)i);
     if (flag) {
-      do
+      do {
         i = gchar_cursor();
-      while (ascii_iswhite(i) && oneright());
+      } while (ascii_iswhite(i) && oneright());
+      curwin->w_valid &= ~VALID_WCOL;
     }
     curwin->w_set_curswant = true;
     break;
@@ -7574,6 +7579,12 @@ static void nv_esc(cmdarg_T *cap)
       got_int = false;          /* don't stop executing autocommands et al. */
       return;
     }
+  } else if (cmdwin_type != 0 && ex_normal_busy) {
+    // When :normal runs out of characters while in the command line window
+    // vgetorpeek() will return ESC.  Exit the cmdline window to break the
+    // loop.
+    cmdwin_result = K_IGNORE;
+    return;
   }
 
   if (VIsual_active) {
@@ -7604,7 +7615,7 @@ void set_cursor_for_append_to_line(void)
     // Pretend Insert mode here to allow the cursor on the
     // character past the end of the line
     State = INSERT;
-    coladvance((colnr_T)MAXCOL);
+    coladvance(MAXCOL);
     State = save_State;
   } else {
     curwin->w_cursor.col += (colnr_T)STRLEN(get_cursor_pos_ptr());
@@ -7992,7 +8003,7 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
        * line. */
       if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count) {
         curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
-        coladvance((colnr_T)MAXCOL);
+        coladvance(MAXCOL);
       }
     }
     auto_format(false, true);
@@ -8100,7 +8111,7 @@ static void nv_event(cmdarg_T *cap)
   // lists or dicts being used.
   may_garbage_collect = false;
   bool may_restart = (restart_edit != 0);
-  multiqueue_process_events(main_loop.events);
+  state_handle_k_event();
   finish_op = false;
   if (may_restart) {
     // Tricky: if restart_edit was set before the handler we are in ctrl-o mode,
