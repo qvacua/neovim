@@ -294,6 +294,7 @@ static const struct nv_cmd {
   { K_LEFTDRAG, nv_mouse,      0,                      0 },
   { K_LEFTRELEASE, nv_mouse,   0,                      0 },
   { K_LEFTRELEASE_NM, nv_mouse, 0,                     0 },
+  { K_MOUSEMOVE, nv_mouse,     0,                      0 },
   { K_MIDDLEMOUSE, nv_mouse,   0,                      0 },
   { K_MIDDLEDRAG, nv_mouse,    0,                      0 },
   { K_MIDDLERELEASE, nv_mouse, 0,                      0 },
@@ -630,9 +631,9 @@ static void normal_redraw_mode_message(NormalState *s)
   ui_cursor_shape();                  // show different cursor shape
   ui_flush();
   if (msg_scroll || emsg_on_display) {
-    os_delay(1000L, true);            // wait at least one second
+    os_delay(1003L, true);            // wait at least one second
   }
-  os_delay(3000L, false);             // wait up to three seconds
+  os_delay(3003L, false);             // wait up to three seconds
   State = save_State;
 
   msg_scroll = false;
@@ -817,7 +818,7 @@ static bool normal_get_command_count(NormalState *s)
     }
 
     if (s->ca.count0 < 0) {
-      // got too large!
+      // overflow
       s->ca.count0 = 999999999L;
     }
 
@@ -879,8 +880,9 @@ static void normal_finish_command(NormalState *s)
     s->old_mapped_len = typebuf_maplen();
   }
 
-  // If an operation is pending, handle it.  But not for K_IGNORE.
-  if (s->ca.cmdchar != K_IGNORE) {
+  // If an operation is pending, handle it.  But not for K_IGNORE or
+  // K_MOUSEMOVE.
+  if (s->ca.cmdchar != K_IGNORE && s->ca.cmdchar != K_MOUSEMOVE) {
     do_pending_operator(&s->ca, s->old_col, false);
   }
 
@@ -1023,9 +1025,13 @@ static int normal_execute(VimState *state, int key)
     // If you give a count before AND after the operator, they are
     // multiplied.
     if (s->ca.count0) {
-      s->ca.count0 *= s->ca.opcount;
+      s->ca.count0 = (long)((uint64_t)s->ca.count0 * (uint64_t)s->ca.opcount);
     } else {
       s->ca.count0 = s->ca.opcount;
+    }
+    if (s->ca.count0 < 0) {
+      // overflow
+      s->ca.count0 = 999999999L;
     }
   }
 
@@ -1864,6 +1870,7 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
         }
       } else {
         curwin->w_p_lbr = lbr_saved;
+        oap->excl_tr_ws = cap->cmdchar == 'z';
         (void)op_yank(oap, !gui_yank, false);
       }
       check_cursor_col();
@@ -1940,10 +1947,12 @@ void do_pending_operator(cmdarg_T *cap, int old_col, bool gui_yank)
     case OP_FORMAT:
       if (*curbuf->b_p_fex != NUL) {
         op_formatexpr(oap);             // use expression
-      } else if (*p_fp != NUL || *curbuf->b_p_fp != NUL) {
-        op_colon(oap);                  // use external command
       } else {
-        op_format(oap, false);          // use internal function
+        if (*p_fp != NUL || *curbuf->b_p_fp != NUL) {
+          op_colon(oap);                // use external command
+        } else {
+          op_format(oap, false);        // use internal function
+        }
       }
       break;
 
@@ -2263,6 +2272,10 @@ do_mouse (
     break;
   }
 
+  if (c == K_MOUSEMOVE) {
+    // Mouse moved without a button pressed.
+    return false;
+  }
 
   /*
    * Ignore drag and release events if we didn't get a click.
@@ -3390,7 +3403,7 @@ bool add_to_showcmd(int c)
   static int ignore[] =
   {
     K_IGNORE,
-    K_LEFTMOUSE, K_LEFTDRAG, K_LEFTRELEASE,
+    K_LEFTMOUSE, K_LEFTDRAG, K_LEFTRELEASE, K_MOUSEMOVE,
     K_MIDDLEMOUSE, K_MIDDLEDRAG, K_MIDDLERELEASE,
     K_RIGHTMOUSE, K_RIGHTDRAG, K_RIGHTRELEASE,
     K_MOUSEDOWN, K_MOUSEUP, K_MOUSELEFT, K_MOUSERIGHT,
@@ -4376,6 +4389,15 @@ dozet:
   }
     break;
 
+  // "zp", "zP" in block mode put without addind trailing spaces
+  case 'P':
+  case 'p':
+    nv_put(cap);
+    break;
+  // "zy" Yank without trailing spaces
+  case 'y':  nv_operator(cap);
+             break;
+
   /* "zF": create fold command */
   /* "zf": create fold operator */
   case 'F':
@@ -4582,7 +4604,9 @@ dozet:
     if (ptr == NULL && (len = find_ident_under_cursor(&ptr, FIND_IDENT)) == 0)
       return;
     assert(len <= INT_MAX);
-    spell_add_word(ptr, (int)len, nchar == 'w' || nchar == 'W',
+    spell_add_word(ptr, (int)len,
+                   nchar == 'w' || nchar == 'W'
+                   ? SPELL_ADD_BAD : SPELL_ADD_GOOD,
                    (nchar == 'G' || nchar == 'W') ? 0 : (int)cap->count1,
                    undo);
   }
@@ -5106,8 +5130,8 @@ static void nv_scroll(cmdarg_T *cap)
         /* Count a fold for one screen line. */
         lnum = curwin->w_topline;
         while (n-- > 0 && lnum < curwin->w_botline - 1) {
-          hasFolding(lnum, NULL, &lnum);
-          ++lnum;
+          (void)hasFolding(lnum, NULL, &lnum);
+          lnum++;
         }
         n = lnum - curwin->w_topline;
       }
@@ -5802,6 +5826,9 @@ static void nv_percent(cmdarg_T *cap)
       } else {
         curwin->w_cursor.lnum = (curbuf->b_ml.ml_line_count *
                                  cap->count0 + 99L) / 100L;
+      }
+      if (curwin->w_cursor.lnum < 1) {
+        curwin->w_cursor.lnum = 1;
       }
       if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count) {
         curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
@@ -7040,6 +7067,7 @@ static void nv_g_cmd(cmdarg_T *cap)
   case K_LEFTMOUSE:
   case K_LEFTDRAG:
   case K_LEFTRELEASE:
+  case K_MOUSEMOVE:
   case K_RIGHTMOUSE:
   case K_RIGHTDRAG:
   case K_RIGHTRELEASE:
@@ -7908,12 +7936,14 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
       flags |= PUT_FIXINDENT;
     } else {
       dir = (cap->cmdchar == 'P'
-             || (cap->cmdchar == 'g' && cap->nchar == 'P'))
-        ? BACKWARD : FORWARD;
+             || ((cap->cmdchar == 'g' || cap->cmdchar == 'z')
+                 && cap->nchar == 'P')) ? BACKWARD : FORWARD;
     }
     prep_redo_cmd(cap);
     if (cap->cmdchar == 'g') {
       flags |= PUT_CURSEND;
+    } else if (cap->cmdchar == 'z') {
+      flags |= PUT_BLOCK_INNER;
     }
 
     if (VIsual_active) {

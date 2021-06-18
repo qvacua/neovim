@@ -177,6 +177,29 @@ Object dict_get_value(dict_T *dict, String key, Error *err)
   return vim_to_object(&di->di_tv);
 }
 
+dictitem_T *dict_check_writable(dict_T *dict, String key, bool del, Error *err)
+{
+  dictitem_T *di = tv_dict_find(dict, key.data, (ptrdiff_t)key.size);
+
+  if (di != NULL) {
+    if (di->di_flags & DI_FLAGS_RO) {
+      api_set_error(err, kErrorTypeException, "Key is read-only: %s", key.data);
+    } else if (di->di_flags & DI_FLAGS_LOCK) {
+      api_set_error(err, kErrorTypeException, "Key is locked: %s", key.data);
+    } else if (del && (di->di_flags & DI_FLAGS_FIX)) {
+      api_set_error(err, kErrorTypeException, "Key is fixed: %s", key.data);
+    }
+  } else if (dict->dv_lock) {
+    api_set_error(err, kErrorTypeException, "Dictionary is locked");
+  } else if (key.size == 0) {
+    api_set_error(err, kErrorTypeValidation, "Key name is empty");
+  } else if (key.size > INT_MAX) {
+    api_set_error(err, kErrorTypeValidation, "Key name is too long");
+  }
+
+  return di;
+}
+
 /// Set a value in a scope dict. Objects are recursively expanded into their
 /// vimscript equivalents.
 ///
@@ -192,27 +215,9 @@ Object dict_set_var(dict_T *dict, String key, Object value, bool del,
                     bool retval, Error *err)
 {
   Object rv = OBJECT_INIT;
-  dictitem_T *di = tv_dict_find(dict, key.data, (ptrdiff_t)key.size);
+  dictitem_T *di = dict_check_writable(dict, key, del, err);
 
-  if (di != NULL) {
-    if (di->di_flags & DI_FLAGS_RO) {
-      api_set_error(err, kErrorTypeException, "Key is read-only: %s", key.data);
-      return rv;
-    } else if (di->di_flags & DI_FLAGS_LOCK) {
-      api_set_error(err, kErrorTypeException, "Key is locked: %s", key.data);
-      return rv;
-    } else if (del && (di->di_flags & DI_FLAGS_FIX)) {
-      api_set_error(err, kErrorTypeException, "Key is fixed: %s", key.data);
-      return rv;
-    }
-  } else if (dict->dv_lock) {
-    api_set_error(err, kErrorTypeException, "Dictionary is locked");
-    return rv;
-  } else if (key.size == 0) {
-    api_set_error(err, kErrorTypeValidation, "Key name is empty");
-    return rv;
-  } else if (key.size > INT_MAX) {
-    api_set_error(err, kErrorTypeValidation, "Key name is too long");
+  if (ERROR_SET(err)) {
     return rv;
   }
 
@@ -1640,7 +1645,7 @@ bool api_object_to_bool(Object obj, const char *what,
   } else if (obj.type == kObjectTypeNil) {
     return nil_value;  // caller decides what NIL (missing retval in lua) means
   } else {
-    api_set_error(err, kErrorTypeValidation, "%s is not an boolean", what);
+    api_set_error(err, kErrorTypeValidation, "%s is not a boolean", what);
     return false;
   }
 }
@@ -1765,6 +1770,8 @@ static void parse_border_style(Object style, FloatConfig *fconfig, Error *err)
     { "double", { "╔", "═", "╗", "║", "╝", "═", "╚", "║" }, false },
     { "single", { "┌", "─", "┐", "│", "┘", "─", "└", "│" }, false },
     { "shadow", { "", "", " ", " ", " ", " ", " ", "" }, true },
+    { "rounded", { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }, false },
+    { "solid", { " ", " ", " ", " ", " ", " ", " ", " " }, false },
     { NULL, { { NUL } } , false },
   };
 
@@ -1862,7 +1869,7 @@ static void parse_border_style(Object style, FloatConfig *fconfig, Error *err)
 }
 
 bool parse_float_config(Dictionary config, FloatConfig *fconfig, bool reconf,
-                        Error *err)
+                        bool new_win, Error *err)
 {
   // TODO(bfredl): use a get/has_key interface instead and get rid of extra
   // flags
@@ -1908,7 +1915,7 @@ bool parse_float_config(Dictionary config, FloatConfig *fconfig, bool reconf,
     } else if (strequal(key, "height")) {
       has_height = true;
       if (val.type == kObjectTypeInteger && val.data.integer > 0) {
-        fconfig->height= (int)val.data.integer;
+        fconfig->height = (int)val.data.integer;
       } else {
         api_set_error(err, kErrorTypeValidation,
                       "'height' key must be a positive Integer");
@@ -1962,24 +1969,23 @@ bool parse_float_config(Dictionary config, FloatConfig *fconfig, bool reconf,
       }
       has_bufpos = true;
     } else if (!strcmp(key, "external")) {
-      if (val.type == kObjectTypeInteger) {
-        fconfig->external = val.data.integer;
-      } else if (val.type == kObjectTypeBoolean) {
-        fconfig->external = val.data.boolean;
-      } else {
-        api_set_error(err, kErrorTypeValidation,
-                      "'external' key must be Boolean");
+      has_external = fconfig->external
+          = api_object_to_bool(val, "'external' key", false, err);
+      if (ERROR_SET(err)) {
         return false;
       }
-      has_external = fconfig->external;
     } else if (!strcmp(key, "focusable")) {
-      if (val.type == kObjectTypeInteger) {
-        fconfig->focusable = val.data.integer;
-      } else if (val.type == kObjectTypeBoolean) {
-        fconfig->focusable = val.data.boolean;
+      fconfig->focusable
+          = api_object_to_bool(val, "'focusable' key", true, err);
+      if (ERROR_SET(err)) {
+        return false;
+      }
+    } else if (strequal(key, "zindex")) {
+      if (val.type == kObjectTypeInteger && val.data.integer > 0) {
+        fconfig->zindex = (int)val.data.integer;
       } else {
         api_set_error(err, kErrorTypeValidation,
-                      "'focusable' key must be Boolean");
+                      "'zindex' key must be a positive Integer");
         return false;
       }
     } else if (!strcmp(key, "border")) {
@@ -2000,6 +2006,12 @@ bool parse_float_config(Dictionary config, FloatConfig *fconfig, bool reconf,
       }  else {
         api_set_error(err, kErrorTypeValidation,
                       "Invalid value of 'style' key");
+      }
+    } else if (strequal(key, "noautocmd") && new_win) {
+      fconfig->noautocmd
+          = api_object_to_bool(val, "'noautocmd' key", false, err);
+      if (ERROR_SET(err)) {
+        return false;
       }
     } else {
       api_set_error(err, kErrorTypeValidation,

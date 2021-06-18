@@ -187,6 +187,10 @@ M['textDocument/publishDiagnostics'] = function(...)
   return require('vim.lsp.diagnostic').on_publish_diagnostics(...)
 end
 
+M['textDocument/codeLens'] = function(...)
+  return require('vim.lsp.codelens').on_codelens(...)
+end
+
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_references
 M['textDocument/references'] = function(_, _, result)
   if not result then return end
@@ -260,24 +264,18 @@ end
 ---         - See |vim.api.nvim_open_win()|
 function M.hover(_, method, result, _, _, config)
   config = config or {}
-  local bufnr, winnr = util.focusable_float(method, function()
-    if not (result and result.contents) then
-      -- return { 'No information available' }
-      return
-    end
-    local markdown_lines = util.convert_input_to_markdown_lines(result.contents)
-    markdown_lines = util.trim_empty_lines(markdown_lines)
-    if vim.tbl_isempty(markdown_lines) then
-      -- return { 'No information available' }
-      return
-    end
-    local bufnr, winnr = util.fancy_floating_markdown(markdown_lines, {
-      border = config.border
-    })
-    util.close_preview_autocmd({"CursorMoved", "BufHidden", "InsertCharPre"}, winnr)
-    return bufnr, winnr
-  end)
-  return bufnr, winnr
+  config.focus_id = method
+  if not (result and result.contents) then
+    -- return { 'No information available' }
+    return
+  end
+  local markdown_lines = util.convert_input_to_markdown_lines(result.contents)
+  markdown_lines = util.trim_empty_lines(markdown_lines)
+  if vim.tbl_isempty(markdown_lines) then
+    -- return { 'No information available' }
+    return
+  end
+  return util.open_floating_preview(markdown_lines, "markdown", config)
 end
 
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_hover
@@ -335,23 +333,21 @@ M['textDocument/implementation'] = location_handler
 ---         - See |vim.api.nvim_open_win()|
 function M.signature_help(_, method, result, _, bufnr, config)
   config = config or {}
+  config.focus_id = method
   -- When use `autocmd CompleteDone <silent><buffer> lua vim.lsp.buf.signature_help()` to call signatureHelp handler
   -- If the completion item doesn't have signatures It will make noise. Change to use `print` that can use `<silent>` to ignore
   if not (result and result.signatures and result.signatures[1]) then
     print('No signature help available')
     return
   end
-  local lines = util.convert_signature_help_to_markdown_lines(result)
+  local ft = api.nvim_buf_get_option(bufnr, 'filetype')
+  local lines = util.convert_signature_help_to_markdown_lines(result, ft)
   lines = util.trim_empty_lines(lines)
   if vim.tbl_isempty(lines) then
     print('No signature help available')
     return
   end
-  local syntax = api.nvim_buf_get_option(bufnr, 'syntax')
-  local p_bufnr, _ = util.focusable_preview(method, function()
-    return lines, util.try_trim_markdown_code_blocks(lines), config
-  end)
-  api.nvim_buf_set_option(p_bufnr, 'syntax', syntax)
+  return util.open_floating_preview(lines, "markdown", config)
 end
 
 --@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_signatureHelp

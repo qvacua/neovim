@@ -4560,11 +4560,12 @@ int vim_rename(const char_u *from, const char_u *to)
 
       if (!os_path_exists(tempname)) {
         if (os_rename(from, tempname) == OK) {
-          if (os_rename(tempname, to) == OK)
+          if (os_rename(tempname, to) == OK) {
             return 0;
-          /* Strange, the second step failed.  Try moving the
-           * file back and return failure. */
-          os_rename(tempname, from);
+          }
+          // Strange, the second step failed.  Try moving the
+          // file back and return failure.
+          (void)os_rename(tempname, from);
           return -1;
         }
         /* If it fails for one temp name it will most likely fail
@@ -4947,11 +4948,11 @@ int buf_check_timestamp(buf_T *buf)
         (void)msg_end();
         if (emsg_silent == 0) {
           ui_flush();
-          /* give the user some time to think about it */
-          os_delay(1000L, true);
+          // give the user some time to think about it
+          os_delay(1004L, true);
 
-          /* don't redraw and erase the message */
-          redraw_cmdline = FALSE;
+          // don't redraw and erase the message
+          redraw_cmdline = false;
         }
       }
       already_warned = TRUE;

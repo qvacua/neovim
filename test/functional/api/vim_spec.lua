@@ -193,6 +193,44 @@ describe('API', function()
       eq('', nvim('exec', 'echo', true))
       eq('foo 42', nvim('exec', 'echo "foo" 42', true))
     end)
+
+    it('displays messages when output=false', function()
+      local screen = Screen.new(40, 8)
+      screen:attach()
+      screen:set_default_attr_ids({
+        [0] = {bold=true, foreground=Screen.colors.Blue},
+      })
+      meths.exec("echo 'hello'", false)
+      screen:expect{grid=[[
+        ^                                        |
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        hello                                   |
+      ]]}
+    end)
+
+    it('does\'t display messages when output=true', function()
+      local screen = Screen.new(40, 8)
+      screen:attach()
+      screen:set_default_attr_ids({
+        [0] = {bold=true, foreground=Screen.colors.Blue},
+      })
+      meths.exec("echo 'hello'", true)
+      screen:expect{grid=[[
+        ^                                        |
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+        {0:~                                       }|
+                                                |
+      ]]}
+    end)
   end)
 
   describe('nvim_command', function()
@@ -1947,6 +1985,10 @@ describe('API', function()
       neq(nil, options_info.tabstop)
 
       eq(meths.get_option_info'winhighlight', options_info.winhighlight)
+    end)
+
+    it('should not crash when echoed', function()
+      meths.exec("echo nvim_get_all_options_info()", true)
     end)
   end)
 

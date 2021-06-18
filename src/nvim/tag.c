@@ -625,7 +625,7 @@ do_tag(
         }
         if (ic && !msg_scrolled && msg_silent == 0) {
           ui_flush();
-          os_delay(1000L, true);
+          os_delay(1007L, true);
         }
       }
 
@@ -1143,7 +1143,6 @@ static int find_tagfunc_tags(
   typval_T  args[4];
   typval_T  rettv;
   char_u flagString[4];
-  dict_T  *d;
   taggy_T *tag = &curwin->w_tagstack[curwin->w_tagstackidx];
 
   if (*curbuf->b_p_tfu == NUL) {
@@ -1156,7 +1155,7 @@ static int find_tagfunc_tags(
   args[1].vval.v_string = flagString;
 
   // create 'info' dict argument
-  d = tv_dict_alloc();
+  dict_T *const d = tv_dict_alloc_lock(VAR_FIXED);
   if (tag->user_data != NULL) {
     tv_dict_add_str(d, S_LEN("user_data"), (const char *)tag->user_data);
   }
@@ -2853,7 +2852,7 @@ static int jumpto_tag(
             MSG(_("E435: Couldn't find tag, just guessing!"));
             if (!msg_scrolled && msg_silent == 0) {
               ui_flush();
-              os_delay(1000L, true);
+              os_delay(1010L, true);
             }
           }
           retval = OK;
@@ -3011,7 +3010,7 @@ static int find_extra(char_u **pp)
   // Repeat for addresses separated with ';'
   for (;; ) {
     if (ascii_isdigit(*str)) {
-      str = skipdigits(str);
+      str = skipdigits(str + 1);
     } else if (*str == '/' || *str == '?') {
       str = skip_regexp(str + 1, *str, false, NULL);
       if (*str != first_char) {

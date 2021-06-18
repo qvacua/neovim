@@ -212,7 +212,7 @@ void do_exmode(int improved)
   while (exmode_active) {
     /* Check for a ":normal" command and no more characters left. */
     if (ex_normal_busy > 0 && typebuf.tb_len == 0) {
-      exmode_active = FALSE;
+      exmode_active = 0;
       break;
     }
     msg_scroll = true;
@@ -1772,7 +1772,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
   // count, it's a buffer name.
   ///
   if ((ea.argt & EX_COUNT) && ascii_isdigit(*ea.arg)
-      && (!(ea.argt & EX_BUFNAME) || *(p = skipdigits(ea.arg)) == NUL
+      && (!(ea.argt & EX_BUFNAME) || *(p = skipdigits(ea.arg + 1)) == NUL
           || ascii_iswhite(*p))) {
     n = getdigits_long(&ea.arg, false, -1);
     ea.arg = skipwhite(ea.arg);
@@ -1857,6 +1857,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
     case CMD_echoerr:
     case CMD_echomsg:
     case CMD_echon:
+    case CMD_eval:
     case CMD_execute:
     case CMD_filter:
     case CMD_help:
@@ -2789,15 +2790,18 @@ static struct cmdmod {
  */
 int modifier_len(char_u *cmd)
 {
-  int i, j;
   char_u      *p = cmd;
 
-  if (ascii_isdigit(*cmd))
-    p = skipwhite(skipdigits(cmd));
-  for (i = 0; i < (int)ARRAY_SIZE(cmdmods); ++i) {
-    for (j = 0; p[j] != NUL; ++j)
-      if (p[j] != cmdmods[i].name[j])
+  if (ascii_isdigit(*cmd)) {
+    p = skipwhite(skipdigits(cmd + 1));
+  }
+  for (int i = 0; i < (int)ARRAY_SIZE(cmdmods); i++) {
+    int j;
+    for (j = 0; p[j] != NUL; j++) {
+      if (p[j] != cmdmods[i].name[j]) {
         break;
+      }
+    }
     if (j >= cmdmods[i].minlen
         && !ASCII_ISALPHA(p[j])
         && (p == cmd || cmdmods[i].has_count)) {
@@ -3641,7 +3645,8 @@ const char * set_one_cmd_context(
     } else {
       if (strncmp(arg, "messages", p - arg) == 0
           || strncmp(arg, "ctype", p - arg) == 0
-          || strncmp(arg, "time", p - arg) == 0) {
+          || strncmp(arg, "time", p - arg) == 0
+          || strncmp(arg, "collate", p - arg) == 0) {
         xp->xp_context = EXPAND_LOCALES;
         xp->xp_pattern = skipwhite((const char_u *)p);
       } else {
@@ -5012,7 +5017,7 @@ char_u *check_nextcmd(char_u *p)
 static int
 check_more(
     int message,                // when FALSE check only, no messages
-    int forceit
+    bool forceit
 )
 {
   int n = ARGCOUNT - curwin->w_arg_idx - 1;
@@ -6335,7 +6340,7 @@ void not_exiting(void)
   exiting = false;
 }
 
-static bool before_quit_autocmds(win_T *wp, bool quit_all, int forceit)
+bool before_quit_autocmds(win_T *wp, bool quit_all, bool forceit)
 {
   apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer);
 
@@ -6401,7 +6406,7 @@ static void ex_quit(exarg_T *eap)
     return;
   }
 
-  // If there are more files or windows we won't exit.
+  // If there is only one relevant window we will exit.
   if (check_more(false, eap->forceit) == OK && only_one_window()) {
     exiting = true;
   }
@@ -6518,6 +6523,12 @@ ex_win_close(
   int need_hide;
   buf_T       *buf = win->w_buffer;
 
+  // Never close the autocommand window.
+  if (win == aucmd_win) {
+    EMSG(_(e_autocmd_close));
+    return;
+  }
+
   need_hide = (bufIsChanged(buf) && buf->b_nwindows <= 1);
   if (need_hide && !buf_hide(buf) && !forceit) {
     if ((p_confirm || cmdmod.confirm) && p_write) {
@@ -6587,9 +6598,6 @@ static void ex_tabonly(exarg_T *eap)
       // Repeat this up to a 1000 times, because autocommands may
       // mess up the lists.
       for (int done = 0; done < 1000; done++) {
-        FOR_ALL_TAB_WINDOWS(tp, wp) {
-          assert(wp != aucmd_win);
-        }
         FOR_ALL_TABS(tp) {
           if (tp->tp_topframe != topframe) {
             tabpage_close_other(tp, eap->forceit);
@@ -6745,7 +6753,7 @@ static void ex_stop(exarg_T *eap)
   apply_autocmds(EVENT_VIMRESUME, NULL, NULL, false, NULL);
 }
 
-// ":exit", ":xit" and ":wq": Write file and quite the current window.
+// ":exit", ":xit" and ":wq": Write file and quit the current window.
 static void ex_exit(exarg_T *eap)
 {
   if (cmdwin_type != 0) {
@@ -6758,17 +6766,15 @@ static void ex_exit(exarg_T *eap)
     return;
   }
 
-  if (before_quit_autocmds(curwin, false, eap->forceit)) {
-    return;
-  }
-
-  // if more files or windows we won't exit
+  // we plan to exit if there is only one relevant window
   if (check_more(false, eap->forceit) == OK && only_one_window()) {
     exiting = true;
   }
-  if (((eap->cmdidx == CMD_wq
-        || curbufIsChanged())
-       && do_write(eap) == FAIL)
+  // Write the buffer for ":wq" or when it was changed.
+  // Trigger QuitPre and ExitPre.
+  // Check if we can exit now, after autocommands have changed things.
+  if (((eap->cmdidx == CMD_wq || curbufIsChanged()) && do_write(eap) == FAIL)
+      || before_quit_autocmds(curwin, false, eap->forceit)
       || check_more(true, eap->forceit) == FAIL
       || (only_one_window() && check_changed_any(eap->forceit, false))) {
     not_exiting();
@@ -7306,7 +7312,8 @@ do_exedit(
    */
   if (exmode_active && (eap->cmdidx == CMD_visual
                         || eap->cmdidx == CMD_view)) {
-    exmode_active = FALSE;
+    exmode_active = 0;
+    ex_pressedreturn = false;
     if (*eap->arg == NUL) {
       /* Special case:  ":global/pat/visual\NLvi-commands" */
       if (global_busy) {

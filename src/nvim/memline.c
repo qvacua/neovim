@@ -1207,6 +1207,7 @@ void ml_recover(bool checkext)
          && !(curbuf->b_ml.ml_flags & ML_EMPTY))
     ml_delete(curbuf->b_ml.ml_line_count, false);
   curbuf->b_flags |= BF_RECOVERED;
+  check_cursor();
 
   recoverymode = FALSE;
   if (got_int)
@@ -2238,7 +2239,7 @@ static int ml_append_int(
      */
     lineadd = buf->b_ml.ml_locked_lineadd;
     buf->b_ml.ml_locked_lineadd = 0;
-    ml_find_line(buf, (linenr_T)0, ML_FLUSH);       /* flush data block */
+    (void)ml_find_line(buf, (linenr_T)0, ML_FLUSH);  // flush data block
 
     /*
      * update pointer blocks for the new data block

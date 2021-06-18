@@ -2098,12 +2098,20 @@ void tv_dict_set_keys_readonly(dict_T *const dict)
 ///
 /// @return [allocated] pointer to the created list.
 list_T *tv_list_alloc_ret(typval_T *const ret_tv, const ptrdiff_t len)
-  FUNC_ATTR_NONNULL_ALL
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
 {
   list_T *const l = tv_list_alloc(len);
   tv_list_set_ret(ret_tv, l);
   ret_tv->v_lock = VAR_UNLOCKED;
   return l;
+}
+
+dict_T *tv_dict_alloc_lock(VarLockStatus lock)
+  FUNC_ATTR_NONNULL_RET
+{
+  dict_T *const d = tv_dict_alloc();
+  d->dv_lock = lock;
+  return d;
 }
 
 /// Allocate an empty dictionary for a return value
@@ -2114,9 +2122,8 @@ list_T *tv_list_alloc_ret(typval_T *const ret_tv, const ptrdiff_t len)
 void tv_dict_alloc_ret(typval_T *const ret_tv)
   FUNC_ATTR_NONNULL_ALL
 {
-  dict_T *const d = tv_dict_alloc();
+  dict_T *const d = tv_dict_alloc_lock(VAR_UNLOCKED);
   tv_dict_set_ret(ret_tv, d);
-  ret_tv->v_lock = VAR_UNLOCKED;
 }
 
 //{{{3 Clear

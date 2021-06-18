@@ -505,12 +505,10 @@ if(WIN32)
   set(EXTERNAL_BLOBS_SCRIPT
     "file(MAKE_DIRECTORY \"${PROJECT_BINARY_DIR}/windows_runtime_deps/platforms\")")
   foreach(DEP_FILE IN ITEMS
-                      ca-bundle.crt
-                      cat.exe
+                      curl-ca-bundle.crt
                       curl.exe
                       diff.exe
                       tee.exe
-                      tidy.exe
                       win32yank.exe
                       winpty-agent.exe
                       winpty.dll

@@ -68,7 +68,7 @@ void change_warning(int col)
     (void)msg_end();
     if (msg_silent == 0 && !silent_mode && ui_active()) {
       ui_flush();
-      os_delay(1000L, true);  // give the user time to think about it
+      os_delay(1002L, true);  // give the user time to think about it
     }
     curbuf->b_did_warn = true;
     redraw_cmdline = false;  // don't redraw and erase the message
@@ -109,7 +109,7 @@ void changed(void)
       // and don't let the emsg() set msg_scroll.
       if (need_wait_return && emsg_silent == 0) {
         ui_flush();
-        os_delay(2000L, true);
+        os_delay(2002L, true);
         wait_return(true);
         msg_scroll = save_msg_scroll;
       } else {
@@ -1695,10 +1695,12 @@ int open_line(
       int new_len = (int)STRLEN(saved_line);
 
       // TODO(vigoux): maybe there is issues there with expandtabs ?
+      int cols_spliced = 0;
       if (new_len < curwin->w_cursor.col) {
         extmark_splice_cols(
-            curbuf, (int)curwin->w_cursor.lnum,
+            curbuf, (int)curwin->w_cursor.lnum - 1,
             new_len, curwin->w_cursor.col - new_len, 0, kExtmarkUndo);
+        cols_spliced = curwin->w_cursor.col - new_len;
       }
 
       saved_line = NULL;
@@ -1716,7 +1718,7 @@ int open_line(
         // Always move extmarks - Here we move only the line where the
         // cursor is, the previous mark_adjust takes care of the lines after
         int cols_added = mincol-1+less_cols_off-less_cols;
-        extmark_splice(curbuf, (int)lnum-1, mincol-1,
+        extmark_splice(curbuf, (int)lnum-1, mincol-1 - cols_spliced,
                        0, less_cols_off, less_cols_off,
                        1, cols_added, 1 + cols_added, kExtmarkUndo);
       } else {

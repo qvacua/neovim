@@ -85,6 +85,9 @@
 # include "buffer.c.generated.h"
 #endif
 
+// Determines how deeply nested %{} blocks will be evaluated in statusline.
+#define MAX_STL_EVAL_DEPTH 100
+
 static char *msg_loclist = N_("[Location List]");
 static char *msg_qflist = N_("[Quickfix List]");
 static char *e_auabort = N_("E855: Autocommands caused command to abort");
@@ -407,7 +410,8 @@ bool buf_valid(buf_T *buf)
 ///               there to be only one window with this buffer. e.g. when
 ///               ":quit" is supposed to close the window but autocommands
 ///               close all other windows.
-void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
+/// @returns true when we got to the end and b_nwindows was decremented.
+bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
 {
   bool unload_buf = (action != 0);
   bool del_buf = (action == DOBUF_DEL || action == DOBUF_WIPE);
@@ -444,7 +448,7 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
   // halfway a command that relies on it). Unloading is allowed.
   if (buf->b_locked > 0 && (del_buf || wipe_buf)) {
     EMSG(_("E937: Attempt to delete a buffer that is in use"));
-    return;
+    return false;
   }
 
   if (win != NULL  // Avoid bogus clang warning.
@@ -471,13 +475,13 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
                        buf) && !bufref_valid(&bufref)) {
       // Autocommands deleted the buffer.
       EMSG(_(e_auabort));
-      return;
+      return false;
     }
     buf->b_locked--;
     if (abort_if_last && last_nonfloat(win)) {
       // Autocommands made this the only window.
       EMSG(_(e_auabort));
-      return;
+      return false;
     }
 
     // When the buffer becomes hidden, but is not unloaded, trigger
@@ -488,17 +492,17 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
                          buf) && !bufref_valid(&bufref)) {
         // Autocommands deleted the buffer.
         EMSG(_(e_auabort));
-        return;
+        return false;
       }
       buf->b_locked--;
       if (abort_if_last && last_nonfloat(win)) {
         // Autocommands made this the only window.
         EMSG(_(e_auabort));
-        return;
+        return false;
       }
     }
     if (aborting()) {       // autocmds may abort script processing
-      return;
+      return false;
     }
   }
 
@@ -525,7 +529,7 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
   /* Return when a window is displaying the buffer or when it's not
    * unloaded. */
   if (buf->b_nwindows > 0 || !unload_buf) {
-    return;
+    return false;
   }
 
   if (buf->terminal) {
@@ -561,11 +565,11 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
 
   if (!bufref_valid(&bufref)) {
     // Autocommands may have deleted the buffer.
-    return;
+    return false;
   }
   if (aborting()) {
     // Autocmds may abort script processing.
-    return;
+    return false;
   }
 
   /*
@@ -576,7 +580,7 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
    * deleted buffer.
    */
   if (buf == curbuf && !is_curbuf) {
-    return;
+    return false;
   }
 
   if (win != NULL  // Avoid bogus clang warning.
@@ -636,6 +640,8 @@ void close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last)
       buf->b_p_bl = false;
     }
   }
+  // NOTE: at this point "curbuf" may be invalid!
+  return true;
 }
 
 /// Make buffer not contain a file.
@@ -1844,7 +1850,7 @@ buf_T *buflist_new(char_u *ffname_arg, char_u *sfname_arg, linenr_T lnum,
       EMSG(_("W14: Warning: List of file names overflow"));
       if (emsg_silent == 0) {
         ui_flush();
-        os_delay(3000L, true);  // make sure it is noticed
+        os_delay(3001L, true);  // make sure it is noticed
       }
       top_file_num = 1;
     }
@@ -3569,6 +3575,7 @@ int build_stl_str_hl(
   }
 
   int groupdepth = 0;
+  int evaldepth  = 0;
 
   int curitem = 0;
   bool prevchar_isflag = true;
@@ -3906,6 +3913,13 @@ int build_stl_str_hl(
       continue;
     }
 
+    // Denotes end of expanded %{} block
+    if (*fmt_p == '}' && evaldepth > 0) {
+        fmt_p++;
+        evaldepth--;
+        continue;
+    }
+
     // An invalid item was specified.
     // Continue processing on the next character of the format string.
     if (vim_strchr(STL_ALL, *fmt_p) == NULL) {
@@ -3947,18 +3961,30 @@ int build_stl_str_hl(
     }
     case STL_VIM_EXPR:     // '{'
     {
+      char_u *block_start = fmt_p - 1;
+      int reevaluate = (*fmt_p == '%');
       itemisflag = true;
+
+      if (reevaluate) {
+        fmt_p++;
+      }
 
       // Attempt to copy the expression to evaluate into
       // the output buffer as a null-terminated string.
       char_u *t = out_p;
-      while (*fmt_p != '}' && *fmt_p != NUL && out_p < out_end_p)
+      while ((*fmt_p != '}' || (reevaluate && fmt_p[-1] != '%'))
+             && *fmt_p != NUL && out_p < out_end_p) {
         *out_p++ = *fmt_p++;
+      }
       if (*fmt_p != '}') {          // missing '}' or out of space
         break;
       }
       fmt_p++;
-      *out_p = 0;
+      if (reevaluate) {
+        out_p[-1] = 0;  // remove the % at the end of %{% expr %}
+      } else {
+        *out_p = 0;
+      }
 
       // Move our position in the output buffer
       // to the beginning of the expression
@@ -4003,6 +4029,40 @@ int build_stl_str_hl(
           XFREE_CLEAR(str);
           itemisflag = false;
         }
+      }
+
+
+      // If the output of the expression needs to be evaluated
+      // replace the %{} block with the result of evaluation
+      if (reevaluate && str != NULL && *str != 0
+          && strchr((const char *)str, '%') != NULL
+          && evaldepth < MAX_STL_EVAL_DEPTH) {
+        size_t parsed_usefmt = (size_t)(block_start - usefmt);
+        size_t str_length = strlen((const char *)str);
+        size_t fmt_length = strlen((const char *)fmt_p);
+        size_t new_fmt_len = parsed_usefmt
+          + str_length + fmt_length + 3;
+        char_u *new_fmt = (char_u *)xmalloc(new_fmt_len * sizeof(char_u));
+        char_u *new_fmt_p = new_fmt;
+
+        new_fmt_p = (char_u *)memcpy(new_fmt_p, usefmt, parsed_usefmt)
+          + parsed_usefmt;
+        new_fmt_p = (char_u *)memcpy(new_fmt_p , str, str_length)
+          + str_length;
+        new_fmt_p = (char_u *)memcpy(new_fmt_p, "%}", 2) + 2;
+        new_fmt_p = (char_u *)memcpy(new_fmt_p , fmt_p, fmt_length)
+          + fmt_length;
+        *new_fmt_p = 0;
+        new_fmt_p = NULL;
+
+        if (usefmt != fmt) {
+          xfree(usefmt);
+        }
+        XFREE_CLEAR(str);
+        usefmt = new_fmt;
+        fmt_p = usefmt + parsed_usefmt;
+        evaldepth++;
+        continue;
       }
       break;
     }

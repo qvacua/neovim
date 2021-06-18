@@ -1953,6 +1953,7 @@ static int command_line_handle_key(CommandLineState *s)
   case K_X2MOUSE:
   case K_X2DRAG:
   case K_X2RELEASE:
+  case K_MOUSEMOVE:
     return command_line_not_changed(s);
 
 
@@ -3570,6 +3571,7 @@ static void save_cmdline(struct cmdline_info *ccp)
  * Restore ccline after it has been saved with save_cmdline().
  */
 static void restore_cmdline(struct cmdline_info *ccp)
+  FUNC_ATTR_NONNULL_ALL
 {
   ccline = *ccp;
 }
@@ -3579,6 +3581,7 @@ static void restore_cmdline(struct cmdline_info *ccp)
  * passed to restore_cmdline_alloc() later.
  */
 char_u *save_cmdline_alloc(void)
+  FUNC_ATTR_NONNULL_RET
 {
   struct cmdline_info *p = xmalloc(sizeof(struct cmdline_info));
   save_cmdline(p);
@@ -3589,6 +3592,7 @@ char_u *save_cmdline_alloc(void)
  * Restore the command line from the return value of save_cmdline_alloc().
  */
 void restore_cmdline_alloc(char_u *p)
+  FUNC_ATTR_NONNULL_ALL
 {
   restore_cmdline((struct cmdline_info *)p);
   xfree(p);
@@ -5111,11 +5115,12 @@ ExpandFromContext (
   }
   if (xp->xp_context == EXPAND_COLORS) {
     char *directories[] = { "colors", NULL };
-    return ExpandRTDir(pat, DIP_START + DIP_OPT, num_file, file, directories);
+    return ExpandRTDir(pat, DIP_START + DIP_OPT + DIP_LUA, num_file, file,
+                       directories);
   }
   if (xp->xp_context == EXPAND_COMPILER) {
     char *directories[] = { "compiler", NULL };
-    return ExpandRTDir(pat, 0, num_file, file, directories);
+    return ExpandRTDir(pat, DIP_LUA, num_file, file, directories);
   }
   if (xp->xp_context == EXPAND_OWNSYNTAX) {
     char *directories[] = { "syntax", NULL };
@@ -5123,7 +5128,7 @@ ExpandFromContext (
   }
   if (xp->xp_context == EXPAND_FILETYPE) {
     char *directories[] = { "syntax", "indent", "ftplugin", NULL };
-    return ExpandRTDir(pat, 0, num_file, file, directories);
+    return ExpandRTDir(pat, DIP_LUA, num_file, file, directories);
   }
   if (xp->xp_context == EXPAND_CHECKHEALTH) {
     char *directories[] = { "autoload/health", NULL };
@@ -5563,6 +5568,7 @@ static int ExpandUserList(expand_T *xp, int *num_file, char_u ***file)
 ///   'packpath'/pack/ * /start/ * /{dirnames}/{pat}.vim
 /// When "flags" has DIP_OPT: search also from 'opt' of 'packpath':
 ///   'packpath'/pack/ * /opt/ * /{dirnames}/{pat}.vim
+/// When "flags" has DIP_LUA: search also performed for .lua files
 /// "dirnames" is an array with one or more directory names.
 static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
                        char *dirnames[])
@@ -5580,6 +5586,10 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
     char_u *s = xmalloc(size);
     snprintf((char *)s, size, "%s/%s*.vim", dirnames[i], pat);
     globpath(p_rtp, s, &ga, 0);
+    if (flags & DIP_LUA) {
+      snprintf((char *)s, size, "%s/%s*.lua", dirnames[i], pat);
+      globpath(p_rtp, s, &ga, 0);
+    }
     xfree(s);
   }
 
@@ -5589,6 +5599,10 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       char_u *s = xmalloc(size);
       snprintf((char *)s, size, "pack/*/start/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
       globpath(p_pp, s, &ga, 0);
+      if (flags & DIP_LUA) {
+        snprintf((char *)s, size, "pack/*/start/*/%s/%s*.lua", dirnames[i], pat);  // NOLINT
+        globpath(p_pp, s, &ga, 0);
+      }
       xfree(s);
     }
 
@@ -5597,6 +5611,10 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       char_u *s = xmalloc(size);
       snprintf((char *)s, size, "start/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
       globpath(p_pp, s, &ga, 0);
+      if (flags & DIP_LUA) {
+        snprintf((char *)s, size, "start/*/%s/%s*.lua", dirnames[i], pat);  // NOLINT
+        globpath(p_pp, s, &ga, 0);
+      }
       xfree(s);
     }
   }
@@ -5607,6 +5625,10 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       char_u *s = xmalloc(size);
       snprintf((char *)s, size, "pack/*/opt/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
       globpath(p_pp, s, &ga, 0);
+      if (flags & DIP_LUA) {
+        snprintf((char *)s, size, "pack/*/opt/*/%s/%s*.lua", dirnames[i], pat);  // NOLINT
+        globpath(p_pp, s, &ga, 0);
+      }
       xfree(s);
     }
 
@@ -5615,6 +5637,10 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
       char_u *s = xmalloc(size);
       snprintf((char *)s, size, "opt/*/%s/%s*.vim", dirnames[i], pat);  // NOLINT
       globpath(p_pp, s, &ga, 0);
+      if (flags & DIP_LUA) {
+        snprintf((char *)s, size, "opt/*/%s/%s*.lua", dirnames[i], pat);  // NOLINT
+        globpath(p_pp, s, &ga, 0);
+      }
       xfree(s);
     }
   }
@@ -5623,7 +5649,9 @@ static int ExpandRTDir(char_u *pat, int flags, int *num_file, char_u ***file,
     char_u *match = ((char_u **)ga.ga_data)[i];
     char_u *s = match;
     char_u *e = s + STRLEN(s);
-    if (e - s > 4 && STRNICMP(e - 4, ".vim", 4) == 0) {
+    if (e - s > 4 && (STRNICMP(e - 4, ".vim", 4) == 0
+                      || ((flags & DIP_LUA)
+                          && STRNICMP(e - 4, ".lua", 4) == 0))) {
       e -= 4;
       for (s = e; s > match; MB_PTR_BACK(match, s)) {
         if (vim_ispathsep(*s)) {
@@ -6634,11 +6662,13 @@ static int open_cmdwin(void)
     wp = curwin;
     set_bufref(&bufref, curbuf);
     win_goto(old_curwin);
-    win_close(wp, true);
+    if (win_valid(wp) && wp != curwin) {
+      win_close(wp, true);
+    }
 
     // win_close() may have already wiped the buffer when 'bh' is
-    // set to 'wipe'.
-    if (bufref_valid(&bufref)) {
+    // set to 'wipe', autocommands may have closed other windows
+    if (bufref_valid(&bufref) && bufref.br_buf != curbuf) {
       close_buffer(NULL, bufref.br_buf, DOBUF_WIPE, false);
     }
 

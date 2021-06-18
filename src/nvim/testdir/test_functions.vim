@@ -28,12 +28,14 @@ func Test_empty()
   call assert_equal(0, empty(1))
   call assert_equal(0, empty(-1))
 
-  call assert_equal(1, empty(0.0))
-  call assert_equal(1, empty(-0.0))
-  call assert_equal(0, empty(1.0))
-  call assert_equal(0, empty(-1.0))
-  call assert_equal(0, empty(1.0/0.0))
-  call assert_equal(0, empty(0.0/0.0))
+  if has('float')
+    call assert_equal(1, empty(0.0))
+    call assert_equal(1, empty(-0.0))
+    call assert_equal(0, empty(1.0))
+    call assert_equal(0, empty(-1.0))
+    call assert_equal(0, empty(1.0/0.0))
+    call assert_equal(0, empty(0.0/0.0))
+  endif
 
   call assert_equal(1, empty([]))
   call assert_equal(0, empty(['a']))
@@ -115,7 +117,9 @@ func Test_strwidth()
     call assert_fails('call strwidth({->0})', 'E729:')
     call assert_fails('call strwidth([])', 'E730:')
     call assert_fails('call strwidth({})', 'E731:')
-    call assert_fails('call strwidth(1.2)', 'E806:')
+    if has('float')
+      call assert_fails('call strwidth(1.2)', 'E806:')
+    endif
   endfor
 
   set ambiwidth&
@@ -319,19 +323,19 @@ func Test_setbufvar_options()
   let prev_id = win_getid()
 
   wincmd j
-  let wh = winheight('.')
+  let wh = winheight(0)
   let dummy_buf = bufnr('dummy_buf1', v:true)
   call setbufvar(dummy_buf, '&buftype', 'nofile')
   execute 'belowright vertical split #' . dummy_buf
-  call assert_equal(wh, winheight('.'))
+  call assert_equal(wh, winheight(0))
   let dum1_id = win_getid()
 
   wincmd h
-  let wh = winheight('.')
+  let wh = winheight(0)
   let dummy_buf = bufnr('dummy_buf2', v:true)
   call setbufvar(dummy_buf, '&buftype', 'nofile')
   execute 'belowright vertical split #' . dummy_buf
-  call assert_equal(wh, winheight('.'))
+  call assert_equal(wh, winheight(0))
 
   bwipe!
   call win_gotoid(prev_id)
@@ -1067,14 +1071,30 @@ func Test_inputlist()
   call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>3\<cr>", 'tx')
   call assert_equal(3, c)
 
+  " CR to cancel
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>\<cr>", 'tx')
+  call assert_equal(0, c)
+
+  " Esc to cancel
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>\<Esc>", 'tx')
+  call assert_equal(0, c)
+
+  " q to cancel
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>q", 'tx')
+  call assert_equal(0, c)
+
+  " Cancel after inputting a number
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>5q", 'tx')
+  call assert_equal(0, c)
+
   call assert_fails('call inputlist("")', 'E686:')
 endfunc
 
 func Test_balloon_show()
-  if has('balloon_eval')
-    " This won't do anything but must not crash either.
-    call balloon_show('hi!')
-  endif
+  CheckFeature balloon_eval
+
+  " This won't do anything but must not crash either.
+  call balloon_show('hi!')
 endfunc
 
 func Test_shellescape()
@@ -1446,6 +1466,14 @@ func Test_nr2char()
 
   call assert_equal("\x80\xfc\b\xf4\x80\xfeX\x80\xfeX\x80\xfeX", eval('"\<M-' .. nr2char(0x100000) .. '>"'))
   call assert_equal("\x80\xfc\b\xfd\x80\xfeX\x80\xfeX\x80\xfeX\x80\xfeX\x80\xfeX", eval('"\<M-' .. nr2char(0x40000000) .. '>"'))
+endfunc
+
+func HasDefault(msg = 'msg')
+  return a:msg
+endfunc
+
+func Test_default_arg_value()
+  call assert_equal('msg', HasDefault())
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

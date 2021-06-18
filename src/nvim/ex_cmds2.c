@@ -27,6 +27,7 @@
 #include "nvim/ex_getln.h"
 #include "nvim/fileio.h"
 #include "nvim/getchar.h"
+#include "nvim/globals.h"
 #include "nvim/mark.h"
 #include "nvim/mbyte.h"
 #include "nvim/memline.h"
@@ -53,6 +54,7 @@
 #include "nvim/os/fs_defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/defs.h"
+#include "nvim/lua/executor.h"
 
 
 /// Growarray to store info about already sourced scripts.
@@ -876,7 +878,7 @@ debuggy_find(
           debug_newval = typval_tostring(bp->dbg_val);
           line = true;
         } else {
-          if (typval_compare(tv, bp->dbg_val, TYPE_EQUAL, true, false) == OK
+          if (typval_compare(tv, bp->dbg_val, EXPR_IS, false) == OK
               && tv->vval.v_number == false) {
             line = true;
             debug_oldval = typval_tostring(bp->dbg_val);
@@ -2421,6 +2423,7 @@ void ex_compiler(exarg_T *eap)
   if (*eap->arg == NUL) {
     // List all compiler scripts.
     do_cmdline_cmd("echo globpath(&rtp, 'compiler/*.vim')");  // NOLINT
+    do_cmdline_cmd("echo globpath(&rtp, 'compiler/*.lua')");  // NOLINT
   } else {
     size_t bufsize = STRLEN(eap->arg) + 14;
     buf = xmalloc(bufsize);
@@ -2445,7 +2448,11 @@ void ex_compiler(exarg_T *eap)
 
     snprintf((char *)buf, bufsize, "compiler/%s.vim", eap->arg);
     if (source_in_path(p_rtp, buf, DIP_ALL) == FAIL) {
-      EMSG2(_("E666: compiler not supported: %s"), eap->arg);
+      // Try lua compiler
+      snprintf((char *)buf, bufsize, "compiler/%s.lua", eap->arg);
+      if (source_in_path(p_rtp, buf, DIP_ALL) == FAIL) {
+        EMSG2(_("E666: compiler not supported: %s"), eap->arg);
+      }
     }
     xfree(buf);
 
@@ -2656,8 +2663,13 @@ static void cmd_source_buffer(const exarg_T *eap)
       .curr_lnum = eap->line1,
       .final_lnum = eap->line2,
   };
-  source_using_linegetter((void *)&cookie, get_buffer_line,
-                          ":source (no file)");
+  if (curbuf != NULL && curbuf->b_fname
+      && path_with_extension((const char *)curbuf->b_fname, "lua")) {
+    nlua_source_using_linegetter(get_buffer_line, (void *)&cookie, ":source");
+  } else {
+    source_using_linegetter((void *)&cookie, get_buffer_line,
+                            ":source (no file)");
+  }
 }
 
 /// ":source" and associated commands.
@@ -2719,16 +2731,10 @@ static char_u *get_str_line(int c, void *cookie, int indent, bool do_concat)
   while (!(p->buf[i] == '\n' || p->buf[i] == '\0')) {
     i++;
   }
-  char buf[2046];
-  char *dst;
-  dst = xstpncpy(buf, (char *)p->buf + p->offset, i - p->offset);
-  if ((uint32_t)(dst - buf) != i - p->offset) {
-    smsg(_(":source error parsing command %s"), p->buf);
-    return NULL;
-  }
-  buf[i - p->offset] = '\0';
+  size_t line_length = i - p->offset;
+  char_u *buf = xmemdupz(p->buf + p->offset, line_length);
   p->offset = i + 1;
-  return (char_u *)xstrdup(buf);
+  return buf;
 }
 
 static int source_using_linegetter(void *cookie,
@@ -2775,7 +2781,8 @@ int do_source_str(const char *cmd, const char *traceback_name)
   return source_using_linegetter((void *)&cookie, get_str_line, traceback_name);
 }
 
-/// Reads the file `fname` and executes its lines as Ex commands.
+/// When fname is a 'lua' file nlua_exec_file() is invoked to source it.
+/// Otherwise reads the file `fname` and executes its lines as Ex commands.
 ///
 /// This function may be called recursively!
 ///
@@ -2964,7 +2971,7 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
   }
 
   if (l_do_profiling == PROF_YES) {
-    bool forceit;
+    bool forceit = false;
 
     // Check if we do profiling for this script.
     if (!si->sn_prof_on && has_profiling(true, si->sn_name, &forceit)) {
@@ -2994,10 +3001,15 @@ int do_source(char_u *fname, int check_other, int is_vimrc)
     firstline = p;
   }
 
-  // Call do_cmdline, which will call getsourceline() to get the lines.
-  do_cmdline(firstline, getsourceline, (void *)&cookie,
-             DOCMD_VERBOSE|DOCMD_NOWAIT|DOCMD_REPEAT);
-  retval = OK;
+  if (path_with_extension((const char *)fname, "lua")) {
+    // Source the file as lua
+    retval = (int)nlua_exec_file((const char *)fname);
+  } else {
+    // Call do_cmdline, which will call getsourceline() to get the lines.
+    do_cmdline(firstline, getsourceline, (void *)&cookie,
+               DOCMD_VERBOSE|DOCMD_NOWAIT|DOCMD_REPEAT);
+    retval = OK;
+  }
 
   if (l_do_profiling == PROF_YES) {
     // Get "si" again, "script_items" may have been reallocated.
@@ -3627,6 +3639,14 @@ void set_lang_var(void)
   loc = get_locale_val(LC_TIME);
 # endif
   set_vim_var_string(VV_LC_TIME, loc, -1);
+
+# ifdef HAVE_GET_LOCALE_VAL
+  loc = get_locale_val(LC_COLLATE);
+# else
+  // setlocale() not supported: use the default value
+  loc = "C";
+# endif
+  set_vim_var_string(VV_COLLATE, loc, -1);
 }
 
 #ifdef HAVE_WORKING_LIBINTL
@@ -3667,6 +3687,10 @@ void ex_language(exarg_T *eap)
       what = LC_TIME;
       name = skipwhite(p);
       whatstr = "time ";
+    } else if (STRNICMP(eap->arg, "collate", p - eap->arg) == 0) {
+      what = LC_COLLATE;
+      name = skipwhite(p);
+      whatstr = "collate ";
     }
   }
 
@@ -3711,7 +3735,7 @@ void ex_language(exarg_T *eap)
       // Reset $LC_ALL, otherwise it would overrule everything.
       os_setenv("LC_ALL", "", 1);
 
-      if (what != LC_TIME) {
+      if (what != LC_TIME && what != LC_COLLATE) {
         // Tell gettext() what to translate to.  It apparently doesn't
         // use the currently effective locale.
         if (what == LC_ALL) {
@@ -3726,7 +3750,7 @@ void ex_language(exarg_T *eap)
         }
       }
 
-      // Set v:lang, v:lc_time and v:ctype to the final result.
+      // Set v:lang, v:lc_time, v:collate and v:ctype to the final result.
       set_lang_var();
       maketitle();
     }
@@ -3811,12 +3835,15 @@ char_u *get_lang_arg(expand_T *xp, int idx)
   if (idx == 2) {
     return (char_u *)"time";
   }
+  if (idx == 3) {
+    return (char_u *)"collate";
+  }
 
   init_locales();
   if (locales == NULL) {
     return NULL;
   }
-  return locales[idx - 3];
+  return locales[idx - 4];
 }
 
 /// Function given to ExpandGeneric() to obtain the available locales.

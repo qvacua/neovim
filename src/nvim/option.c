@@ -292,7 +292,8 @@ typedef struct vimoption {
 
 static char *(p_ambw_values[]) =      { "single", "double", NULL };
 static char *(p_bg_values[]) =        { "light", "dark", NULL };
-static char *(p_nf_values[]) =        { "bin", "octal", "hex", "alpha", NULL };
+static char *(p_nf_values[]) =        { "bin", "octal", "hex", "alpha",
+                                        "unsigned", NULL };
 static char *(p_ff_values[]) =        { FF_UNIX, FF_DOS, FF_MAC, NULL };
 static char *(p_wak_values[]) =       { "yes", "menu", "no", NULL };
 static char *(p_mousem_values[]) =    { "extend", "popup", "popup_setpos",
@@ -854,15 +855,18 @@ void set_init_3(void)
         p_srr = (char_u *)">&";
         options[idx_srr].def_val[VI_DEFAULT] = p_srr;
       }
-    } else if (       fnamecmp(p, "sh") == 0
-                      || fnamecmp(p, "ksh") == 0
-                      || fnamecmp(p, "mksh") == 0
-                      || fnamecmp(p, "pdksh") == 0
-                      || fnamecmp(p, "zsh") == 0
-                      || fnamecmp(p, "zsh-beta") == 0
-                      || fnamecmp(p, "bash") == 0
-                      || fnamecmp(p, "fish") == 0
-                      ) {
+    } else if (fnamecmp(p, "sh") == 0
+               || fnamecmp(p, "ksh") == 0
+               || fnamecmp(p, "mksh") == 0
+               || fnamecmp(p, "pdksh") == 0
+               || fnamecmp(p, "zsh") == 0
+               || fnamecmp(p, "zsh-beta") == 0
+               || fnamecmp(p, "bash") == 0
+               || fnamecmp(p, "fish") == 0
+               || fnamecmp(p, "ash") == 0
+               || fnamecmp(p, "dash") == 0
+               ) {
+      // Always use POSIX shell style redirection if we reach this
       if (do_sp) {
         p_sp = (char_u *)"2>&1| tee";
         options[idx_sp].def_val[VI_DEFAULT] = p_sp;
@@ -3637,9 +3641,11 @@ char_u *check_stl_option(char_u *s)
       return illegal_char(errbuf, sizeof(errbuf), *s);
     }
     if (*s == '{') {
+      int reevaluate = (*s == '%');
       s++;
-      while (*s != '}' && *s)
+      while ((*s != '}' || (reevaluate && s[-1] != '%')) && *s) {
         s++;
+      }
       if (*s != '}') {
         return (char_u *)N_("E540: Unclosed expression sequence");
       }
@@ -4877,7 +4883,7 @@ int get_option_value_strict(char *name,
     if (p->flags & P_STRING) {
       *stringval = xstrdup(*(char **)(varp));
     } else if (p->flags & P_NUM) {
-      *numval = *(long *) varp;
+      *numval = *(long *)varp;
     } else {
       *numval = *(int *)varp;
     }
@@ -5226,6 +5232,11 @@ int makeset(FILE *fd, int opt_flags, int local_only)
           continue;
         }
 
+        if ((opt_flags & OPT_SKIPRTP)
+            && (p->var == (char_u *)&p_rtp || p->var == (char_u *)&p_pp)) {
+          continue;
+        }
+
         round = 2;
         if (p->indir != PV_NONE) {
           if (p->var == VAR_WIN) {
@@ -5359,7 +5370,7 @@ static int put_setstring(FILE *fd, char *cmd, char *name,
         }
         p = buf;
         while (*p != NUL) {
-            // for each comma seperated option part, append value to
+            // for each comma separated option part, append value to
             // the option, :set rtp+=value
             if (fprintf(fd, "%s %s+=", cmd, name) < 0) {
               goto fail;
@@ -7583,8 +7594,18 @@ int csh_like_shell(void)
 /// buffer signs and on user configuration.
 int win_signcol_count(win_T *wp)
 {
+  return win_signcol_configured(wp, NULL);
+}
+
+/// Return the number of requested sign columns, based on user / configuration.
+int win_signcol_configured(win_T *wp, int *is_fixed)
+{
   int minimum = 0, maximum = 1, needed_signcols;
   const char *scl = (const char *)wp->w_p_scl;
+
+  if (is_fixed) {
+    *is_fixed = 1;
+  }
 
   // Note: It checks "no" or "number" in 'signcolumn' option
   if (*scl == 'n'
@@ -7603,7 +7624,11 @@ int win_signcol_count(win_T *wp)
     return 1;
   }
 
-  // auto or auto:<NUM>
+  if (is_fixed) {
+    // auto or auto:<NUM>
+    *is_fixed = 0;
+  }
+
   if (!strncmp(scl, "auto:", 5)) {
     // Variable depending on a configuration
     maximum = scl[5] - '0';
@@ -7680,7 +7705,7 @@ Dictionary get_vimoption(String name, Error *err)
 Dictionary get_all_vimoptions(void)
 {
   Dictionary retval = ARRAY_DICT_INIT;
-  for (size_t i = 0; i < PARAM_COUNT; i++) {
+  for (size_t i = 0; options[i].fullname != NULL; i++) {
     Dictionary opt_dict = vimoption2dict(&options[i]);
     PUT(retval, options[i].fullname, DICTIONARY_OBJ(opt_dict));
   }

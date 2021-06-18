@@ -358,6 +358,7 @@ static int linelen(int *has_tab)
 static char_u   *sortbuf1;
 static char_u   *sortbuf2;
 
+static int sort_lc;       ///< sort using locale
 static int sort_ic;       ///< ignore case
 static int sort_nr;       ///< sort on number
 static int sort_rx;       ///< sort on regex instead of skipping it
@@ -381,6 +382,13 @@ typedef struct {
   } st_u;
 } sorti_T;
 
+static int string_compare(const void *s1, const void *s2) FUNC_ATTR_NONNULL_ALL
+{
+  if (sort_lc) {
+    return strcoll((char *)s1, (char *)s2);
+  }
+  return sort_ic ? STRICMP(s1, s2) : STRCMP(s1, s2);
+}
 
 static int sort_compare(const void *s1, const void *s2)
 {
@@ -424,8 +432,7 @@ static int sort_compare(const void *s1, const void *s2)
            l2.st_u.line.end_col_nr - l2.st_u.line.start_col_nr + 1);
     sortbuf2[l2.st_u.line.end_col_nr - l2.st_u.line.start_col_nr] = NUL;
 
-    result = sort_ic ? STRICMP(sortbuf1, sortbuf2)
-             : STRCMP(sortbuf1, sortbuf2);
+    result = string_compare(sortbuf1, sortbuf2);
   }
 
   /* If two lines have the same value, preserve the original line order. */
@@ -466,7 +473,7 @@ void ex_sort(exarg_T *eap)
   regmatch.regprog = NULL;
   sorti_T *nrs = xmalloc(count * sizeof(sorti_T));
 
-  sort_abort = sort_ic = sort_rx = sort_nr = sort_flt = 0;
+  sort_abort = sort_ic = sort_lc = sort_rx = sort_nr = sort_flt = 0;
   size_t format_found = 0;
   bool change_occurred = false;   // Buffer contents changed.
 
@@ -474,6 +481,8 @@ void ex_sort(exarg_T *eap)
     if (ascii_iswhite(*p)) {
     } else if (*p == 'i') {
       sort_ic = true;
+    } else if (*p == 'l') {
+      sort_lc = true;
     } else if (*p == 'r') {
       sort_rx = true;
     } else if (*p == 'n') {
@@ -645,8 +654,7 @@ void ex_sort(exarg_T *eap)
     s = ml_get(get_lnum);
     size_t bytelen = STRLEN(s) + 1;  // include EOL in bytelen
     old_count += bytelen;
-    if (!unique || i == 0
-        || (sort_ic ? STRICMP(s, sortbuf1) : STRCMP(s, sortbuf1)) != 0) {
+    if (!unique || i == 0 || string_compare(s, sortbuf1) != 0) {
       // Copy the line into a buffer, it may become invalid in
       // ml_append(). And it's needed for "unique".
       STRCPY(sortbuf1, s);
@@ -968,12 +976,6 @@ int do_move(linenr_T line1, linenr_T line2, linenr_T dest)
   mark_adjust_nofold(last_line - num_lines + 1, last_line,
                      -(last_line - dest - extra), 0L, kExtmarkNOOP);
 
-  // extmarks are handled separately
-  extmark_move_region(curbuf, line1-1, 0, start_byte,
-                      line2-line1+1, 0, extent_byte,
-                      dest+line_off, 0, dest_byte+byte_off,
-                      kExtmarkUndo);
-
   changed_lines(last_line - num_lines + 1, 0, last_line + 1, -extra, false);
 
   // send update regarding the new lines that were added
@@ -994,6 +996,11 @@ int do_move(linenr_T line1, linenr_T line2, linenr_T dest)
     else
       smsg(_("%" PRId64 " lines moved"), (int64_t)num_lines);
   }
+
+  extmark_move_region(curbuf, line1-1, 0, start_byte,
+                      line2-line1+1, 0, extent_byte,
+                      dest+line_off, 0, dest_byte+byte_off,
+                      kExtmarkUndo);
 
   /*
    * Leave the cursor on the last of the moved lines.
@@ -2427,21 +2434,25 @@ int do_ecmd(
      * is returned by buflist_new(), nothing to do here.
      */
     if (buf != curbuf) {
-      /*
-       * Be careful: The autocommands may delete any buffer and change
-       * the current buffer.
-       * - If the buffer we are going to edit is deleted, give up.
-       * - If the current buffer is deleted, prefer to load the new
-       *   buffer when loading a buffer is required.  This avoids
-       *   loading another buffer which then must be closed again.
-       * - If we ended up in the new buffer already, need to skip a few
-       *	 things, set auto_buf.
-       */
+      const int save_cmdwin_type = cmdwin_type;
+
+      // BufLeave applies to the old buffer.
+      cmdwin_type = 0;
+
+      // Be careful: The autocommands may delete any buffer and change
+      // the current buffer.
+      // - If the buffer we are going to edit is deleted, give up.
+      // - If the current buffer is deleted, prefer to load the new
+      //   buffer when loading a buffer is required.  This avoids
+      //   loading another buffer which then must be closed again.
+      // - If we ended up in the new buffer already, need to skip a few
+      //         things, set auto_buf.
       if (buf->b_fname != NULL) {
         new_name = vim_strsave(buf->b_fname);
       }
       set_bufref(&au_new_curbuf, buf);
       apply_autocmds(EVENT_BUFLEAVE, NULL, NULL, false, curbuf);
+      cmdwin_type = save_cmdwin_type;
       if (!bufref_valid(&au_new_curbuf)) {
         // New buffer has been deleted.
         delbuf_msg(new_name);  // Frees new_name.
@@ -2455,6 +2466,7 @@ int do_ecmd(
         auto_buf = true;
       } else {
         win_T *the_curwin = curwin;
+        buf_T *was_curbuf = curbuf;
 
         // Set w_closing to avoid that autocommands close the window.
         // Set b_locked for the same reason.
@@ -2468,9 +2480,10 @@ int do_ecmd(
         // Close the link to the current buffer. This will set
         // oldwin->w_buffer to NULL.
         u_sync(false);
-        close_buffer(oldwin, curbuf,
-                     (flags & ECMD_HIDE) || curbuf->terminal ? 0 : DOBUF_UNLOAD,
-                     false);
+        const bool did_decrement = close_buffer(
+            oldwin, curbuf,
+            (flags & ECMD_HIDE) || curbuf->terminal ? 0 : DOBUF_UNLOAD,
+            false);
 
         // Autocommands may have closed the window.
         if (win_valid(the_curwin)) {
@@ -2490,6 +2503,14 @@ int do_ecmd(
           goto theend;
         }
         if (buf == curbuf) {  // already in new buffer
+          // close_buffer() has decremented the window count,
+          // increment it again here and restore w_buffer.
+          if (did_decrement && buf_valid(was_curbuf)) {
+            was_curbuf->b_nwindows++;
+          }
+          if (win_valid_any_tab(oldwin) && oldwin->w_buffer == NULL) {
+            oldwin->w_buffer = was_curbuf;
+          }
           auto_buf = true;
         } else {
           // <VN> We could instead free the synblock

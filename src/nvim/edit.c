@@ -992,6 +992,7 @@ static int insert_handle_key(InsertState *s)
   case K_LEFTDRAG:
   case K_LEFTRELEASE:
   case K_LEFTRELEASE_NM:
+  case K_MOUSEMOVE:
   case K_MIDDLEMOUSE:
   case K_MIDDLEDRAG:
   case K_MIDDLERELEASE:
@@ -1606,13 +1607,20 @@ void edit_putchar(int c, bool highlight)
   }
 }
 
-// Return the effective prompt for the current buffer.
-char_u *prompt_text(void)
+/// Return the effective prompt for the specified buffer.
+char_u *buf_prompt_text(const buf_T *const buf)
+    FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT
 {
-    if (curbuf->b_prompt_text == NULL) {
-      return (char_u *)"% ";
-    }
-    return curbuf->b_prompt_text;
+  if (buf->b_prompt_text == NULL) {
+    return (char_u *)"% ";
+  }
+  return buf->b_prompt_text;
+}
+
+// Return the effective prompt for the current buffer.
+char_u *prompt_text(void) FUNC_ATTR_WARN_UNUSED_RESULT
+{
+  return buf_prompt_text(curbuf);
 }
 
 // Prepare for prompt mode: Make sure the last line has the prompt text.
@@ -2060,7 +2068,7 @@ static bool check_compl_option(bool dict_opt)
       vim_beep(BO_COMPL);
       setcursor();
       ui_flush();
-      os_delay(2000L, false);
+      os_delay(2004L, false);
     }
     return false;
   }
@@ -3144,9 +3152,7 @@ static void ins_compl_clear(void)
   XFREE_CLEAR(compl_orig_text);
   compl_enter_selects = false;
   // clear v:completed_item
-  dict_T *const d = tv_dict_alloc();
-  d->dv_lock = VAR_FIXED;
-  set_vim_var_dict(VV_COMPLETED_ITEM, d);
+  set_vim_var_dict(VV_COMPLETED_ITEM, tv_dict_alloc_lock(VAR_FIXED));
 }
 
 /// Check that Insert completion is active.
@@ -4491,9 +4497,7 @@ static void ins_compl_delete(void)
   // causes flicker, thus we can't do that.
   changed_cline_bef_curs();
   // clear v:completed_item
-  dict_T *const d = tv_dict_alloc();
-  d->dv_lock = VAR_FIXED;
-  set_vim_var_dict(VV_COMPLETED_ITEM, d);
+  set_vim_var_dict(VV_COMPLETED_ITEM, tv_dict_alloc_lock(VAR_FIXED));
 }
 
 // Insert the new text being completed.
@@ -4514,8 +4518,7 @@ static void ins_compl_insert(int in_compl_func)
 static dict_T *ins_compl_dict_alloc(compl_T *match)
 {
   // { word, abbr, menu, kind, info }
-  dict_T *dict = tv_dict_alloc();
-  dict->dv_lock = VAR_FIXED;
+  dict_T *dict = tv_dict_alloc_lock(VAR_FIXED);
   tv_dict_add_str(
       dict, S_LEN("word"),
       (const char *)EMPTY_IF_NULL(match->cp_str));

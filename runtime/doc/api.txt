@@ -993,7 +993,7 @@ nvim_get_option_info({name})                          *nvim_get_option_info()*
                 Resulting dictionary has keys:
                 • name: Name of the option (like 'filetype')
                 • shortname: Shortened name of the option (like 'ft')
-                • type: type of option ("string", "integer" or "boolean")
+                • type: type of option ("string", "number" or "boolean")
                 • default: The default value for the option
                 • was_set: Whether the option was set.
                 • last_set_sid: Last set script id (if any)
@@ -1212,6 +1212,9 @@ nvim_open_term({buffer}, {opts})                            *nvim_open_term()*
                     {buffer}  the buffer to use (expected to be empty)
                     {opts}    Optional parameters. Reserved for future use.
 
+                Return: ~
+                    Channel id, or 0 on error
+
 nvim_open_win({buffer}, {enter}, {config})                   *nvim_open_win()*
                 Open a new window.
 
@@ -1296,6 +1299,17 @@ nvim_open_win({buffer}, {enter}, {config})                   *nvim_open_win()*
                                 an external top-level window. Currently
                                 accepts no other positioning configuration
                                 together with this.
+                              • `zindex`: Stacking order. floats with higher`zindex`go on top on floats with lower indices. Must
+                                be larger than zero. The following screen
+                                elements have hard-coded z-indices:
+                                • 100: insert completion popupmenu
+                                • 200: message scrollback
+                                • 250: cmdline completion popupmenu (when
+                                  wildoptions+=pum) The default value for
+                                  floats are 50. In general, values below 100
+                                  are recommended, unless there is a good
+                                  reason to overshadow builtin elements.
+
                               • `style`: Configure the appearance of the window.
                                 Currently only takes one non-empty value:
                                 • "minimal" Nvim will display the window with
@@ -1311,33 +1325,42 @@ nvim_open_win({buffer}, {enter}, {config})                   *nvim_open_win()*
                                   and clearing the |EndOfBuffer| region in
                                   'winhighlight'.
 
-                              • `border`: style of (optional) window border. This can
-                                either be a string or an array. the string
-                                values are:
-                                • "none" No border. This is the default
-                                • "single" a single line box
-                                • "double" a double line box
-                                • "shadow" a drop shadow effect by blending
-                                  with the background. If it is an array it
-                                  should be an array of eight items or any
-                                  divisor of eight. The array will specifify
-                                  the eight chars building up the border in a
-                                  clockwise fashion starting with the top-left
-                                  corner. As, an example, the double box style
-                                  could be specified as: [ "╔", "═" ,"╗", "║",
-                                  "╝", "═", "╚", "║" ] if the number of chars
-                                  are less than eight, they will be repeated.
-                                  Thus an ASCII border could be specified as:
-                                  [ "/", "-", "\\", "|" ] or all chars the
-                                  same as: [ "x" ] An empty string can be used
-                                  to turn off a specific border, for instance:
-                                  [ "", "", "", ">", "", "", "", "<" ] will
-                                  only make vertical borders but not
-                                  horizontal ones. By default `FloatBorder`
-                                  highlight is used which links to `VertSplit`
-                                  when not defined. It could also be specified
-                                  by character: [ {"+", "MyCorner"}, {"x",
-                                  "MyBorder"} ]
+                              • `border`: Style of (optional) window border. This can
+                                either be a string or an array. The string
+                                values are
+                                • "none": No border (default).
+                                • "single": A single line box.
+                                • "double": A double line box.
+                                • "rounded": Like "single", but with rounded
+                                  corners ("╭" etc.).
+                                • "solid": Adds padding by a single whitespace
+                                  cell.
+                                • "shadow": A drop shadow effect by blending
+                                  with the background.
+                                • If it is an array, it should have a length
+                                  of eight or any divisor of eight. The array
+                                  will specifify the eight chars building up
+                                  the border in a clockwise fashion starting
+                                  with the top-left corner. As an example, the
+                                  double box style could be specified as [
+                                  "╔", "═" ,"╗", "║", "╝", "═", "╚", "║" ]. If
+                                  the number of chars are less than eight,
+                                  they will be repeated. Thus an ASCII border
+                                  could be specified as [ "/", "-", "\\", "|"
+                                  ], or all chars the same as [ "x" ]. An
+                                  empty string can be used to turn off a
+                                  specific border, for instance, [ "", "", "",
+                                  ">", "", "", "", "<" ] will only make
+                                  vertical borders but not horizontal ones. By
+                                  default, `FloatBorder` highlight is used,
+                                  which links to `VertSplit` when not defined.
+                                  It could also be specified by character: [
+                                  {"+", "MyCorner"}, {"x", "MyBorder"} ].
+
+                              • `noautocmd` : If true then no buffer-related
+                                autocommand events such as |BufEnter|,
+                                |BufLeave| or |BufWinEnter| may fire from
+                                calling this function.
 
                 Return: ~
                     Window handle, or 0 on error
@@ -1702,6 +1725,12 @@ nvim_set_hl({ns_id}, {name}, {val})                            *nvim_set_hl()*
                              |nvim_get_hl_by_name|. in addition the following
                              keys are also recognized: `default` : don't
                              override existing definition, like `hi default`
+                             `ctermfg` : sets foreground of cterm color
+                             `ctermbg` : sets background of cterm color
+                             `cterm` : cterm attribute map. sets attributed
+                             for cterm colors. similer to `hi cterm` Note: by
+                             default cterm attributes are same as attributes
+                             of gui color
 
 nvim_set_keymap({mode}, {lhs}, {rhs}, {opts})              *nvim_set_keymap()*
                 Sets a global |mapping| for the given mode.
@@ -2249,14 +2278,14 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {opts})
                 Parameters: ~
                     {buffer}  Buffer handle, or 0 for current buffer
                     {ns_id}   Namespace id from |nvim_create_namespace()|
-                    {line}    Line number where to place the mark
-                    {col}     Column where to place the mark
+                    {line}    Line where to place the mark, 0-based
+                    {col}     Column where to place the mark, 0-based
                     {opts}    Optional parameters.
                               • id : id of the extmark to edit.
                               • end_line : ending line of the mark, 0-based
                                 inclusive.
                               • end_col : ending col of the mark, 0-based
-                                inclusive.
+                                exclusive.
                               • hl_group : name of the highlight group used to
                                 highlight this mark.
                               • virt_text : virtual text to link to this mark.
@@ -2266,7 +2295,12 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {opts})
                                 • "overlay": display over the specified
                                   column, without shifting the underlying
                                   text.
+                                • "right_align": display right aligned in the
+                                  window.
 
+                              • virt_text_win_col : position the virtual text
+                                at a fixed window column (starting from the
+                                first text column)
                               • virt_text_hide : hide the virtual text when
                                 the background text is selected or hidden due
                                 to horizontal scroll 'nowrap'
@@ -2280,6 +2314,10 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {opts})
                                   color
                                 • "blend": blend with background text color.
 
+                              • hl_eol : when true, for a multiline highlight
+                                covering the EOL of a line, continue the
+                                highlight for the rest of the screen line
+                                (just like for diff and cursorline highlight).
                               • ephemeral : for use with
                                 |nvim_set_decoration_provider| callbacks. The
                                 mark will only be used for the current redraw
@@ -2429,6 +2467,22 @@ nvim_buf_set_virtual_text({buffer}, {src_id}, {line}, {chunks}, {opts})
 
 ==============================================================================
 Window Functions                                                  *api-window*
+
+nvim_win_call({window}, {fun})                               *nvim_win_call()*
+                Calls a function with window as temporary current window.
+
+                Parameters: ~
+                    {window}  Window handle, or 0 for current window
+                    {fun}     Function to call inside the window (currently
+                              lua callable only)
+
+                Return: ~
+                    Return value of function. NB: will deepcopy lua values
+                    currently, use upvalues to send lua references in and out.
+
+                See also: ~
+                    |win_execute()|
+                    |nvim_buf_call()|
 
 nvim_win_close({window}, {force})                           *nvim_win_close()*
                 Closes the window (like |:close| with a |window-ID|).

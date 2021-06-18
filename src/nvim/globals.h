@@ -878,6 +878,7 @@ EXTERN char_u e_invexpr2[] INIT(= N_("E15: Invalid expression: %s"));
 EXTERN char_u e_invrange[] INIT(= N_("E16: Invalid range"));
 EXTERN char_u e_invcmd[] INIT(= N_("E476: Invalid command"));
 EXTERN char_u e_isadir2[] INIT(= N_("E17: \"%s\" is a directory"));
+EXTERN char_u e_no_spell[] INIT(= N_("E756: Spell checking is not possible"));
 EXTERN char_u e_invchan[] INIT(= N_("E900: Invalid channel id"));
 EXTERN char_u e_invchanjob[] INIT(= N_("E900: Invalid channel id: not a job"));
 EXTERN char_u e_jobtblfull[] INIT(= N_("E901: Job table is full"));
@@ -987,6 +988,8 @@ EXTERN char_u e_dirnotf[] INIT(= N_(
     "E919: Directory not found in '%s': \"%s\""));
 EXTERN char_u e_au_recursive[] INIT(= N_(
     "E952: Autocommand caused recursive behavior"));
+EXTERN char_u e_autocmd_close[] INIT(= N_(
+    "E813: Cannot close autocmd window"));
 EXTERN char_u e_unsupportedoption[] INIT(= N_("E519: Option not supported"));
 EXTERN char_u e_fnametoolong[] INIT(= N_("E856: Filename too long"));
 EXTERN char_u e_float_as_string[] INIT(= N_("E806: using Float as a String"));

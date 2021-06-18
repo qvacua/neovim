@@ -928,6 +928,12 @@ module.cmds = {
     func='ex_edit',
   },
   {
+    command='eval',
+    flags=bit.bor(EXTRA, NOTRLCOM, SBOXOK, CMDWIN),
+    addr_type='ADDR_NONE',
+    func='ex_eval',
+  },
+  {
     command='ex',
     flags=bit.bor(BANG, FILE1, CMDARG, ARGOPT, TRLBAR),
     addr_type='ADDR_NONE',
@@ -2560,6 +2566,12 @@ module.cmds = {
     flags=bit.bor(TRLBAR),
     addr_type='ADDR_NONE',
     func='ex_spellrepall',
+  },
+  {
+    command='spellrare',
+    flags=bit.bor(BANG, RANGE, NEEDARG, EXTRA, TRLBAR),
+    addr_type='ADDR_OTHER',
+    func='ex_spell',
   },
   {
     command='spellundo',
