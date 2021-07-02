@@ -840,11 +840,7 @@ static void clear_wininfo(buf_T *buf)
   while (buf->b_wininfo != NULL) {
     wip = buf->b_wininfo;
     buf->b_wininfo = wip->wi_next;
-    if (wip->wi_optset) {
-      clear_winopt(&wip->wi_opt);
-      deleteFoldRecurse(buf, &wip->wi_folds);
-    }
-    xfree(wip);
+    free_wininfo(wip, buf);
   }
 }
 
@@ -5665,7 +5661,7 @@ bool buf_contents_changed(buf_T *buf)
 void
 wipe_buffer(
     buf_T *buf,
-    int aucmd                   // When true trigger autocommands.
+    bool aucmd                  // When true trigger autocommands.
 )
 {
   if (!aucmd) {
